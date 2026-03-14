@@ -270,8 +270,12 @@
             display: block;
         }
         @media (max-width: 768px) {
+            #graph-container {
+                pointer-events: auto;
+            }
             #graph-container canvas {
                 touch-action: none;
+                pointer-events: auto;
             }
             #notifications {
                 bottom: 130px;

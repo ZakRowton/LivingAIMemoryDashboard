@@ -315,6 +315,7 @@
 
     var raycaster = new THREE.Raycaster();
     var mouse = new THREE.Vector2();
+    var lastTouchStart = null;
     function doPick(clientX, clientY) {
         var rect = renderer.domElement.getBoundingClientRect();
         mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -336,25 +337,46 @@
         }
         return true;
     }
-    renderer.domElement.addEventListener('mousedown', function (event) {
+    var el = renderer.domElement;
+    el.addEventListener('mousedown', function (event) {
         if (doPick(event.clientX, event.clientY)) {
             event.preventDefault();
             event.stopPropagation();
         }
     }, true);
-    renderer.domElement.addEventListener('click', function (event) {
+    el.addEventListener('click', function (event) {
         doPick(event.clientX, event.clientY);
     }, true);
-    // Touch support for mobile: tap to select node (touchend fires after tap)
-    renderer.domElement.addEventListener('touchend', function (event) {
-        if (event.changedTouches && event.changedTouches.length) {
-            var t = event.changedTouches[0];
-            if (doPick(t.clientX, t.clientY)) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
+    // Mobile: use touchstart position for pick (more reliable than touchend on some devices)
+    el.addEventListener('touchstart', function (event) {
+        if (event.touches && event.touches.length === 1) {
+            lastTouchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+        } else {
+            lastTouchStart = null;
         }
-    }, { passive: false });
+    }, { passive: true, capture: true });
+    el.addEventListener('touchend', function (event) {
+        if (!event.changedTouches || !event.changedTouches.length) return;
+        var x, y;
+        if (lastTouchStart) {
+            x = lastTouchStart.x;
+            y = lastTouchStart.y;
+            lastTouchStart = null;
+        } else {
+            var t = event.changedTouches[0];
+            x = t.clientX;
+            y = t.clientY;
+        }
+        if (doPick(x, y)) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, { passive: false, capture: true });
+    // Pointer events: fallback for devices that map touch to pointer
+    el.addEventListener('pointerup', function (event) {
+        if (event.pointerType === 'touch') return;
+        doPick(event.clientX, event.clientY);
+    }, true);
 
     scene.add(new THREE.AmbientLight(0xcfd6de, 0.62));
     var dir = new THREE.DirectionalLight(0xffffff, 0.28);
