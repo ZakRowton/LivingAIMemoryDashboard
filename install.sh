@@ -8,12 +8,14 @@ set -e
 
 REPO_URL="${MEMORYGRAPH_REPO_URL:-https://github.com/ZakRowton/LivingAIMemoryDashboard.git}"
 APP_NAME="MemoryGraph"
+CLONE_DIR_NAME="LivingAIMemoryDashboard"
 DOCROOT_APP_DIR=""
 INSTALL_DIR=""
 XAMPP_FOUND=""
 PHP_CMD=""
 HTTPD_STARTED=""
 APP_SUBPATH=""
+HTDOCS=""
 
 # --- helpers ---
 log()  { echo "[MemoryGraph] $*"; }
@@ -168,6 +170,46 @@ setup_env() {
   fi
 }
 
+# --- open default system browser ---
+open_browser() {
+  local url="$1"
+  local os
+  os=$(detect_os)
+  if [[ -z "$url" ]]; then return; fi
+  log "Opening $url in default browser..."
+  case "$os" in
+    linux)   xdg-open "$url" 2>/dev/null || true ;;
+    macos)   open "$url" 2>/dev/null || true ;;
+    windows) start "$url" 2>/dev/null || cmd //c start "$url" 2>/dev/null || true ;;
+    *)       true ;;
+  esac
+}
+
+# --- after Apache is running: ensure app is in XAMPP htdocs, then open browser ---
+clone_in_htdocs_and_open() {
+  [[ -z "$XAMPP_FOUND" || -z "$HTDOCS" ]] && return 0
+  if [[ ! -d "$HTDOCS" ]]; then
+    warn "htdocs not found: $HTDOCS"
+    return 0
+  fi
+  local target="$HTDOCS/$CLONE_DIR_NAME"
+  local saved_pwd
+  saved_pwd="$(pwd)"
+  if [[ ! -d "$target" ]]; then
+    log "Cloning into XAMPP htdocs: $target"
+    if ! (cd "$HTDOCS" && git clone https://github.com/ZakRowton/LivingAIMemoryDashboard.git); then
+      err "Could not clone. Install git and try again."
+      cd "$saved_pwd" 2>/dev/null || true
+      return 1
+    fi
+  else
+    log "App already present at $target"
+  fi
+  setup_env "$target"
+  cd "$saved_pwd" 2>/dev/null || true
+  open_browser "http://localhost/$CLONE_DIR_NAME/"
+}
+
 # --- main ---
 main() {
   local os
@@ -210,17 +252,13 @@ main() {
     linux)
       XAMPP_FOUND=$(find_xampp_linux) || true
       if [[ -n "$XAMPP_FOUND" ]]; then
+        HTDOCS="$XAMPP_FOUND/htdocs"
         start_xampp_linux "$XAMPP_FOUND"
         if [[ -z "$HTTPD_STARTED" ]]; then
           install_linux_apache_php || true
         fi
         if [[ -n "$HTTPD_STARTED" ]]; then
-          # Default XAMPP htdocs is /opt/lampp/htdocs — suggest copying or symlinking
-          if [[ "$INSTALL_DIR" != "/opt/lampp/htdocs/$APP_NAME" && -d /opt/lampp/htdocs ]]; then
-            log "To serve from XAMPP, copy or link the app into /opt/lampp/htdocs/$APP_NAME"
-            log "  sudo cp -r \"$INSTALL_DIR\" /opt/lampp/htdocs/$APP_NAME"
-            log "  Then open: http://localhost/$APP_NAME/"
-          fi
+          clone_in_htdocs_and_open
         fi
       else
         install_linux_apache_php || true
@@ -234,7 +272,11 @@ main() {
     macos)
       XAMPP_FOUND=$(find_xampp_macos) || true
       if [[ -n "$XAMPP_FOUND" ]]; then
+        HTDOCS="$XAMPP_FOUND/htdocs"
         start_xampp_macos "$XAMPP_FOUND"
+        if [[ -n "$HTTPD_STARTED" ]]; then
+          clone_in_htdocs_and_open
+        fi
       fi
       if [[ -z "$HTTPD_STARTED" ]]; then
         install_macos_php || true
@@ -249,12 +291,10 @@ main() {
     windows)
       XAMPP_FOUND=$(find_xampp_windows) || true
       if [[ -n "$XAMPP_FOUND" ]]; then
+        HTDOCS="${XAMPP_FOUND}/htdocs"
         start_xampp_windows "$XAMPP_FOUND"
-        local htdocs="$XAMPP_FOUND/htdocs"
-        if [[ -d "$htdocs" && "$INSTALL_DIR" != "$htdocs/$APP_NAME" ]]; then
-          log "To serve from XAMPP, copy the app into: $htdocs/$APP_NAME"
-          log "  cp -r \"$INSTALL_DIR\" \"$htdocs/$APP_NAME\""
-          log "Then open: http://localhost/$APP_NAME/"
+        if [[ -n "$HTTPD_STARTED" && -d "$HTDOCS" ]]; then
+          clone_in_htdocs_and_open
         fi
       else
         install_windows_instructions || exit 1

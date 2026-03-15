@@ -61,6 +61,14 @@
             background: #f5f0e6;
             background-image: radial-gradient(circle at top center, #ebe5d9 0%, #e8e0d2 100%);
         }
+        [data-theme="light"] .provider-select {
+            color-scheme: light;
+            background-color: #f0ebe0;
+        }
+        [data-theme="light"] .provider-select option {
+            background: #f0ebe0;
+            color: #1d2228;
+        }
         #graph-container {
             position: fixed;
             top: 0;
@@ -386,6 +394,14 @@
             color: var(--gold-light);
             font-family: 'Playfair Display', serif;
             font-size: 0.9rem;
+        }
+        .provider-select {
+            color-scheme: dark;
+            background-color: #0f0f0f;
+        }
+        .provider-select option {
+            background: #0f0f0f;
+            color: #f9f1d8;
         }
         .provider-textarea { resize: vertical; min-height: 60px; }
         .provider-select:focus, .provider-input:focus, .provider-textarea:focus {
