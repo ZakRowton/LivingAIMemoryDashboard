@@ -355,6 +355,260 @@ function get_builtin_tools(): array {
         ],
         'code' => "// Built-in tool\n// Loads a markdown job file for execution.",
     ], [
+        'name' => 'create_category_node',
+        'description' => 'Create a new child category node under the Agent in the graph. The node appears in real-time. Use this when the user asks you to create a category (e.g. "database", "api", "cache") to organize or represent a concept, data store, or subsystem. Each category is a direct child of the Agent node.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'Unique category name (e.g. database, api, cache). Used as the node identifier.',
+                ],
+                'title' => [
+                    'type' => 'string',
+                    'description' => 'Optional display label. Defaults to name if empty.',
+                ],
+                'description' => [
+                    'type' => 'string',
+                    'description' => 'Optional description of what this category represents.',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Creates a child category node under the Agent in the graph.",
+    ], [
+        'name' => 'list_category_nodes',
+        'description' => 'List all category nodes that are direct children of the Agent in the graph.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in tool\n// Lists all category nodes.",
+    ], [
+        'name' => 'delete_category_node',
+        'description' => 'Delete a category node by name. Removes it from the graph.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The category name to delete.',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Deletes a category node by name.",
+    ], [
+        'name' => 'list_research_files',
+        'description' => 'List all markdown research files available in the research folder.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in tool\n// Lists all markdown research files.",
+    ], [
+        'name' => 'read_research_file',
+        'description' => 'Read a research markdown file by name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The research file name, with or without .md',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Reads a markdown research file by name.",
+    ], [
+        'name' => 'add_research_file',
+        'description' => 'Create or overwrite a markdown research file.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The research file name, with or without .md',
+                ],
+                'content' => [
+                    'type' => 'string',
+                    'description' => 'The markdown content to save',
+                ],
+            ],
+            'required' => ['name', 'content'],
+        ],
+        'code' => "// Built-in tool\n// Creates or overwrites a markdown research file.",
+    ], [
+        'name' => 'create_research_file',
+        'description' => 'Create a new markdown research file only if it does not already exist.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The research file name, with or without .md',
+                ],
+                'content' => [
+                    'type' => 'string',
+                    'description' => 'The markdown content to save',
+                ],
+            ],
+            'required' => ['name', 'content'],
+        ],
+        'code' => "// Built-in tool\n// Creates a new markdown research file.",
+    ], [
+        'name' => 'update_research_file',
+        'description' => 'Modify an existing markdown research file.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The research file name, with or without .md',
+                ],
+                'content' => [
+                    'type' => 'string',
+                    'description' => 'The markdown content to save',
+                ],
+            ],
+            'required' => ['name', 'content'],
+        ],
+        'code' => "// Built-in tool\n// Updates an existing markdown research file.",
+    ], [
+        'name' => 'delete_research_file',
+        'description' => 'Delete a markdown research file by name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The research file name, with or without .md',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Deletes a markdown research file by name.",
+    ], [
+        'name' => 'list_rules_files',
+        'description' => 'List all markdown rules files available in the rules folder.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in tool\n// Lists all markdown rules files.",
+    ], [
+        'name' => 'read_rules_file',
+        'description' => 'Read a rules markdown file by name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The rules file name, with or without .md',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Reads a markdown rules file by name.",
+    ], [
+        'name' => 'add_rules_file',
+        'description' => 'Create or overwrite a markdown rules file.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The rules file name, with or without .md',
+                ],
+                'content' => [
+                    'type' => 'string',
+                    'description' => 'The markdown content to save',
+                ],
+            ],
+            'required' => ['name', 'content'],
+        ],
+        'code' => "// Built-in tool\n// Creates or overwrites a markdown rules file.",
+    ], [
+        'name' => 'create_rules_file',
+        'description' => 'Create a new markdown rules file only if it does not already exist.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The rules file name, with or without .md',
+                ],
+                'content' => [
+                    'type' => 'string',
+                    'description' => 'The markdown content to save',
+                ],
+            ],
+            'required' => ['name', 'content'],
+        ],
+        'code' => "// Built-in tool\n// Creates a new markdown rules file.",
+    ], [
+        'name' => 'update_rules_file',
+        'description' => 'Modify an existing markdown rules file.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The rules file name, with or without .md',
+                ],
+                'content' => [
+                    'type' => 'string',
+                    'description' => 'The markdown content to save',
+                ],
+            ],
+            'required' => ['name', 'content'],
+        ],
+        'code' => "// Built-in tool\n// Updates an existing markdown rules file.",
+    ], [
+        'name' => 'delete_rules_file',
+        'description' => 'Delete a markdown rules file by name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'The rules file name, with or without .md',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Deletes a markdown rules file by name.",
+    ], [
         'name' => 'list_mcp_servers',
         'description' => 'List all configured MCP servers, including active state, transport, and node ids.',
         'active' => true,
@@ -550,7 +804,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Deletes a configured MCP server definition.",
     ], [
         'name' => 'create_or_update_tool',
-        'description' => 'Create a PHP tool file in the tools folder and create or update its entry in tool_calls.json, including parameters and active state.',
+        'description' => 'Create a PHP tool file in the tools folder and create or update its entry in tool_calls.json. After creating, you MUST immediately call the new tool to test it. If it fails, use edit_tool_file to fix the code and test again. Never respond to the user until the tool works successfully.',
         'active' => true,
         'builtin' => true,
         'parameters' => [

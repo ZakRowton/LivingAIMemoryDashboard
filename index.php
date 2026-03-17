@@ -427,11 +427,15 @@
         }
         .panel-action-btn-row {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             margin-top: 10px;
         }
         .panel-action-btn-row .panel-action-btn {
             margin-top: 0;
+            width: auto;
+            flex: 1 1 80px;
+            min-width: 80px;
         }
         .btn-stop {
             background: linear-gradient(180deg, #7a1515, #b91c1c);
@@ -439,11 +443,15 @@
         }
         .job-config-actions {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             margin-top: 10px;
         }
         .job-config-actions .panel-action-btn {
             margin-top: 0;
+            width: auto;
+            flex: 1 1 80px;
+            min-width: 80px;
         }
         .running-jobs-widget {
             position: fixed;
@@ -665,7 +673,11 @@
                     <label class="form-check-label provider-label" for="tool-active-switch" style="margin-top:0; cursor:pointer;">Enabled</label>
                 </div>
                 <label class="provider-label">Underlying Code</label>
-                <pre id="tool-code-display" style="background: rgba(0,0,0,0.5); padding: 10px; border-radius: 6px; font-size: 0.8rem; overflow-x: auto; color: #dce3ea; max-height: 250px; white-space: pre-wrap; font-family: monospace; border: 1px solid rgba(214,219,226,0.2);"></pre>
+                <textarea id="tool-code-display" class="provider-textarea" rows="12" placeholder="Tool PHP code..." style="font-family: 'Courier New', monospace; font-size: 0.8rem; min-height: 200px; max-height: 280px;"></textarea>
+                <div class="panel-action-btn-row" style="margin-top: 10px;">
+                    <button type="button" id="tool-save-btn" class="panel-action-btn">Save Code</button>
+                    <button type="button" id="tool-delete-btn" class="panel-action-btn btn-stop">Delete Tool</button>
+                </div>
             </div>
             <div id="tools-parent-panel" style="display: none; margin-top: 15px;">
                 <div class="panel-action-btn-row">
@@ -681,12 +693,47 @@
                 </div>
                 <label class="provider-label">Memory Contents</label>
                 <textarea id="memory-content-input" class="provider-textarea" rows="10" placeholder="Memory file contents..."></textarea>
-                <button type="button" id="memory-save-btn" class="panel-action-btn">Save Memory</button>
+                <div class="panel-action-btn-row">
+                    <button type="button" id="memory-save-btn" class="panel-action-btn">Save Memory</button>
+                    <button type="button" id="memory-delete-btn" class="panel-action-btn btn-stop">Delete Memory</button>
+                </div>
             </div>
             <div id="instruction-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Instruction Contents</label>
                 <textarea id="instruction-content-input" class="provider-textarea" rows="10" placeholder="Instruction file contents..."></textarea>
-                <button type="button" id="instruction-save-btn" class="panel-action-btn">Save Instruction</button>
+                <div class="panel-action-btn-row">
+                    <button type="button" id="instruction-save-btn" class="panel-action-btn">Save Instruction</button>
+                    <button type="button" id="instruction-delete-btn" class="panel-action-btn btn-stop">Delete Instruction</button>
+                </div>
+            </div>
+            <div id="research-parent-panel" style="display: none; margin-top: 15px;">
+                <div id="research-list-panel" class="tool-list-panel"></div>
+            </div>
+            <div id="research-config-panel" style="display: none; margin-top: 15px;">
+                <label class="provider-label">Research Contents</label>
+                <textarea id="research-content-input" class="provider-textarea" rows="10" placeholder="Research file contents..."></textarea>
+                <div class="panel-action-btn-row">
+                    <button type="button" id="research-save-btn" class="panel-action-btn">Save Research</button>
+                    <button type="button" id="research-delete-btn" class="panel-action-btn btn-stop">Delete Research</button>
+                </div>
+            </div>
+            <div id="rules-parent-panel" style="display: none; margin-top: 15px;">
+                <div id="rules-list-panel" class="tool-list-panel"></div>
+            </div>
+            <div id="categories-parent-panel" style="display: none; margin-top: 15px;">
+                <div id="categories-list-panel" class="tool-list-panel"></div>
+            </div>
+            <div id="category-config-panel" style="display: none; margin-top: 15px;">
+                <p class="mb-2 text-muted" style="font-size:0.9rem">Category nodes are created by the AI via the create_category_node tool.</p>
+                <button type="button" id="category-delete-btn" class="panel-action-btn btn-stop">Delete Category</button>
+            </div>
+            <div id="rules-config-panel" style="display: none; margin-top: 15px;">
+                <label class="provider-label">Rules Contents</label>
+                <textarea id="rules-content-input" class="provider-textarea" rows="10" placeholder="Rules file contents..."></textarea>
+                <div class="panel-action-btn-row">
+                    <button type="button" id="rules-save-btn" class="panel-action-btn">Save Rules</button>
+                    <button type="button" id="rules-delete-btn" class="panel-action-btn btn-stop">Delete Rules</button>
+                </div>
             </div>
             <div id="mcps-parent-panel" style="display: none; margin-top: 15px;">
                 <div class="panel-action-btn-row">
@@ -737,6 +784,7 @@
                     <button type="button" id="job-save-btn" class="panel-action-btn">Save Job</button>
                     <button type="button" id="job-execute-btn" class="panel-action-btn">Execute Job</button>
                     <button type="button" id="job-stop-btn" class="panel-action-btn btn-stop">Stop Job</button>
+                    <button type="button" id="job-delete-btn" class="panel-action-btn btn-stop">Delete Job</button>
                 </div>
             </div>
         </div>
@@ -871,6 +919,27 @@
         var memorySwitchEl = document.getElementById('memory-active-switch');
         var memoryContentInput = document.getElementById('memory-content-input');
         var memorySaveBtn = document.getElementById('memory-save-btn');
+        var memoryDeleteBtn = document.getElementById('memory-delete-btn');
+        var instructionDeleteBtn = document.getElementById('instruction-delete-btn');
+        var toolSaveBtn = document.getElementById('tool-save-btn');
+        var toolDeleteBtn = document.getElementById('tool-delete-btn');
+        var jobDeleteBtn = document.getElementById('job-delete-btn');
+        var researchParentPanel = document.getElementById('research-parent-panel');
+        var researchConfig = document.getElementById('research-config-panel');
+        var researchListPanel = document.getElementById('research-list-panel');
+        var researchContentInput = document.getElementById('research-content-input');
+        var researchSaveBtn = document.getElementById('research-save-btn');
+        var researchDeleteBtn = document.getElementById('research-delete-btn');
+        var rulesParentPanel = document.getElementById('rules-parent-panel');
+        var rulesConfig = document.getElementById('rules-config-panel');
+        var rulesListPanel = document.getElementById('rules-list-panel');
+        var rulesContentInput = document.getElementById('rules-content-input');
+        var rulesSaveBtn = document.getElementById('rules-save-btn');
+        var rulesDeleteBtn = document.getElementById('rules-delete-btn');
+        var categoriesParentPanel = document.getElementById('categories-parent-panel');
+        var categoryConfig = document.getElementById('category-config-panel');
+        var categoriesListPanel = document.getElementById('categories-list-panel');
+        var categoryDeleteBtn = document.getElementById('category-delete-btn');
         var mcpNewBtn = document.getElementById('mcp-new-btn');
         var mcpsEnableAllBtn = document.getElementById('mcps-enable-all-btn');
         var mcpsDisableAllBtn = document.getElementById('mcps-disable-all-btn');
@@ -914,12 +983,21 @@
             if (toolsParentPanel) toolsParentPanel.style.display = 'none';
             if (memoryConfig) memoryConfig.style.display = 'none';
             if (instructionConfig) instructionConfig.style.display = 'none';
+            if (researchParentPanel) researchParentPanel.style.display = 'none';
+            if (researchConfig) researchConfig.style.display = 'none';
+            if (rulesParentPanel) rulesParentPanel.style.display = 'none';
+            if (rulesConfig) rulesConfig.style.display = 'none';
+            if (categoriesParentPanel) categoriesParentPanel.style.display = 'none';
+            if (categoryConfig) categoryConfig.style.display = 'none';
             if (mcpsParentPanel) mcpsParentPanel.style.display = 'none';
             if (mcpConfig) mcpConfig.style.display = 'none';
             if (jobConfig) jobConfig.style.display = 'none';
             window.currentOpenedTool = null;
             window.currentOpenedMemory = null;
             window.currentOpenedInstruction = null;
+            window.currentOpenedResearch = null;
+            window.currentOpenedRules = null;
+            window.currentOpenedCategory = null;
             window.currentOpenedMcp = null;
             window.currentOpenedJob = null;
         }
@@ -995,6 +1073,33 @@
                 .then(function (data) {
                     window.jobFiles = data.jobs || [];
                     return window.jobFiles;
+                });
+        }
+
+        function refreshResearchData() {
+            return fetch('api_research.php?action=list')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    window.researchFiles = data.research || [];
+                    return window.researchFiles;
+                });
+        }
+
+        function refreshRulesData() {
+            return fetch('api_rules.php?action=list')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    window.rulesFiles = data.rules || [];
+                    return window.rulesFiles;
+                });
+        }
+
+        function refreshCategoriesData() {
+            return fetch('api_categories.php?action=list')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    window.categoryNodes = data.categories || [];
+                    return window.categoryNodes;
                 });
         }
 
@@ -1183,6 +1288,90 @@
             }
         }
 
+        function renderResearchList() {
+            if (!researchListPanel) return;
+            var files = window.researchFiles || [];
+            researchListPanel.innerHTML = '';
+            files.forEach(function (r) {
+                var row = document.createElement('div');
+                row.className = 'tool-list-item';
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'tool-list-name';
+                btn.style.background = 'none';
+                btn.style.border = 'none';
+                btn.style.padding = '0';
+                btn.style.textAlign = 'left';
+                btn.style.cursor = 'pointer';
+                btn.style.width = '100%';
+                btn.textContent = r.title || r.name;
+                btn.addEventListener('click', function () {
+                    openWidget(r.title || r.name, r.nodeId);
+                });
+                row.appendChild(btn);
+                researchListPanel.appendChild(row);
+            });
+            if (!files.length) {
+                researchListPanel.innerHTML = '<div class="running-job-empty">No research files.</div>';
+            }
+        }
+
+        function renderRulesList() {
+            if (!rulesListPanel) return;
+            var files = window.rulesFiles || [];
+            rulesListPanel.innerHTML = '';
+            files.forEach(function (r) {
+                var row = document.createElement('div');
+                row.className = 'tool-list-item';
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'tool-list-name';
+                btn.style.background = 'none';
+                btn.style.border = 'none';
+                btn.style.padding = '0';
+                btn.style.textAlign = 'left';
+                btn.style.cursor = 'pointer';
+                btn.style.width = '100%';
+                btn.textContent = r.title || r.name;
+                btn.addEventListener('click', function () {
+                    openWidget(r.title || r.name, r.nodeId);
+                });
+                row.appendChild(btn);
+                rulesListPanel.appendChild(row);
+            });
+            if (!files.length) {
+                rulesListPanel.innerHTML = '<div class="running-job-empty">No rules files.</div>';
+            }
+        }
+
+        function renderCategoriesList() {
+            if (!categoriesListPanel) return;
+            var files = window.categoryNodes || [];
+            categoriesListPanel.innerHTML = '';
+            files.forEach(function (c) {
+                var row = document.createElement('div');
+                row.className = 'tool-list-item';
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'tool-list-name';
+                btn.style.background = 'none';
+                btn.style.border = 'none';
+                btn.style.padding = '0';
+                btn.style.textAlign = 'left';
+                btn.style.cursor = 'pointer';
+                btn.style.width = '100%';
+                btn.textContent = c.title || c.name;
+                btn.addEventListener('click', function () {
+                    openWidget(c.title || c.name, c.nodeId);
+                });
+                row.appendChild(btn);
+                categoriesListPanel.appendChild(row);
+            });
+            if (!files.length) {
+                categoriesListPanel.innerHTML = '<div class="running-job-empty">No category nodes. Ask the AI to create one (e.g. "create a category node called database").</div>';
+            }
+        }
+
         function toggleAllMcps(active) {
             fetch('api_mcps.php?action=toggle_all', {
                 method: 'POST',
@@ -1225,6 +1414,44 @@
                     if (instructionContentInput) instructionContentInput.value = '';
                     if (window.currentOpenedInstruction && window.currentOpenedInstruction.name === name) {
                         infoEl.innerHTML = '<p class="mb-1"><strong>Instruction:</strong> ' + escapeHtml(name) + '</p><p class="mb-1 text-muted">Could not load contents.</p>';
+                    }
+                });
+        }
+
+        function loadResearchIntoPanel(name) {
+            fetch('api_research.php?action=get&name=' + encodeURIComponent(name))
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Research not found');
+                    return res.json();
+                })
+                .then(function (research) {
+                    if (!window.currentOpenedResearch || window.currentOpenedResearch.name !== research.name) return;
+                    if (researchContentInput) researchContentInput.value = research.content || '';
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + escapeHtml(research.name) + '</p>';
+                })
+                .catch(function () {
+                    if (researchContentInput) researchContentInput.value = '';
+                    if (window.currentOpenedResearch && window.currentOpenedResearch.name === name) {
+                        infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + escapeHtml(name) + '</p><p class="mb-1 text-muted">Could not load contents.</p>';
+                    }
+                });
+        }
+
+        function loadRulesIntoPanel(name) {
+            fetch('api_rules.php?action=get&name=' + encodeURIComponent(name))
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Rules not found');
+                    return res.json();
+                })
+                .then(function (rules) {
+                    if (!window.currentOpenedRules || window.currentOpenedRules.name !== rules.name) return;
+                    if (rulesContentInput) rulesContentInput.value = rules.content || '';
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + escapeHtml(rules.name) + '</p>';
+                })
+                .catch(function () {
+                    if (rulesContentInput) rulesContentInput.value = '';
+                    if (window.currentOpenedRules && window.currentOpenedRules.name === name) {
+                        infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + escapeHtml(name) + '</p><p class="mb-1 text-muted">Could not load contents.</p>';
                     }
                 });
         }
@@ -1295,6 +1522,27 @@
                     toolsParentPanel.style.display = 'block';
                     renderToolsList();
                 }
+            } else if (id === 'research') {
+                var research = window.researchFiles || [];
+                infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + research.length + ' files</p>';
+                if (researchParentPanel) {
+                    researchParentPanel.style.display = 'block';
+                    renderResearchList();
+                }
+            } else if (id === 'rules') {
+                var rules = window.rulesFiles || [];
+                infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + rules.length + ' files</p>';
+                if (rulesParentPanel) {
+                    rulesParentPanel.style.display = 'block';
+                    renderRulesList();
+                }
+            } else if (id === 'categories') {
+                var categories = window.categoryNodes || [];
+                infoEl.innerHTML = '<p class="mb-1"><strong>Categories:</strong> ' + categories.length + ' nodes (created by AI)</p>';
+                if (categoriesParentPanel) {
+                    categoriesParentPanel.style.display = 'block';
+                    renderCategoriesList();
+                }
             } else if (id === 'mcps') {
                 var servers = window.mcpServers || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>MCP Servers:</strong> ' + servers.length + ' configured</p>';
@@ -1313,7 +1561,9 @@
                         toolSwitchEl.checked = tool ? !!tool.active : false;
                         toolSwitchEl.disabled = tool ? !!tool.builtin : true;
                     }
-                    if (toolCodeEl) toolCodeEl.textContent = tool && tool.code ? tool.code : '// No PHP script found in tools/';
+                    if (toolSaveBtn) toolSaveBtn.disabled = tool ? !!tool.builtin : true;
+                    if (toolDeleteBtn) toolDeleteBtn.disabled = tool ? !!tool.builtin : true;
+                    if (toolCodeEl) toolCodeEl.value = tool && tool.code ? tool.code : '// No PHP script found in tools/';
                 }
             } else if (id && id.indexOf('memory_file_') === 0) {
                 var memory = (window.memoryFiles || []).find(function (m) { return m.nodeId === id; });
@@ -1341,6 +1591,43 @@
                     };
                     if (instructionContentInput) instructionContentInput.value = '';
                     loadInstructionIntoPanel(instructionName);
+                }
+            } else if (id && id.indexOf('research_file_') === 0) {
+                var research = (window.researchFiles || []).find(function (r) { return r.nodeId === id; });
+                var researchName = research ? research.name : refName;
+                infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + escapeHtml(researchName) + '</p>';
+                if (researchConfig) {
+                    researchConfig.style.display = 'block';
+                    window.currentOpenedResearch = {
+                        id: id,
+                        name: researchName
+                    };
+                    if (researchContentInput) researchContentInput.value = '';
+                    loadResearchIntoPanel(researchName);
+                }
+            } else if (id && id.indexOf('rules_file_') === 0) {
+                var rules = (window.rulesFiles || []).find(function (r) { return r.nodeId === id; });
+                var rulesName = rules ? rules.name : refName;
+                infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + escapeHtml(rulesName) + '</p>';
+                if (rulesConfig) {
+                    rulesConfig.style.display = 'block';
+                    window.currentOpenedRules = {
+                        id: id,
+                        name: rulesName
+                    };
+                    if (rulesContentInput) rulesContentInput.value = '';
+                    loadRulesIntoPanel(rulesName);
+                }
+            } else if (id && id.indexOf('category_') === 0) {
+                var cat = (window.categoryNodes || []).find(function (c) { return c.nodeId === id; });
+                var catName = cat ? cat.name : refName;
+                var catTitle = cat ? (cat.title || cat.name) : refName;
+                var catDesc = cat ? (cat.description || '') : '';
+                infoEl.innerHTML = '<p class="mb-1"><strong>Category:</strong> ' + escapeHtml(catTitle) + '</p>' + (catDesc ? '<p class="mb-1 text-muted" style="font-size:0.85rem">' + escapeHtml(catDesc) + '</p>' : '');
+                if (categoryConfig) {
+                    categoryConfig.style.display = 'block';
+                    window.currentOpenedCategory = { id: id, name: catName };
+                    if (categoryDeleteBtn) categoryDeleteBtn.disabled = !cat;
                 }
             } else if (id && id.indexOf('mcp_server_') === 0) {
                 var server = (window.mcpServers || []).find(function (item) { return item.nodeId === id; });
@@ -1442,6 +1729,61 @@
                 });
             });
         }
+        if (toolSaveBtn) {
+            toolSaveBtn.addEventListener('click', function () {
+                if (!window.currentOpenedTool || !toolCodeEl) return;
+                var tool = (window.toolsData || []).find(function (t) { return t.name === window.currentOpenedTool; });
+                if (tool && tool.builtin) return;
+                toolSaveBtn.disabled = true;
+                fetch('api_tools.php?action=save_code', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedTool, code: toolCodeEl.value })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
+                    return fetch('api_tools.php?action=list').then(function (r) { return r.json(); });
+                }).then(function (data) {
+                    window.toolsData = data.tools || [];
+                    var refreshedTool = (window.toolsData || []).find(function (t) { return t.name === window.currentOpenedTool; });
+                    if (refreshedTool && toolCodeEl) toolCodeEl.value = refreshedTool.code || '';
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Tool:</strong> ' + escapeHtml(window.currentOpenedTool) + '</p><p class="mb-1" style="color:#16a34a">Code saved.</p>';
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Tool:</strong> ' + escapeHtml(err && err.message ? err.message : 'Save failed') + '</p>';
+                }).finally(function () {
+                    toolSaveBtn.disabled = false;
+                });
+            });
+        }
+        if (toolDeleteBtn) {
+            toolDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedTool) return;
+                var tool = (window.toolsData || []).find(function (t) { return t.name === window.currentOpenedTool; });
+                if (tool && tool.builtin) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Tool:</strong> Built-in tools cannot be deleted.</p>';
+                    return;
+                }
+                if (!confirm('Delete tool "' + window.currentOpenedTool + '"?')) return;
+                toolDeleteBtn.disabled = true;
+                fetch('api_tools.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedTool })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return refreshToolsData();
+                }).then(function () {
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Tool:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    toolDeleteBtn.disabled = false;
+                });
+            });
+        }
 
         if (memorySwitchEl) {
             memorySwitchEl.addEventListener('change', function (e) {
@@ -1535,6 +1877,172 @@
                     infoEl.innerHTML = '<p class="mb-1"><strong>Instruction:</strong> ' + escapeHtml(window.currentOpenedInstruction.name) + '</p><p class="mb-1 text-danger">' + escapeHtml(err && err.message ? err.message : 'Save failed') + '</p>';
                 }).finally(function () {
                     instructionSaveBtn.disabled = false;
+                });
+            });
+        }
+        if (memoryDeleteBtn) {
+            memoryDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedMemory) return;
+                if (!confirm('Delete memory file "' + window.currentOpenedMemory.name + '"?')) return;
+                memoryDeleteBtn.disabled = true;
+                fetch('api_memory.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedMemory.name })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return refreshMemoryData();
+                }).then(function () {
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Memory:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    memoryDeleteBtn.disabled = false;
+                });
+            });
+        }
+        if (instructionDeleteBtn) {
+            instructionDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedInstruction) return;
+                if (!confirm('Delete instruction file "' + window.currentOpenedInstruction.name + '"?')) return;
+                instructionDeleteBtn.disabled = true;
+                fetch('api_instructions.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedInstruction.name })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return fetch('api_instructions.php?action=list').then(function (r) { return r.json(); });
+                }).then(function (d) {
+                    window.instructionFiles = d.instructions || [];
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Instruction:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    instructionDeleteBtn.disabled = false;
+                });
+            });
+        }
+        if (researchSaveBtn) {
+            researchSaveBtn.addEventListener('click', function () {
+                if (!window.currentOpenedResearch || !researchContentInput) return;
+                researchSaveBtn.disabled = true;
+                fetch('api_research.php?action=save', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: window.currentOpenedResearch.name,
+                        content: researchContentInput.value
+                    })
+                }).then(function (res) { return res.json(); })
+                .then(function (research) {
+                    if (research && research.error) throw new Error(research.error);
+                    return refreshResearchData();
+                }).then(function () {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + escapeHtml(window.currentOpenedResearch.name) + '</p><p class="mb-1">Saved.</p>';
+                    refreshGraph();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + escapeHtml(err && err.message ? err.message : 'Save failed') + '</p>';
+                }).finally(function () {
+                    researchSaveBtn.disabled = false;
+                });
+            });
+        }
+        if (researchDeleteBtn) {
+            researchDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedResearch) return;
+                if (!confirm('Delete research file "' + window.currentOpenedResearch.name + '"?')) return;
+                researchDeleteBtn.disabled = true;
+                fetch('api_research.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedResearch.name })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return refreshResearchData();
+                }).then(function () {
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    researchDeleteBtn.disabled = false;
+                });
+            });
+        }
+        if (rulesSaveBtn) {
+            rulesSaveBtn.addEventListener('click', function () {
+                if (!window.currentOpenedRules || !rulesContentInput) return;
+                rulesSaveBtn.disabled = true;
+                fetch('api_rules.php?action=save', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: window.currentOpenedRules.name,
+                        content: rulesContentInput.value
+                    })
+                }).then(function (res) { return res.json(); })
+                .then(function (rules) {
+                    if (rules && rules.error) throw new Error(rules.error);
+                    return refreshRulesData();
+                }).then(function () {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + escapeHtml(window.currentOpenedRules.name) + '</p><p class="mb-1">Saved.</p>';
+                    refreshGraph();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + escapeHtml(err && err.message ? err.message : 'Save failed') + '</p>';
+                }).finally(function () {
+                    rulesSaveBtn.disabled = false;
+                });
+            });
+        }
+        if (rulesDeleteBtn) {
+            rulesDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedRules) return;
+                if (!confirm('Delete rules file "' + window.currentOpenedRules.name + '"?')) return;
+                rulesDeleteBtn.disabled = true;
+                fetch('api_rules.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedRules.name })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return refreshRulesData();
+                }).then(function () {
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    rulesDeleteBtn.disabled = false;
+                });
+            });
+        }
+        if (categoryDeleteBtn) {
+            categoryDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedCategory) return;
+                if (!confirm('Delete category "' + window.currentOpenedCategory.name + '"?')) return;
+                categoryDeleteBtn.disabled = true;
+                fetch('api_categories.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedCategory.name })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return refreshCategoriesData();
+                }).then(function () {
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Category:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    categoryDeleteBtn.disabled = false;
                 });
             });
         }
@@ -1723,6 +2231,29 @@
                 if (!window.currentOpenedJob || typeof window.MemoryGraphStopJobByName !== 'function') return;
                 window.MemoryGraphStopJobByName(window.currentOpenedJob.name);
                 jobStopBtn.disabled = true;
+            });
+        }
+        if (jobDeleteBtn) {
+            jobDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedJob) return;
+                if (!confirm('Delete job file "' + window.currentOpenedJob.name + '"?')) return;
+                jobDeleteBtn.disabled = true;
+                fetch('api_jobs.php?action=delete', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ name: window.currentOpenedJob.name })
+                }).then(function (res) { return res.json(); })
+                .then(function (result) {
+                    if (result && result.error) throw new Error(result.error);
+                    return refreshJobsData();
+                }).then(function () {
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Job:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () {
+                    jobDeleteBtn.disabled = false;
+                });
             });
         }
         window.MemoryGraphShowNodePanel = function (label, id) {

@@ -29,23 +29,32 @@
         memory: { label: 'Memory', color: 0x47d7c9, sub: true, radius: 0.42, glowScale: 1.82 },
         tools: { label: 'Tools', color: 0xffc857, sub: true, radius: 0.42, glowScale: 1.82 },
         instructions: { label: 'Instructions', color: 0x7cb8ff, sub: true, radius: 0.42, glowScale: 1.82 },
+        research: { label: 'Research', color: 0xb8a9e8, sub: true, radius: 0.42, glowScale: 1.82 },
+        rules: { label: 'Rules', color: 0xe8a9b8, sub: true, radius: 0.42, glowScale: 1.82 },
         mcps: { label: 'MCPs', color: 0x6be38e, sub: true, radius: 0.42, glowScale: 1.82 },
-        jobs: { label: 'Jobs', color: 0xff8f70, sub: true, radius: 0.42, glowScale: 1.82 }
+        jobs: { label: 'Jobs', color: 0xff8f70, sub: true, radius: 0.42, glowScale: 1.82 },
+        categories: { label: 'Categories', color: 0xa0d4e8, sub: true, radius: 0.42, glowScale: 1.82 }
     };
     var staticEdges = [
         { from: 'agent', to: 'memory' },
         { from: 'agent', to: 'tools' },
         { from: 'agent', to: 'instructions' },
+        { from: 'agent', to: 'research' },
+        { from: 'agent', to: 'rules' },
         { from: 'agent', to: 'mcps' },
-        { from: 'agent', to: 'jobs' }
+        { from: 'agent', to: 'jobs' },
+        { from: 'agent', to: 'categories' }
     ];
     var staticPositions = {
         agent: [0, 0, 0],
         memory: [-7.4, 4.6, 4.1],
         tools: [7.2, 3.8, -3.6],
         instructions: [-1.1, -7.6, 5.3],
+        research: [-5.2, -6.2, 3.8],
+        rules: [5.2, -6.2, 3.8],
         mcps: [-8.1, -3.6, -4.8],
-        jobs: [8.3, -2.9, 4.4]
+        jobs: [8.3, -2.9, 4.4],
+        categories: [0, 7.2, -2.2]
     };
 
     var galaxyGroup = new THREE.Group();
@@ -220,7 +229,7 @@
         return out;
     }
 
-    function buildGraph(tools, memories, instructions, mcps, jobs) {
+    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, categories) {
         clearGraph();
         var nodeData = JSON.parse(JSON.stringify(staticNodeData));
         var positions = JSON.parse(JSON.stringify(staticPositions));
@@ -237,8 +246,11 @@
         mergeChildren(layoutChildren(tools || [], positions.tools, 0.95, 0.75, 'sin', function (tool) { return 'tool_' + tool.name; }, 0xffd36f), 'tools');
         mergeChildren(layoutChildren(memories || [], positions.memory, 0.9, 0.8, 'cos', function (memory) { return memory.nodeId; }, 0x59ead9), 'memory');
         mergeChildren(layoutChildren(instructions || [], positions.instructions, 0.9, 0.82, 'sin', function (instruction) { return instruction.nodeId; }, 0x8dc5ff), 'instructions');
+        mergeChildren(layoutChildren(research || [], positions.research, 0.9, 0.82, 'cos', function (r) { return r.nodeId; }, 0xc4b5f0), 'research');
+        mergeChildren(layoutChildren(rules || [], positions.rules, 0.9, 0.82, 'sin', function (r) { return r.nodeId; }, 0xf0b5c4), 'rules');
         mergeChildren(layoutChildren(mcps || [], positions.mcps, 0.9, 0.8, 'sin', function (mcp) { return mcp.nodeId; }, 0x85f2a8), 'mcps');
         mergeChildren(layoutChildren(jobs || [], positions.jobs, 0.92, 0.8, 'cos', function (job) { return job.nodeId; }, 0xff9f7f), 'jobs');
+        mergeChildren(layoutChildren(categories || [], positions.categories, 0.9, 0.85, 'sin', function (c) { return c.nodeId; }, 0xb0e4f8), 'agent');
 
         Object.keys(nodeData).forEach(function (id) {
             createNode(id, nodeData[id], positions[id] || [0, 0, 0]);
@@ -251,15 +263,21 @@
             fetch('api_tools.php?action=list').then(function (res) { return res.json(); }),
             fetch('api_memory.php?action=list').then(function (res) { return res.json(); }),
             fetch('api_instructions.php?action=list').then(function (res) { return res.json(); }),
+            fetch('api_research.php?action=list').then(function (res) { return res.json(); }),
+            fetch('api_rules.php?action=list').then(function (res) { return res.json(); }),
             fetch('api_mcps.php?action=list').then(function (res) { return res.json(); }),
-            fetch('api_jobs.php?action=list').then(function (res) { return res.json(); })
+            fetch('api_jobs.php?action=list').then(function (res) { return res.json(); }),
+            fetch('api_categories.php?action=list&_=' + Date.now()).then(function (res) { return res.json(); })
         ]).then(function (results) {
             window.toolsData = (results[0] || {}).tools || [];
             window.memoryFiles = (results[1] || {}).memories || [];
             window.instructionFiles = (results[2] || {}).instructions || [];
-            window.mcpServers = (results[3] || {}).servers || [];
-            window.jobFiles = (results[4] || {}).jobs || [];
-            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.mcpServers, window.jobFiles);
+            window.researchFiles = (results[3] || {}).research || [];
+            window.rulesFiles = (results[4] || {}).rules || [];
+            window.mcpServers = (results[5] || {}).servers || [];
+            window.jobFiles = (results[6] || {}).jobs || [];
+            window.categoryNodes = (results[7] || {}).categories || [];
+            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.categoryNodes);
         }).catch(function () {});
     }
     window.MemoryGraphRefresh = loadDynamicNodes;
@@ -468,14 +486,20 @@
         var activeToolIds = state && Array.isArray(state.activeToolIds) ? state.activeToolIds.slice() : [];
         var activeMemoryIds = state && Array.isArray(state.activeMemoryIds) ? state.activeMemoryIds.slice() : [];
         var activeInstructionIds = state && Array.isArray(state.activeInstructionIds) ? state.activeInstructionIds.slice() : [];
+        var activeResearchIds = state && Array.isArray(state.activeResearchIds) ? state.activeResearchIds.slice() : [];
+        var activeRulesIds = state && Array.isArray(state.activeRulesIds) ? state.activeRulesIds.slice() : [];
         var activeMcpIds = state && Array.isArray(state.activeMcpIds) ? state.activeMcpIds.slice() : [];
         var activeJobIds = state && Array.isArray(state.activeJobIds) ? state.activeJobIds.slice() : [];
+        var activeCategoryIds = state && Array.isArray(state.activeCategoryIds) ? state.activeCategoryIds.slice() : [];
         if (state) {
             activeToolIds = activeToolIds.concat(state.backgroundActiveToolIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('tool_') : []);
             activeMemoryIds = activeMemoryIds.concat(state.backgroundActiveMemoryIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('memory_file_') : []);
             activeInstructionIds = activeInstructionIds.concat(state.backgroundActiveInstructionIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('instruction_file_') : []);
+            activeResearchIds = activeResearchIds.concat(state.backgroundActiveResearchIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('research_file_') : []);
+            activeRulesIds = activeRulesIds.concat(state.backgroundActiveRulesIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('rules_file_') : []);
             activeMcpIds = activeMcpIds.concat(state.backgroundActiveMcpIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('mcp_server_') : []);
             activeJobIds = activeJobIds.concat(state.backgroundJobIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('job_file_') : []);
+            activeCategoryIds = activeCategoryIds.concat(state.backgroundActiveCategoryIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('category_') : []);
         }
 
         var agentActive = !!(state && (state.isThinking || (state.isAgentRecentlyActive && state.isAgentRecentlyActive())));
@@ -483,15 +507,21 @@
         animateNode('tools', !!(state && (state.toolExecuting || state.gettingAvailTools || state.backgroundGettingAvailTools || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('tools')) || activeToolIds.length)), t, 12, 0.2, 1.2);
         animateNode('memory', !!(state && (state.memoryToolExecuting || state.checkingMemory || state.backgroundCheckingMemory || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('memory')) || activeMemoryIds.length)), t, 12, 0.2, 1.2);
         animateNode('instructions', !!(state && (state.instructionToolExecuting || state.checkingInstructions || state.backgroundCheckingInstructions || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('instructions')) || activeInstructionIds.length)), t, 12, 0.2, 1.2);
+        animateNode('research', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('research')) || activeResearchIds.length)), t, 12, 0.2, 1.2);
+        animateNode('rules', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('rules')) || activeRulesIds.length)), t, 12, 0.2, 1.2);
         animateNode('mcps', !!(state && (state.mcpToolExecuting || state.checkingMcps || state.backgroundCheckingMcps || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('mcps')) || activeMcpIds.length)), t, 12, 0.2, 1.2);
         animateNode('jobs', !!(state && (state.jobExecuting || state.checkingJobs || state.backgroundCheckingJobs || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('jobs')) || activeJobIds.length)), t, 12, 0.2, 1.2);
+        animateNode('categories', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('categories')) || activeCategoryIds.length)), t, 12, 0.2, 1.2);
 
         Object.keys(nodeGroups).forEach(function (id) {
             if (id.indexOf('tool_') === 0) animateNode(id, activeToolIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('memory_file_') === 0) animateNode(id, activeMemoryIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('instruction_file_') === 0) animateNode(id, activeInstructionIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            if (id.indexOf('research_file_') === 0) animateNode(id, activeResearchIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            if (id.indexOf('rules_file_') === 0) animateNode(id, activeRulesIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('mcp_server_') === 0) animateNode(id, activeMcpIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('job_file_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            if (id.indexOf('category_') === 0) animateNode(id, activeCategoryIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
         });
 
         renderer.render(scene, camera);

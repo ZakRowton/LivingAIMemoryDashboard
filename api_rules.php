@@ -1,15 +1,15 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
-require_once __DIR__ . DIRECTORY_SEPARATOR . 'memory_store.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'rules_store.php';
 
 $action = $_GET['action'] ?? '';
 
 if ($action === 'list') {
-    $memories = array_map(function ($memory) {
-        unset($memory['content']);
-        return $memory;
-    }, list_memory_files_meta());
-    echo json_encode(['memories' => array_values($memories)]);
+    $rules = array_map(function ($r) {
+        unset($r['content']);
+        return $r;
+    }, list_rules_files_meta());
+    echo json_encode(['rules' => array_values($rules)]);
     exit;
 }
 
@@ -18,31 +18,20 @@ $input = is_array($input) ? $input : [];
 
 if ($action === 'get') {
     $name = isset($_GET['name']) ? (string) $_GET['name'] : (string) ($input['name'] ?? '');
-    $memory = get_memory_meta($name);
-    if ($memory === null) {
+    $item = get_rules_meta($name);
+    if ($item === null) {
         http_response_code(404);
-        echo json_encode(['error' => 'Memory file not found']);
+        echo json_encode(['error' => 'Rules file not found']);
         exit;
     }
-    echo json_encode($memory);
+    echo json_encode($item);
     exit;
 }
 
 if ($action === 'save') {
     $name = isset($input['name']) ? (string) $input['name'] : '';
     $content = isset($input['content']) ? (string) $input['content'] : '';
-    $result = write_memory_file($name, $content);
-    if (isset($result['error'])) {
-        http_response_code(400);
-    }
-    echo json_encode($result);
-    exit;
-}
-
-if ($action === 'toggle') {
-    $name = isset($input['name']) ? (string) $input['name'] : '';
-    $active = !empty($input['active']);
-    $result = set_memory_active_state($name, $active);
+    $result = write_rules_file($name, $content);
     if (isset($result['error'])) {
         http_response_code(400);
     }
@@ -52,7 +41,7 @@ if ($action === 'toggle') {
 
 if ($action === 'delete') {
     $name = isset($input['name']) ? (string) $input['name'] : '';
-    $result = delete_memory_file_by_name($name);
+    $result = delete_rules_file_by_name($name);
     if (isset($result['error'])) {
         http_response_code(400);
     }

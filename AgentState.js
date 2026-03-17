@@ -11,6 +11,9 @@ class AgentState {
         this.activeToolIds = [];
         this.activeMemoryIds = [];
         this.activeInstructionIds = [];
+        this.activeResearchIds = [];
+        this.activeRulesIds = [];
+        this.activeCategoryIds = [];
         this.activeMcpIds = [];
         this.activeJobIds = [];
         this.backgroundGettingAvailTools = false;
@@ -21,6 +24,9 @@ class AgentState {
         this.backgroundActiveToolIds = [];
         this.backgroundActiveMemoryIds = [];
         this.backgroundActiveInstructionIds = [];
+        this.backgroundActiveResearchIds = [];
+        this.backgroundActiveRulesIds = [];
+        this.backgroundActiveCategoryIds = [];
         this.backgroundActiveMcpIds = [];
         this.backgroundJobIds = [];
         this.backgroundExecutionDetailsByNode = {};
@@ -34,7 +40,7 @@ class AgentState {
         this.memoryFileAccessHoldMs = 4500;
         this.activityHoldMs = 2200;
         this.recentAgentActivityUntil = 0;
-        this.recentSectionActivityUntil = { tools: 0, memory: 0, instructions: 0, mcps: 0, jobs: 0 };
+        this.recentSectionActivityUntil = { tools: 0, memory: 0, instructions: 0, research: 0, rules: 0, mcps: 0, jobs: 0, categories: 0 };
         this.recentNodeActivityUntil = {};
     }
 
@@ -98,15 +104,21 @@ class AgentState {
         if (this.toolExecuting || this.gettingAvailTools || this.backgroundGettingAvailTools || this.isSectionRecentlyActive('tools')) sections.push('tools');
         if (this.memoryToolExecuting || this.checkingMemory || this.backgroundCheckingMemory || this.isSectionRecentlyActive('memory')) sections.push('memory');
         if (this.instructionToolExecuting || this.checkingInstructions || this.backgroundCheckingInstructions || this.isSectionRecentlyActive('instructions')) sections.push('instructions');
+        if (this.isSectionRecentlyActive('research')) sections.push('research');
+        if (this.isSectionRecentlyActive('rules')) sections.push('rules');
+        if (this.isSectionRecentlyActive('categories')) sections.push('categories');
         if (this.mcpToolExecuting || this.checkingMcps || this.backgroundCheckingMcps || this.isSectionRecentlyActive('mcps')) sections.push('mcps');
         if (this.jobExecuting || this.checkingJobs || this.backgroundCheckingJobs || this.isSectionRecentlyActive('jobs')) sections.push('jobs');
         if (this.isAccessingMemoryFile) nodeIds = nodeIds.concat(this.activeMemoryIds);
         nodeIds = nodeIds
-            .concat(this.activeToolIds, this.activeMemoryIds, this.activeInstructionIds, this.activeMcpIds, this.activeJobIds)
-            .concat(this.backgroundActiveToolIds, this.backgroundActiveMemoryIds, this.backgroundActiveInstructionIds, this.backgroundActiveMcpIds, this.backgroundJobIds)
+            .concat(this.activeToolIds, this.activeMemoryIds, this.activeInstructionIds, this.activeResearchIds, this.activeRulesIds, this.activeCategoryIds, this.activeMcpIds, this.activeJobIds)
+            .concat(this.backgroundActiveToolIds, this.backgroundActiveMemoryIds, this.backgroundActiveInstructionIds, this.backgroundActiveResearchIds, this.backgroundActiveRulesIds, this.backgroundActiveCategoryIds, this.backgroundActiveMcpIds, this.backgroundJobIds)
             .concat(this.getRecentNodeIds('tool_'))
             .concat(this.getRecentNodeIds('memory_file_'))
             .concat(this.getRecentNodeIds('instruction_file_'))
+            .concat(this.getRecentNodeIds('research_file_'))
+            .concat(this.getRecentNodeIds('rules_file_'))
+            .concat(this.getRecentNodeIds('category_'))
             .concat(this.getRecentNodeIds('mcp_server_'))
             .concat(this.getRecentNodeIds('job_file_'));
         var dur = Math.max(this.activityHoldMs, parseInt(durationMs, 10) || 0) || this.activityHoldMs;
@@ -123,12 +135,18 @@ class AgentState {
         var toolIds = Array.isArray(data.activeToolIds) ? data.activeToolIds.slice() : [];
         var memoryIds = Array.isArray(data.activeMemoryIds) ? data.activeMemoryIds.slice() : [];
         var instructionIds = Array.isArray(data.activeInstructionIds) ? data.activeInstructionIds.slice() : [];
+        var researchIds = Array.isArray(data.activeResearchIds) ? data.activeResearchIds.slice() : [];
+        var rulesIds = Array.isArray(data.activeRulesIds) ? data.activeRulesIds.slice() : [];
+        var categoryIds = Array.isArray(data.activeCategoryIds) ? data.activeCategoryIds.slice() : [];
         var mcpIds = Array.isArray(data.activeMcpIds) ? data.activeMcpIds.slice() : [];
         var jobIds = Array.isArray(data.activeJobIds) ? data.activeJobIds.slice() : [];
         Object.keys(details).forEach(function (nodeId) {
             if (nodeId.indexOf('tool_') === 0 && toolIds.indexOf(nodeId) === -1) toolIds.push(nodeId);
             if (nodeId.indexOf('memory_file_') === 0 && memoryIds.indexOf(nodeId) === -1) memoryIds.push(nodeId);
             if (nodeId.indexOf('instruction_file_') === 0 && instructionIds.indexOf(nodeId) === -1) instructionIds.push(nodeId);
+            if (nodeId.indexOf('research_file_') === 0 && researchIds.indexOf(nodeId) === -1) researchIds.push(nodeId);
+            if (nodeId.indexOf('rules_file_') === 0 && rulesIds.indexOf(nodeId) === -1) rulesIds.push(nodeId);
+            if (nodeId.indexOf('category_') === 0 && categoryIds.indexOf(nodeId) === -1) categoryIds.push(nodeId);
             if (nodeId.indexOf('mcp_server_') === 0 && mcpIds.indexOf(nodeId) === -1) mcpIds.push(nodeId);
             if (nodeId.indexOf('job_file_') === 0 && jobIds.indexOf(nodeId) === -1) jobIds.push(nodeId);
         });
@@ -140,6 +158,9 @@ class AgentState {
         if (data.gettingAvailTools || details.tools || toolIds.length) { this.markSectionActivity('tools'); this.markNodeActivity(toolIds); }
         if (data.checkingMemory || details.memory || memoryIds.length) { this.markSectionActivity('memory'); this.markNodeActivity(memoryIds); }
         if (data.checkingInstructions || details.instructions || instructionIds.length) { this.markSectionActivity('instructions'); this.markNodeActivity(instructionIds); }
+        if (data.checkingResearch || details.research || researchIds.length) { this.markSectionActivity('research'); this.markNodeActivity(researchIds); }
+        if (data.checkingRules || details.rules || rulesIds.length) { this.markSectionActivity('rules'); this.markNodeActivity(rulesIds); }
+        if (data.checkingCategories || details.categories || categoryIds.length) { this.markSectionActivity('categories'); this.markNodeActivity(categoryIds); }
         if (data.checkingMcps || details.mcps || mcpIds.length) { this.markSectionActivity('mcps'); this.markNodeActivity(mcpIds); }
         if (data.checkingJobs || details.jobs || jobIds.length) { this.markSectionActivity('jobs'); this.markNodeActivity(jobIds); }
         if (data.thinking || data.isThinking) { this.recentAgentActivityUntil = this.holdUntil(); this.markNodeActivity(['agent']); }
@@ -152,12 +173,18 @@ class AgentState {
         var toolIds = Array.isArray(data.activeToolIds) ? data.activeToolIds.slice() : [];
         var memoryIds = Array.isArray(data.activeMemoryIds) ? data.activeMemoryIds.slice() : [];
         var instructionIds = Array.isArray(data.activeInstructionIds) ? data.activeInstructionIds.slice() : [];
+        var researchIds = Array.isArray(data.activeResearchIds) ? data.activeResearchIds.slice() : [];
+        var rulesIds = Array.isArray(data.activeRulesIds) ? data.activeRulesIds.slice() : [];
+        var categoryIds = Array.isArray(data.activeCategoryIds) ? data.activeCategoryIds.slice() : [];
         var mcpIds = Array.isArray(data.activeMcpIds) ? data.activeMcpIds.slice() : [];
         var jobIds = Array.isArray(data.activeJobIds) ? data.activeJobIds.slice() : [];
         Object.keys(details).forEach(function (nodeId) {
             if (nodeId.indexOf('tool_') === 0 && toolIds.indexOf(nodeId) === -1) toolIds.push(nodeId);
             if (nodeId.indexOf('memory_file_') === 0 && memoryIds.indexOf(nodeId) === -1) memoryIds.push(nodeId);
             if (nodeId.indexOf('instruction_file_') === 0 && instructionIds.indexOf(nodeId) === -1) instructionIds.push(nodeId);
+            if (nodeId.indexOf('research_file_') === 0 && researchIds.indexOf(nodeId) === -1) researchIds.push(nodeId);
+            if (nodeId.indexOf('rules_file_') === 0 && rulesIds.indexOf(nodeId) === -1) rulesIds.push(nodeId);
+            if (nodeId.indexOf('category_') === 0 && categoryIds.indexOf(nodeId) === -1) categoryIds.push(nodeId);
             if (nodeId.indexOf('mcp_server_') === 0 && mcpIds.indexOf(nodeId) === -1) mcpIds.push(nodeId);
             if (nodeId.indexOf('job_file_') === 0 && jobIds.indexOf(nodeId) === -1) jobIds.push(nodeId);
         });
@@ -170,6 +197,9 @@ class AgentState {
         this.activeToolIds = toolIds;
         this.activeMemoryIds = memoryIds;
         this.activeInstructionIds = instructionIds;
+        this.activeResearchIds = researchIds;
+        this.activeRulesIds = rulesIds;
+        this.activeCategoryIds = categoryIds;
         this.activeMcpIds = mcpIds;
         this.activeJobIds = jobIds;
         this.executionDetailsByNode = details;
@@ -183,6 +213,9 @@ class AgentState {
         if (this.toolExecuting) { this.markSectionActivity('tools'); this.markNodeActivity(toolIds); }
         if (this.memoryToolExecuting) { this.markSectionActivity('memory'); this.markNodeActivity(memoryIds); }
         if (this.instructionToolExecuting) { this.markSectionActivity('instructions'); this.markNodeActivity(instructionIds); }
+        if (data.checkingResearch || researchIds.length || details.research) { this.markSectionActivity('research'); this.markNodeActivity(researchIds); }
+        if (data.checkingRules || rulesIds.length || details.rules) { this.markSectionActivity('rules'); this.markNodeActivity(rulesIds); }
+        if (data.checkingCategories || categoryIds.length || details.categories) { this.markSectionActivity('categories'); this.markNodeActivity(categoryIds); }
         if (this.mcpToolExecuting) { this.markSectionActivity('mcps'); this.markNodeActivity(mcpIds); }
         if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(jobIds); }
         if (memoryIds.length > 0) {
@@ -222,6 +255,8 @@ class AgentState {
     setActiveInstructionIds(activeInstructionIds) { this.activeInstructionIds = Array.isArray(activeInstructionIds) ? activeInstructionIds : []; this.instructionToolExecuting = !!(this.checkingInstructions || this.activeInstructionIds.length || this.backgroundActiveInstructionIds.length); if (this.instructionToolExecuting) { this.markSectionActivity('instructions'); this.markNodeActivity(this.activeInstructionIds); } this.dispatchGraphActivity(); }
     setActiveMcpIds(activeMcpIds) { this.activeMcpIds = Array.isArray(activeMcpIds) ? activeMcpIds : []; this.mcpToolExecuting = !!(this.checkingMcps || this.activeMcpIds.length || this.backgroundActiveMcpIds.length); if (this.mcpToolExecuting) { this.markSectionActivity('mcps'); this.markNodeActivity(this.activeMcpIds); } this.dispatchGraphActivity(); }
     setActiveJobIds(activeJobIds) { this.activeJobIds = Array.isArray(activeJobIds) ? activeJobIds : []; this.jobExecuting = !!(this.checkingJobs || this.activeJobIds.length || this.backgroundJobIds.length); if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(this.activeJobIds); } this.dispatchGraphActivity(); }
+    setActiveResearchIds(activeResearchIds) { this.activeResearchIds = Array.isArray(activeResearchIds) ? activeResearchIds : []; this.dispatchGraphActivity(); }
+    setActiveRulesIds(activeRulesIds) { this.activeRulesIds = Array.isArray(activeRulesIds) ? activeRulesIds : []; this.dispatchGraphActivity(); }
     setBackgroundCheckingJobs(backgroundCheckingJobs) { this.backgroundCheckingJobs = !!backgroundCheckingJobs; this.jobExecuting = !!(this.backgroundCheckingJobs || this.checkingJobs || this.activeJobIds.length || this.backgroundJobIds.length); if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(this.backgroundJobIds); } this.dispatchGraphActivity(); }
     setBackgroundGettingAvailTools(backgroundGettingAvailTools) { this.backgroundGettingAvailTools = !!backgroundGettingAvailTools; this.toolExecuting = !!(this.backgroundGettingAvailTools || this.gettingAvailTools || this.activeToolIds.length || this.backgroundActiveToolIds.length); if (this.toolExecuting) { this.markSectionActivity('tools'); this.markNodeActivity(this.backgroundActiveToolIds); } this.dispatchGraphActivity(); }
     setBackgroundCheckingMemory(backgroundCheckingMemory) { this.backgroundCheckingMemory = !!backgroundCheckingMemory; this.memoryToolExecuting = !!(this.backgroundCheckingMemory || this.checkingMemory || this.activeMemoryIds.length || this.backgroundActiveMemoryIds.length); if (this.memoryToolExecuting) { this.markSectionActivity('memory'); this.markNodeActivity(this.backgroundActiveMemoryIds); } this.dispatchGraphActivity(); }

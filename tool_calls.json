@@ -140,7 +140,74 @@
             "active": true,
             "parameters": {
                 "type": "object",
-                "properties": {}
+                "properties": []
+            }
+        },
+        {
+            "name": "mysql_tool",
+            "description": "Execute MySQL queries on the local MySQL server (localhost:3306) using root\/root credentials. Supports creating databases, tables, and arbitrary SQL queries.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "query",
+                            "create_database",
+                            "drop_database",
+                            "create_table",
+                            "drop_table"
+                        ],
+                        "description": "The type of operation to perform."
+                    },
+                    "database": {
+                        "type": "string",
+                        "description": "Database name for actions that require a specific DB."
+                    },
+                    "sql": {
+                        "type": "string",
+                        "description": "Arbitrary SQL statement to execute (used with action 'query')."
+                    },
+                    "table_schema": {
+                        "type": "string",
+                        "description": "SQL schema for creating a table (used with action 'create_table')."
+                    },
+                    "table_name": {
+                        "type": "string",
+                        "description": "Name of the table to create or drop."
+                    }
+                },
+                "required": [
+                    "action"
+                ]
+            }
+        },
+        {
+            "name": "cron_job_manager",
+            "description": "Create a cron job entry by storing it in a markdown file. This simulates scheduling a command at a given cron expression.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_name": {
+                        "type": "string",
+                        "description": "A unique name for the cron job."
+                    },
+                    "schedule": {
+                        "type": "string",
+                        "description": "Cron schedule expression, e.g., \"0 * * * *\"."
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute."
+                    }
+                },
+                "required": [
+                    "job_name",
+                    "schedule",
+                    "command"
+                ]
             }
         }
     ]

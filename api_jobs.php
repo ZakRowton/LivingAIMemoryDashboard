@@ -39,4 +39,14 @@ if ($action === 'save') {
     exit;
 }
 
+if ($action === 'delete') {
+    $name = isset($input['name']) ? (string) $input['name'] : '';
+    $result = delete_job_file_by_name($name);
+    if (isset($result['error'])) {
+        http_response_code(400);
+    }
+    echo json_encode($result);
+    exit;
+}
+
 echo json_encode(['error' => 'invalid action']);

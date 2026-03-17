@@ -10,10 +10,14 @@ if ($requestId === '') {
         'activeToolIds' => [],
         'checkingMemory' => false,
         'checkingInstructions' => false,
+        'checkingResearch' => false,
+        'checkingRules' => false,
         'checkingMcps' => false,
         'checkingJobs' => false,
         'activeMemoryIds' => [],
         'activeInstructionIds' => [],
+        'activeResearchIds' => [],
+        'activeRulesIds' => [],
         'activeMcpIds' => [],
         'activeJobIds' => [],
         'memoryToolExecuting' => false,
@@ -35,10 +39,14 @@ if (!file_exists($path)) {
         'activeToolIds' => [],
         'checkingMemory' => false,
         'checkingInstructions' => false,
+        'checkingResearch' => false,
+        'checkingRules' => false,
         'checkingMcps' => false,
         'checkingJobs' => false,
         'activeMemoryIds' => [],
         'activeInstructionIds' => [],
+        'activeResearchIds' => [],
+        'activeRulesIds' => [],
         'activeMcpIds' => [],
         'activeJobIds' => [],
         'memoryToolExecuting' => false,
@@ -59,6 +67,8 @@ $effectiveCheckingMemory = !empty($data['checkingMemory']) || ($hasRecentActivit
 $effectiveCheckingInstructions = !empty($data['checkingInstructions']) || ($hasRecentActivity && !empty($data['lastCheckingInstructions']));
 $effectiveCheckingMcps = !empty($data['checkingMcps']) || ($hasRecentActivity && !empty($data['lastCheckingMcps']));
 $effectiveCheckingJobs = !empty($data['checkingJobs']) || ($hasRecentActivity && !empty($data['lastCheckingJobs']));
+$effectiveCheckingResearch = !empty($data['checkingResearch']) || ($hasRecentActivity && !empty($data['lastCheckingResearch']));
+$effectiveCheckingRules = !empty($data['checkingRules']) || ($hasRecentActivity && !empty($data['lastCheckingRules']));
 $effectiveActiveToolIds = isset($data['activeToolIds']) && is_array($data['activeToolIds']) && count($data['activeToolIds']) > 0
     ? array_values($data['activeToolIds'])
     : ($hasRecentActivity && isset($data['lastActiveToolIds']) && is_array($data['lastActiveToolIds']) ? array_values($data['lastActiveToolIds']) : []);
@@ -68,6 +78,12 @@ $effectiveActiveMemoryIds = isset($data['activeMemoryIds']) && is_array($data['a
 $effectiveActiveInstructionIds = isset($data['activeInstructionIds']) && is_array($data['activeInstructionIds']) && count($data['activeInstructionIds']) > 0
     ? array_values($data['activeInstructionIds'])
     : ($hasRecentActivity && isset($data['lastActiveInstructionIds']) && is_array($data['lastActiveInstructionIds']) ? array_values($data['lastActiveInstructionIds']) : []);
+$effectiveActiveResearchIds = isset($data['activeResearchIds']) && is_array($data['activeResearchIds']) && count($data['activeResearchIds']) > 0
+    ? array_values($data['activeResearchIds'])
+    : ($hasRecentActivity && isset($data['lastActiveResearchIds']) && is_array($data['lastActiveResearchIds']) ? array_values($data['lastActiveResearchIds']) : []);
+$effectiveActiveRulesIds = isset($data['activeRulesIds']) && is_array($data['activeRulesIds']) && count($data['activeRulesIds']) > 0
+    ? array_values($data['activeRulesIds'])
+    : ($hasRecentActivity && isset($data['lastActiveRulesIds']) && is_array($data['lastActiveRulesIds']) ? array_values($data['lastActiveRulesIds']) : []);
 $effectiveActiveMcpIds = isset($data['activeMcpIds']) && is_array($data['activeMcpIds']) && count($data['activeMcpIds']) > 0
     ? array_values($data['activeMcpIds'])
     : ($hasRecentActivity && isset($data['lastActiveMcpIds']) && is_array($data['lastActiveMcpIds']) ? array_values($data['lastActiveMcpIds']) : []);
@@ -93,8 +109,12 @@ echo json_encode([
     'checkingInstructions' => $effectiveCheckingInstructions,
     'checkingMcps' => $effectiveCheckingMcps,
     'checkingJobs' => $effectiveCheckingJobs,
+    'checkingResearch' => $effectiveCheckingResearch,
+    'checkingRules' => $effectiveCheckingRules,
     'activeMemoryIds' => $effectiveActiveMemoryIds,
     'activeInstructionIds' => $effectiveActiveInstructionIds,
+    'activeResearchIds' => $effectiveActiveResearchIds,
+    'activeRulesIds' => $effectiveActiveRulesIds,
     'activeMcpIds' => $effectiveActiveMcpIds,
     'activeJobIds' => $effectiveActiveJobIds,
     'memoryToolExecuting' => $effectiveMemoryToolExecuting,

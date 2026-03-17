@@ -74,4 +74,47 @@ if ($action === 'toggle_all') {
     exit;
 }
 
+if ($action === 'save_code') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $input = is_array($input) ? $input : [];
+    $name = (string) ($input['name'] ?? '');
+    $code = (string) ($input['code'] ?? '');
+
+    foreach (get_builtin_tools() as $builtinTool) {
+        if (($builtinTool['name'] ?? '') === $name) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Built-in tools cannot be modified']);
+            exit;
+        }
+    }
+
+    $result = edit_tool_file_artifact($name, $code);
+    if (isset($result['error'])) {
+        http_response_code(400);
+    }
+    echo json_encode($result);
+    exit;
+}
+
+if ($action === 'delete') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $input = is_array($input) ? $input : [];
+    $name = (string) ($input['name'] ?? '');
+
+    foreach (get_builtin_tools() as $builtinTool) {
+        if (($builtinTool['name'] ?? '') === $name) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Built-in tools cannot be deleted']);
+            exit;
+        }
+    }
+
+    $result = delete_tool_artifact($name);
+    if (isset($result['error'])) {
+        http_response_code(400);
+    }
+    echo json_encode($result);
+    exit;
+}
+
 echo json_encode(['error' => 'invalid action']);

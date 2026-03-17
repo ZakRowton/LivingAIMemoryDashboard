@@ -12,6 +12,9 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'provider_config.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'chat_history_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'memory_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'instruction_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'research_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'rules_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'category_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'job_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_client.php';
@@ -90,34 +93,46 @@ function clearStatusFlags(array &$status): void {
     $status['checkingInstructions'] = false;
     $status['checkingMcps'] = false;
     $status['checkingJobs'] = false;
+    $status['checkingResearch'] = false;
+    $status['checkingRules'] = false;
     $status['activeToolIds'] = [];
     $status['activeMemoryIds'] = [];
     $status['activeInstructionIds'] = [];
+    $status['activeResearchIds'] = [];
+    $status['activeRulesIds'] = [];
     $status['activeMcpIds'] = [];
     $status['activeJobIds'] = [];
     $status['executionDetailsByNode'] = [];
 }
 
-function markExecutionStatus(array &$status, string $requestId, bool $gettingAvailTools, bool $checkingMemory, bool $checkingInstructions, bool $checkingMcps, bool $checkingJobs, array $activeToolIds, array $activeMemoryIds, array $activeInstructionIds, array $activeMcpIds, array $activeJobIds, array $executionDetailsByNode): void {
+function markExecutionStatus(array &$status, string $requestId, bool $gettingAvailTools, bool $checkingMemory, bool $checkingInstructions, bool $checkingResearch, bool $checkingRules, bool $checkingMcps, bool $checkingJobs, array $activeToolIds, array $activeMemoryIds, array $activeInstructionIds, array $activeResearchIds, array $activeRulesIds, array $activeMcpIds, array $activeJobIds, array $executionDetailsByNode): void {
     $status['gettingAvailTools'] = $gettingAvailTools;
     $status['checkingMemory'] = $checkingMemory;
     $status['checkingInstructions'] = $checkingInstructions;
+    $status['checkingResearch'] = $checkingResearch;
+    $status['checkingRules'] = $checkingRules;
     $status['checkingMcps'] = $checkingMcps;
     $status['checkingJobs'] = $checkingJobs;
     $status['activeToolIds'] = array_values($activeToolIds);
     $status['activeMemoryIds'] = array_values($activeMemoryIds);
     $status['activeInstructionIds'] = array_values($activeInstructionIds);
+    $status['activeResearchIds'] = array_values($activeResearchIds);
+    $status['activeRulesIds'] = array_values($activeRulesIds);
     $status['activeMcpIds'] = array_values($activeMcpIds);
     $status['activeJobIds'] = array_values($activeJobIds);
     $status['executionDetailsByNode'] = $executionDetailsByNode;
     $status['lastGettingAvailTools'] = $gettingAvailTools;
     $status['lastCheckingMemory'] = $checkingMemory;
     $status['lastCheckingInstructions'] = $checkingInstructions;
+    $status['lastCheckingResearch'] = $checkingResearch;
+    $status['lastCheckingRules'] = $checkingRules;
     $status['lastCheckingMcps'] = $checkingMcps;
     $status['lastCheckingJobs'] = $checkingJobs;
     $status['lastActiveToolIds'] = array_values($activeToolIds);
     $status['lastActiveMemoryIds'] = array_values($activeMemoryIds);
     $status['lastActiveInstructionIds'] = array_values($activeInstructionIds);
+    $status['lastActiveResearchIds'] = array_values($activeResearchIds);
+    $status['lastActiveRulesIds'] = array_values($activeRulesIds);
     $status['lastActiveMcpIds'] = array_values($activeMcpIds);
     $status['lastActiveJobIds'] = array_values($activeJobIds);
     $status['lastExecutionDetailsByNode'] = $executionDetailsByNode;
@@ -129,11 +144,15 @@ function clearCurrentExecutionStatus(array &$status, string $requestId): void {
     $status['gettingAvailTools'] = false;
     $status['checkingMemory'] = false;
     $status['checkingInstructions'] = false;
+    $status['checkingResearch'] = false;
+    $status['checkingRules'] = false;
     $status['checkingMcps'] = false;
     $status['checkingJobs'] = false;
     $status['activeToolIds'] = [];
     $status['activeMemoryIds'] = [];
     $status['activeInstructionIds'] = [];
+    $status['activeResearchIds'] = [];
+    $status['activeRulesIds'] = [];
     $status['activeMcpIds'] = [];
     $status['activeJobIds'] = [];
     $status['executionDetailsByNode'] = [];
@@ -169,6 +188,36 @@ function isJobToolName(string $toolName): bool {
         'update_job_file',
         'delete_job_file',
         'execute_job_file',
+    ], true);
+}
+
+function isResearchToolName(string $toolName): bool {
+    return in_array($toolName, [
+        'list_research_files',
+        'read_research_file',
+        'add_research_file',
+        'create_research_file',
+        'update_research_file',
+        'delete_research_file',
+    ], true);
+}
+
+function isRulesToolName(string $toolName): bool {
+    return in_array($toolName, [
+        'list_rules_files',
+        'read_rules_file',
+        'add_rules_file',
+        'create_rules_file',
+        'update_rules_file',
+        'delete_rules_file',
+    ], true);
+}
+
+function isCategoryToolName(string $toolName): bool {
+    return in_array($toolName, [
+        'create_category_node',
+        'list_category_nodes',
+        'delete_category_node',
     ], true);
 }
 
@@ -215,11 +264,14 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'remove_mcp_server_header',
         'set_mcp_server_active',
         'delete_mcp_server',
+        'create_category_node',
+        'delete_category_node',
     ], true);
 }
 
 function queueGraphRefresh(array &$status, string $requestId): void {
     $status['graphRefreshToken'] = uniqid('graph_', true);
+    $status['graphRefreshNeeded'] = true;
     writeStatus($requestId, $status);
 }
 
@@ -236,9 +288,13 @@ function loadToolRegistry(): array {
         if (!is_array($tool) || empty($tool['name'])) {
             continue;
         }
+        $name = (string) $tool['name'];
+        if (is_builtin_tool_name($name)) {
+            continue;
+        }
         $tool['parameters'] = normalize_tool_parameters($tool['parameters'] ?? null);
         $tool['active'] = !empty($tool['active']);
-        $tools[$tool['name']] = $tool;
+        $tools[$name] = $tool;
     }
     foreach (list_active_mcp_servers_meta() as $server) {
         $remoteTools = mcp_list_server_tools($server);
@@ -273,6 +329,8 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     $activeToolIds = ['tool_' . $normalizedFunctionName];
     $activeMemoryIds = [];
     $activeInstructionIds = [];
+    $activeResearchIds = [];
+    $activeRulesIds = [];
     $activeMcpIds = [];
     $activeJobIds = [];
     $executionDetails = [
@@ -284,6 +342,9 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     $gettingAvailTools = in_array($normalizedFunctionName, ['list_available_tools', 'list_tools', 'get_tools'], true);
     $checkingMemory = isMemoryToolName($normalizedFunctionName);
     $checkingInstructions = isInstructionToolName($normalizedFunctionName);
+    $checkingResearch = isResearchToolName($normalizedFunctionName);
+    $checkingRules = isRulesToolName($normalizedFunctionName);
+    $checkingCategories = isCategoryToolName($normalizedFunctionName);
     $checkingMcps = isMcpManagementToolName($normalizedFunctionName) || !empty($activeTools[$normalizedFunctionName]['mcp']);
     $checkingJobs = isJobToolName($normalizedFunctionName);
 
@@ -313,6 +374,24 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     }
     if ($checkingJobs) {
         $executionDetails['jobs'] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingResearch) {
+        $executionDetails['research'] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingRules) {
+        $executionDetails['rules'] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingCategories) {
+        $executionDetails['categories'] = [
             'toolName' => $normalizedFunctionName,
             'arguments' => $arguments,
         ];
@@ -414,16 +493,63 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
             ];
         }
     }
+    if ($checkingResearch && !empty($arguments['name'])) {
+        $researchMeta = get_research_meta((string) $arguments['name']);
+        $researchNodeId = $researchMeta !== null ? $researchMeta['nodeId'] : research_node_id((string) $arguments['name']);
+        $activeResearchIds = [$researchNodeId];
+        $executionDetails[$researchNodeId] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingRules && !empty($arguments['name'])) {
+        $rulesMeta = get_rules_meta((string) $arguments['name']);
+        $rulesNodeId = $rulesMeta !== null ? $rulesMeta['nodeId'] : rules_node_id((string) $arguments['name']);
+        $activeRulesIds = [$rulesNodeId];
+        $executionDetails[$rulesNodeId] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingResearch && empty($arguments['name']) && in_array($normalizedFunctionName, ['list_research_files'], true)) {
+        $executionDetails['research'] = $executionDetails['research'] ?? [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingRules && empty($arguments['name']) && in_array($normalizedFunctionName, ['list_rules_files'], true)) {
+        $executionDetails['rules'] = $executionDetails['rules'] ?? [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if (in_array($normalizedFunctionName, ['create_category_node', 'delete_category_node'], true) && !empty($arguments['name'])) {
+        $categoryNodeId = category_node_id((string) $arguments['name']);
+        $executionDetails[$categoryNodeId] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingCategories && in_array($normalizedFunctionName, ['list_category_nodes'], true)) {
+        $executionDetails['categories'] = $executionDetails['categories'] ?? [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
 
     return [
         'gettingAvailTools' => $gettingAvailTools,
         'checkingMemory' => $checkingMemory,
         'checkingInstructions' => $checkingInstructions,
+        'checkingResearch' => $checkingResearch,
+        'checkingRules' => $checkingRules,
         'checkingMcps' => $checkingMcps,
         'checkingJobs' => $checkingJobs,
         'activeToolIds' => $activeToolIds,
         'activeMemoryIds' => $activeMemoryIds,
         'activeInstructionIds' => $activeInstructionIds,
+        'activeResearchIds' => $activeResearchIds,
+        'activeRulesIds' => $activeRulesIds,
         'activeMcpIds' => $activeMcpIds,
         'activeJobIds' => $activeJobIds,
         'executionDetails' => $executionDetails,
@@ -452,6 +578,7 @@ function buildOpenAiTools(array $tools): array {
 }
 
 function normalizeToolName(string $name): string {
+    $normalized = strtolower(str_replace(['-', ' '], '_', trim($name)));
     $aliases = [
         'temp' => 'get_temperature',
         'temperature' => 'get_temperature',
@@ -464,8 +591,12 @@ function normalizeToolName(string $name): string {
         'get_instruction' => 'read_instruction_file',
         'list_tool' => 'list_available_tools',
         'get_tool' => 'list_available_tools',
+        'create_category' => 'create_category_node',
+        'createcategorynode' => 'create_category_node',
+        'add_category' => 'create_category_node',
+        'add_category_node' => 'create_category_node',
     ];
-    return $aliases[$name] ?? $name;
+    return $aliases[$normalized] ?? $aliases[$name] ?? $normalized;
 }
 
 function normalizeToolArguments(string $toolName, array $args): array {
@@ -480,10 +611,40 @@ function parseInlineToolCall(?string $content): ?array {
         return null;
     }
     $trimmed = trim($content);
-    if ($trimmed === '' || $trimmed[0] !== '{') {
+    if ($trimmed === '') {
         return null;
     }
-    $decoded = json_decode($trimmed, true);
+    // Try direct parse first (content is raw JSON)
+    $jsonStr = $trimmed;
+    if ($trimmed[0] !== '{') {
+        // Extract JSON from markdown code block or surrounding text
+        if (preg_match('/```(?:json)?\s*(\{[\s\S]*?\})\s*```/', $trimmed, $m)) {
+            $jsonStr = trim($m[1]);
+        } else {
+            $start = strpos($trimmed, '{');
+            if ($start === false) {
+                return null;
+            }
+            $depth = 0;
+            $len = strlen($trimmed);
+            for ($i = $start; $i < $len; $i++) {
+                $c = $trimmed[$i];
+                if ($c === '{') {
+                    $depth++;
+                } elseif ($c === '}') {
+                    $depth--;
+                    if ($depth === 0) {
+                        $jsonStr = substr($trimmed, $start, $i - $start + 1);
+                        break;
+                    }
+                }
+            }
+            if ($depth !== 0) {
+                return null;
+            }
+        }
+    }
+    $decoded = json_decode($jsonStr, true);
     if (!is_array($decoded)) {
         return null;
     }
@@ -505,26 +666,60 @@ function executePhpTool(string $toolName, array $arguments): array {
         return ['error' => 'Tool file not found'];
     }
 
-    $GLOBALS['MEMORY_GRAPH_TOOL_INPUT'] = $arguments;
     $previousMethod = $_SERVER['REQUEST_METHOD'] ?? null;
-    $_SERVER['REQUEST_METHOD'] = 'POST';
+    try {
+        $GLOBALS['MEMORY_GRAPH_TOOL_INPUT'] = $arguments;
+        $_SERVER['REQUEST_METHOD'] = 'POST';
 
-    ob_start();
-    include $toolPath;
-    $rawOutput = trim((string) ob_get_clean());
+        ob_start();
+        include $toolPath;
+        $rawOutput = trim((string) ob_get_clean());
 
-    unset($GLOBALS['MEMORY_GRAPH_TOOL_INPUT']);
-    if ($previousMethod === null) {
-        unset($_SERVER['REQUEST_METHOD']);
-    } else {
-        $_SERVER['REQUEST_METHOD'] = $previousMethod;
+        unset($GLOBALS['MEMORY_GRAPH_TOOL_INPUT']);
+        if ($previousMethod === null) {
+            unset($_SERVER['REQUEST_METHOD']);
+        } else {
+            $_SERVER['REQUEST_METHOD'] = $previousMethod;
+        }
+
+        $decoded = json_decode($rawOutput, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+        // If output looks like PHP error, convert to error format so AI gets fix directive
+        if (preg_match('/^(Fatal error|Parse error|Warning|Notice|Deprecated):\s*(.+)$/im', $rawOutput, $m)) {
+            return [
+                'error' => 'Tool output PHP error: ' . trim($m[2]),
+                'raw_output' => $rawOutput,
+            ];
+        }
+        if (stripos($rawOutput, 'Fatal error') !== false || stripos($rawOutput, 'Parse error') !== false) {
+            return [
+                'error' => 'Tool produced PHP error. Check and fix the tool code.',
+                'raw_output' => $rawOutput,
+            ];
+        }
+        return ['result' => $rawOutput];
+    } catch (Throwable $e) {
+        if (ob_get_level()) ob_end_clean();
+        unset($GLOBALS['MEMORY_GRAPH_TOOL_INPUT']);
+        if ($previousMethod === null) {
+            unset($_SERVER['REQUEST_METHOD']);
+        } else {
+            $_SERVER['REQUEST_METHOD'] = $previousMethod;
+        }
+        $msg = $e->getMessage();
+        $file = $e->getFile();
+        $line = $e->getLine();
+        $class = get_class($e);
+        return [
+            'error' => "Tool exception ($class): $msg",
+            'exception' => $class,
+            'message' => $msg,
+            'file' => basename($file),
+            'line' => $line,
+        ];
     }
-
-    $decoded = json_decode($rawOutput, true);
-    if (is_array($decoded)) {
-        return $decoded;
-    }
-    return ['result' => $rawOutput];
 }
 
 function executeBuiltInTool(string $toolName, array $arguments, array $activeTools): array {
@@ -617,6 +812,56 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     if ($toolName === 'delete_instruction_file') {
         return delete_instruction_file_by_name((string) ($arguments['name'] ?? ''));
     }
+    if ($toolName === 'list_research_files') {
+        return ['research' => array_map(function ($r) {
+            unset($r['content']);
+            return $r;
+        }, list_research_files_meta())];
+    }
+    if ($toolName === 'read_research_file') {
+        $research = get_research_meta((string) ($arguments['name'] ?? ''));
+        if ($research === null) {
+            return ['error' => 'Research file not found'];
+        }
+        return $research;
+    }
+    if ($toolName === 'add_research_file') {
+        return write_research_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
+    }
+    if ($toolName === 'create_research_file') {
+        return create_research_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
+    }
+    if ($toolName === 'update_research_file') {
+        return update_research_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
+    }
+    if ($toolName === 'delete_research_file') {
+        return delete_research_file_by_name((string) ($arguments['name'] ?? ''));
+    }
+    if ($toolName === 'list_rules_files') {
+        return ['rules' => array_map(function ($r) {
+            unset($r['content']);
+            return $r;
+        }, list_rules_files_meta())];
+    }
+    if ($toolName === 'read_rules_file') {
+        $rules = get_rules_meta((string) ($arguments['name'] ?? ''));
+        if ($rules === null) {
+            return ['error' => 'Rules file not found'];
+        }
+        return $rules;
+    }
+    if ($toolName === 'add_rules_file') {
+        return write_rules_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
+    }
+    if ($toolName === 'create_rules_file') {
+        return create_rules_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
+    }
+    if ($toolName === 'update_rules_file') {
+        return update_rules_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
+    }
+    if ($toolName === 'delete_rules_file') {
+        return delete_rules_file_by_name((string) ($arguments['name'] ?? ''));
+    }
     if ($toolName === 'create_job_file') {
         return create_job_file((string) ($arguments['name'] ?? ''), (string) ($arguments['content'] ?? ''));
     }
@@ -625,6 +870,19 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     }
     if ($toolName === 'delete_job_file') {
         return delete_job_file_by_name((string) ($arguments['name'] ?? ''));
+    }
+    if ($toolName === 'create_category_node') {
+        return create_category_node(
+            (string) ($arguments['name'] ?? ''),
+            (string) ($arguments['title'] ?? ''),
+            (string) ($arguments['description'] ?? '')
+        );
+    }
+    if ($toolName === 'list_category_nodes') {
+        return ['categories' => list_category_nodes_meta()];
+    }
+    if ($toolName === 'delete_category_node') {
+        return delete_category_node_by_name((string) ($arguments['name'] ?? ''));
     }
     if ($toolName === 'create_mcp_server') {
         return upsert_mcp_server_artifact($arguments);
@@ -763,10 +1021,26 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         }
         return add_model_to_provider($providerKey, $modelId);
     }
-    return ['error' => 'Unknown built-in tool'];
+    return ['error' => 'Unknown built-in tool: ' . $toolName . '. Use list_available_tools to see valid tool names.'];
 }
 
 function executeToolCall(string $toolName, array $arguments, array $activeTools): array {
+    try {
+        return executeToolCallInner($toolName, $arguments, $activeTools);
+    } catch (Throwable $e) {
+        $msg = $e->getMessage();
+        $class = get_class($e);
+        return [
+            'error' => "Tool execution failed ($class): $msg",
+            'exception' => $class,
+            'message' => $msg,
+            'file' => basename($e->getFile()),
+            'line' => $e->getLine(),
+        ];
+    }
+}
+
+function executeToolCallInner(string $toolName, array $arguments, array $activeTools): array {
     $normalizedName = normalizeToolName($toolName);
     if (!isset($activeTools[$normalizedName])) {
         return ['error' => 'Tool is not active or not registered', '__disabled' => false];
@@ -827,6 +1101,7 @@ function executeToolCall(string $toolName, array $arguments, array $activeTools)
     return executePhpTool($normalizedName, normalizeToolArguments($normalizedName, $arguments));
 }
 
+
 function buildToolUsageInstruction(array $activeTools): string {
     $toolNames = array_values(array_map(function ($tool) {
         return (string) ($tool['name'] ?? '');
@@ -845,9 +1120,11 @@ function buildToolUsageInstruction(array $activeTools): string {
         "To discover what tools are currently available, call list_available_tools.\n" .
         "To work with memory, use the memory tools such as list_memory_files and read_memory_file when available.\n" .
         "To configure MCP servers, use the MCP config tools such as configure_mcp_server or set_mcp_server_env_var when available.\n" .
+        "When the user asks to create a category node (e.g. database, api, cache) under the Agent, use create_category_node; the node appears in the graph in real-time.\n" .
         "If you need context from earlier conversations, use list_chat_history and get_chat_history to look up past exchanges.\n" .
         "If the user explicitly provides local credentials, private keys, API keys, env vars, headers, or similar config values for a tool or MCP server, you may use them to configure the local app and MCP servers. Do not refuse solely because the value looks secret.\n" .
-        "When a tool returns an error (result contains an 'error' field), you MUST fix the tool and retry: use edit_tool_file to change the tool's PHP code, or edit_tool_registry_entry to change its description/parameters. Then call the tool again. Keep editing and retrying until the tool succeeds; do not give up or report the error to the user until you have retried by fixing the tool.\n" .
+        "CRITICAL - Tool creation: When you use create_or_update_tool, you MUST immediately call the newly created tool to test it. If it fails (error in result), use edit_tool_file to fix the PHP code and call the tool again. Repeat until the tool succeeds. Never respond to the user or report success until you have tested the tool and it works. This applies no matter what - always test, always fix until success.\n" .
+        "When any tool returns an error (result contains an 'error' field), you MUST fix the tool and retry: use edit_tool_file to change the tool's PHP code, or edit_tool_registry_entry to change its description/parameters. Then call the tool again. Keep editing and retrying until the tool succeeds; do not give up or report the error to the user until you have retried by fixing the tool.\n" .
         ($toolList !== '' ? "Currently active tools include: " . $toolList . "\n" : '') .
         "When you are not calling a tool, answer normally."
     );
@@ -855,16 +1132,33 @@ function buildToolUsageInstruction(array $activeTools): string {
 
 /** Build the user/tool message content for a tool result; when result has 'error', append fix-and-retry directive. */
 function formatToolResultForModel(string $toolName, array $toolResult, bool $inlineFormat = false): string {
+    $fixDirective = ' You MUST fix the tool using edit_tool_file (to change the PHP code) or edit_tool_registry_entry (to change parameters), then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
+    if (isset($toolResult['error']) && isset($toolResult['file']) && isset($toolResult['line'])) {
+        $fixDirective = ' Fix the error in tools/' . $toolResult['file'] . ' at line ' . $toolResult['line'] . ' using edit_tool_file, then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
+    } elseif (isset($toolResult['error'])) {
+        $fixDirective = ' You MUST fix the tool using edit_tool_file (to change the PHP code) or edit_tool_registry_entry (to change parameters), then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
+    }
     $json = json_encode($toolResult);
     if ($inlineFormat) {
         $base = 'Tool "' . $toolName . '" returned: ' . $json;
         if (isset($toolResult['error'])) {
-            return $base . '. The result contains an error. You MUST fix the tool using edit_tool_file (to change the PHP code) or edit_tool_registry_entry (to change parameters), then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
+            return $base . '. The result contains an error.' . $fixDirective;
+        }
+        if ($toolName === 'create_or_update_tool' && !isset($toolResult['error'])) {
+            $name = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+            return $base . '. You MUST now call the tool "' . $name . '" to test it. If it fails, use edit_tool_file to fix the code and test again. Never respond to the user until the tool works successfully.';
         }
         return $base . '. Continue and answer the original user request.';
     }
     if (isset($toolResult['error'])) {
-        return 'Error - fix this tool with edit_tool_file or edit_tool_registry_entry and call it again: ' . $json;
+        $loc = (isset($toolResult['file']) && isset($toolResult['line']))
+            ? ' Fix tools/' . $toolResult['file'] . ' line ' . $toolResult['line'] . '.'
+            : '';
+        return 'Error - fix this tool with edit_tool_file or edit_tool_registry_entry and call it again.' . $loc . ' ' . $json;
+    }
+    if ($toolName === 'create_or_update_tool') {
+        $name = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        return $json . "\n\nYou MUST now call the tool \"" . $name . "\" to test it. If it fails, use edit_tool_file to fix the code and test again. Never respond to the user until the tool works successfully.";
     }
     return $json;
 }
@@ -972,6 +1266,7 @@ function requestOpenAiCompatible(array $provider, string $model, array $conversa
         ],
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 120,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
     ]);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1022,6 +1317,7 @@ function requestGemini(array $provider, string $model, array $conversation, floa
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 120,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
     ]);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1120,6 +1416,7 @@ $effectiveSystemPrompt = trim(($systemPrompt !== '' ? $systemPrompt . "\n\n" : '
 $conversation = normalizeConversation($messages, $effectiveSystemPrompt, $provider['type']);
 $finalContent = '';
 $loopCount = 0;
+$jobsToRun = [];
 
 $apiRetryCount = 0;
 $apiErrorRetryMax = 3;
@@ -1209,17 +1506,38 @@ while (true) {
                     $executionState['gettingAvailTools'],
                     $executionState['checkingMemory'],
                     $executionState['checkingInstructions'],
+                    $executionState['checkingResearch'],
+                    $executionState['checkingRules'],
                     $executionState['checkingMcps'],
                     $executionState['checkingJobs'],
                     $executionState['activeToolIds'],
                     $executionState['activeMemoryIds'],
                     $executionState['activeInstructionIds'],
+                    $executionState['activeResearchIds'],
+                    $executionState['activeRulesIds'],
                     $executionState['activeMcpIds'],
                     $executionState['activeJobIds'],
                     $executionState['executionDetails']
                 );
                 usleep(120000);
-                $toolResult = executeToolCall($functionName, $arguments, $activeTools);
+                try {
+                    $toolResult = executeToolCall($functionName, $arguments, $activeTools);
+                } catch (Throwable $e) {
+                    $toolResult = [
+                        'error' => 'Tool execution threw: ' . $e->getMessage(),
+                        'exception' => get_class($e),
+                        'file' => basename($e->getFile()),
+                        'line' => $e->getLine(),
+                    ];
+                }
+                $toolResult = is_array($toolResult) ? $toolResult : ['error' => 'Tool returned invalid result'];
+                if ($normalizedFunctionName === 'execute_job_file' && !isset($toolResult['error']) && !empty($toolResult['name']) && !empty($toolResult['content'])) {
+                    $jobsToRun[] = [
+                        'name' => $toolResult['name'],
+                        'content' => $toolResult['content'],
+                        'nodeId' => $toolResult['nodeId'] ?? job_node_id($toolResult['name']),
+                    ];
+                }
                 if (shouldRefreshGraphForToolResult($normalizedFunctionName, is_array($toolResult) ? $toolResult : [])) {
                     queueGraphRefresh($status, $requestId);
                 }
@@ -1270,17 +1588,39 @@ while (true) {
                 $executionState['gettingAvailTools'],
                 $executionState['checkingMemory'],
                 $executionState['checkingInstructions'],
+                $executionState['checkingResearch'],
+                $executionState['checkingRules'],
                 $executionState['checkingMcps'],
                 $executionState['checkingJobs'],
                 $executionState['activeToolIds'],
                 $executionState['activeMemoryIds'],
                 $executionState['activeInstructionIds'],
+                $executionState['activeResearchIds'],
+                $executionState['activeRulesIds'],
                 $executionState['activeMcpIds'],
                 $executionState['activeJobIds'],
                 $executionState['executionDetails']
             );
             usleep(45000);
-            $toolResult = executeToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
+            try {
+                $toolResult = executeToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
+            } catch (Throwable $e) {
+                $toolResult = [
+                    'error' => 'Tool execution threw: ' . $e->getMessage(),
+                    'exception' => get_class($e),
+                    'file' => basename($e->getFile()),
+                    'line' => $e->getLine(),
+                ];
+            }
+            $toolResult = is_array($toolResult) ? $toolResult : ['error' => 'Tool returned invalid result'];
+            $normalizedInlineName = normalizeToolName($inlineToolCall['name']);
+            if ($normalizedInlineName === 'execute_job_file' && !isset($toolResult['error']) && !empty($toolResult['name']) && !empty($toolResult['content'])) {
+                $jobsToRun[] = [
+                    'name' => $toolResult['name'],
+                    'content' => $toolResult['content'],
+                    'nodeId' => $toolResult['nodeId'] ?? job_node_id($toolResult['name']),
+                ];
+            }
             if (shouldRefreshGraphForToolResult($inlineToolCall['name'], is_array($toolResult) ? $toolResult : [])) {
                 queueGraphRefresh($status, $requestId);
             }
@@ -1342,17 +1682,39 @@ while (true) {
             $executionState['gettingAvailTools'],
             $executionState['checkingMemory'],
             $executionState['checkingInstructions'],
+            $executionState['checkingResearch'],
+            $executionState['checkingRules'],
             $executionState['checkingMcps'],
             $executionState['checkingJobs'],
             $executionState['activeToolIds'],
             $executionState['activeMemoryIds'],
             $executionState['activeInstructionIds'],
+            $executionState['activeResearchIds'],
+            $executionState['activeRulesIds'],
             $executionState['activeMcpIds'],
             $executionState['activeJobIds'],
             $executionState['executionDetails']
         );
         usleep(120000);
-        $toolResult = executeToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
+        try {
+            $toolResult = executeToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
+        } catch (Throwable $e) {
+            $toolResult = [
+                'error' => 'Tool execution threw: ' . $e->getMessage(),
+                'exception' => get_class($e),
+                'file' => basename($e->getFile()),
+                'line' => $e->getLine(),
+            ];
+        }
+        $toolResult = is_array($toolResult) ? $toolResult : ['error' => 'Tool returned invalid result'];
+        $normalizedInlineName = normalizeToolName($inlineToolCall['name']);
+        if ($normalizedInlineName === 'execute_job_file' && !isset($toolResult['error']) && !empty($toolResult['name']) && !empty($toolResult['content'])) {
+            $jobsToRun[] = [
+                'name' => $toolResult['name'],
+                'content' => $toolResult['content'],
+                'nodeId' => $toolResult['nodeId'] ?? job_node_id($toolResult['name']),
+            ];
+        }
         if (shouldRefreshGraphForToolResult($inlineToolCall['name'], is_array($toolResult) ? $toolResult : [])) {
             queueGraphRefresh($status, $requestId);
         }
@@ -1404,7 +1766,7 @@ if ($initialUserContent !== '' && trim($finalContent) !== '') {
     append_chat_exchange($requestId, $initialUserContent, $finalContent);
 }
 
-echo json_encode([
+$response = [
     'choices' => [
         [
             'message' => [
@@ -1414,4 +1776,11 @@ echo json_encode([
         ],
     ],
     'request_id' => $requestId,
-]);
+];
+if (!empty($jobsToRun)) {
+    $response['jobToRun'] = $jobsToRun;
+}
+if (!empty($status['graphRefreshNeeded'])) {
+    $response['graphRefreshNeeded'] = true;
+}
+echo json_encode($response);

@@ -52,6 +52,8 @@
             window.agentState.setActiveInstructionIds([]);
             window.agentState.setActiveMcpIds([]);
             window.agentState.setActiveJobIds([]);
+            window.agentState.setActiveResearchIds([]);
+            window.agentState.setActiveRulesIds([]);
             window.agentState.setExecutionDetailsByNode({});
             if (typeof window.agentState.setMemoryToolExecuting === 'function') window.agentState.setMemoryToolExecuting(false);
             if (typeof window.agentState.setToolExecuting === 'function') window.agentState.setToolExecuting(false);
@@ -67,6 +69,9 @@
         var inferredToolIds = Array.isArray(status.activeToolIds) ? status.activeToolIds.slice() : [];
         var inferredMemoryIds = Array.isArray(status.activeMemoryIds) ? status.activeMemoryIds.slice() : [];
         var inferredInstructionIds = Array.isArray(status.activeInstructionIds) ? status.activeInstructionIds.slice() : [];
+        var inferredResearchIds = Array.isArray(status.activeResearchIds) ? status.activeResearchIds.slice() : [];
+        var inferredRulesIds = Array.isArray(status.activeRulesIds) ? status.activeRulesIds.slice() : [];
+        var inferredCategoryIds = Array.isArray(status.activeCategoryIds) ? status.activeCategoryIds.slice() : [];
         var inferredMcpIds = Array.isArray(status.activeMcpIds) ? status.activeMcpIds.slice() : [];
         var inferredJobIds = Array.isArray(status.activeJobIds) ? status.activeJobIds.slice() : [];
 
@@ -74,6 +79,9 @@
             if (key.indexOf('tool_') === 0 && inferredToolIds.indexOf(key) === -1) inferredToolIds.push(key);
             if (key.indexOf('memory_file_') === 0 && inferredMemoryIds.indexOf(key) === -1) inferredMemoryIds.push(key);
             if (key.indexOf('instruction_file_') === 0 && inferredInstructionIds.indexOf(key) === -1) inferredInstructionIds.push(key);
+            if (key.indexOf('research_file_') === 0 && inferredResearchIds.indexOf(key) === -1) inferredResearchIds.push(key);
+            if (key.indexOf('rules_file_') === 0 && inferredRulesIds.indexOf(key) === -1) inferredRulesIds.push(key);
+            if (key.indexOf('category_') === 0 && inferredCategoryIds.indexOf(key) === -1) inferredCategoryIds.push(key);
             if (key.indexOf('mcp_server_') === 0 && inferredMcpIds.indexOf(key) === -1) inferredMcpIds.push(key);
             if (key.indexOf('job_file_') === 0 && inferredJobIds.indexOf(key) === -1) inferredJobIds.push(key);
         });
@@ -82,6 +90,9 @@
         var inferredToolExecution = !!(status.gettingAvailTools || inferredToolIds.length || executionDetails.tools);
         var inferredMemoryExecution = !!(status.checkingMemory || inferredMemoryIds.length || executionDetails.memory);
         var inferredInstructionExecution = !!(status.checkingInstructions || inferredInstructionIds.length || executionDetails.instructions);
+        var inferredResearchExecution = !!(status.checkingResearch || inferredResearchIds.length || executionDetails.research);
+        var inferredRulesExecution = !!(status.checkingRules || inferredRulesIds.length || executionDetails.rules);
+        var inferredCategoryExecution = !!(inferredCategoryIds.length || executionDetails.categories);
         var inferredJobExecution = !!(status.checkingJobs || inferredJobIds.length || executionDetails.jobs);
         var memoryActive = !!(status.checkingMemory || inferredMemoryIds.length > 0 || status.memoryToolExecuting || status.isAccessingMemoryFile);
         var durationMs = memoryActive && inferredMemoryIds.length > 0 ? 4500 : (status.thinking ? 2600 : 2200);
@@ -91,11 +102,17 @@
                 gettingAvailTools: !!status.gettingAvailTools,
                 checkingMemory: !!status.checkingMemory,
                 checkingInstructions: !!status.checkingInstructions,
+                checkingResearch: inferredResearchExecution,
+                checkingRules: inferredRulesExecution,
+                checkingCategories: inferredCategoryExecution,
                 checkingMcps: inferredCheckingMcps,
                 checkingJobs: !!status.checkingJobs,
                 activeToolIds: inferredToolIds,
                 activeMemoryIds: inferredMemoryIds,
                 activeInstructionIds: inferredInstructionIds,
+                activeResearchIds: inferredResearchIds,
+                activeRulesIds: inferredRulesIds,
+                activeCategoryIds: inferredCategoryIds,
                 activeMcpIds: inferredMcpIds,
                 activeJobIds: inferredJobIds,
                 executionDetailsByNode: executionDetails,
@@ -410,12 +427,23 @@
         })
             .done(function (res) {
                 if (wasStopped) return;
+                if (res && res.graphRefreshNeeded && typeof window.MemoryGraphRefresh === 'function') {
+                    window.MemoryGraphRefresh();
+                }
                 var content = '';
                 if (res && res.choices && res.choices[0] && res.choices[0].message)
                     content = res.choices[0].message.content || '';
                 else if (typeof res === 'string') content = res;
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
                 showNotification(preview || 'No text in response.', text, content);
+                if (res && res.jobToRun && typeof window.MemoryGraphRunJob === 'function') {
+                    var jobs = Array.isArray(res.jobToRun) ? res.jobToRun : [res.jobToRun];
+                    jobs.forEach(function (job) {
+                        if (job && job.name && job.content) {
+                            window.MemoryGraphRunJob(job.name, job.content, { nodeId: job.nodeId || null });
+                        }
+                    });
+                }
                 if (typeof window.applyAgentConfig === 'function') {
                     $.getJSON('api/agent_config.php').done(function (data) { if (data) window.applyAgentConfig(data); }).fail(function () {});
                 }
