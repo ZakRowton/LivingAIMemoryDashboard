@@ -167,6 +167,61 @@
         }
         .chat-bar .btn-send:hover { filter: brightness(1.1); }
         .chat-bar .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
+        .chat-queue-wrap {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.12);
+        }
+        .chat-queue-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: var(--gold);
+            font-family: 'Cinzel', serif;
+        }
+        .chat-queue-toggle {
+            font-size: 0.75rem;
+            transition: transform 0.2s;
+        }
+        .chat-queue-wrap.collapsed .chat-queue-toggle { transform: rotate(-90deg); }
+        .chat-queue-wrap.collapsed .chat-queue-list { display: none; }
+        .chat-queue-list {
+            margin-top: 8px;
+            max-height: 140px;
+            overflow-y: auto;
+        }
+        .chat-queue-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(214, 219, 226, 0.12);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        .chat-queue-item-text {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .chat-queue-item-actions {
+            display: flex;
+            gap: 4px;
+        }
+        .chat-queue-item-actions button {
+            background: transparent;
+            border: none;
+            color: var(--gold-dim);
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 0.85rem;
+        }
+        .chat-queue-item-actions button:hover { color: var(--gold); }
         #notifications {
             position: fixed;
             bottom: 100px;
@@ -637,6 +692,13 @@
 
 
     <div class="chat-bar">
+        <div id="chat-queue-wrap" class="chat-queue-wrap" style="display: none;">
+            <div class="chat-queue-header" id="chat-queue-header">
+                <span class="chat-queue-toggle" id="chat-queue-toggle">&#9660;</span>
+                <span id="chat-queue-count">0 Queued</span>
+            </div>
+            <div class="chat-queue-list" id="chat-queue-list"></div>
+        </div>
         <div class="input-wrap">
             <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
             <button type="button" class="btn-send" id="chat-send">Send</button>

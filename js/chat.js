@@ -1,5 +1,6 @@
 /**
  * Sticky chat: POST to Mercury API via api/chat.php, show response as notification; click opens modal.
+ * Supports a queue: multiple prompts can be sent; if one is executing, new ones are queued.
  */
 (function () {
     var $input = $('#chat-input');
@@ -7,6 +8,11 @@
     var $stop = $('#chat-stop');
     var $notifications = $('#notifications');
     var $modalBody = $('#response-modal-body');
+    var $queueWrap = $('#chat-queue-wrap');
+    var $queueHeader = $('#chat-queue-header');
+    var $queueToggle = $('#chat-queue-toggle');
+    var $queueCount = $('#chat-queue-count');
+    var $queueList = $('#chat-queue-list');
     if (!$input.length || !$send.length) return;
     var RECENT_ACTIVITY_HOLD_MS = 1800;
     var fullResponses = {};
@@ -16,10 +22,72 @@
     var currentRequest = null;
     var wasStopped = false;
     var lastGraphRefreshToken = '';
+    var promptQueue = [];
 
     function setRequestUi(active) {
         $send.prop('disabled', active);
         if ($stop.length) $stop.prop('disabled', !active).toggle(active);
+        $input.attr('placeholder', (active || promptQueue.length > 0) ? 'Add a follow-up' : 'Ask the AI...');
+    }
+
+    function renderQueue() {
+        if (!promptQueue.length) {
+            $queueWrap.hide();
+            return;
+        }
+        $queueWrap.show();
+        $queueCount.text(promptQueue.length + ' Queued');
+        $queueList.empty();
+        promptQueue.forEach(function (item, idx) {
+            var $item = $('<div class="chat-queue-item" data-idx="' + idx + '">');
+            $('<span class="chat-queue-item-text">').text(item.text || '(empty)').appendTo($item);
+            var $actions = $('<div class="chat-queue-item-actions">');
+            $('<button type="button" title="Edit">&#9998;</button>').on('click', function () {
+                $input.val(item.text).focus();
+                removeFromQueue(idx);
+                renderQueue();
+            }).appendTo($actions);
+            $('<button type="button" title="Move up">&#9650;</button>').on('click', function () {
+                if (idx > 0) {
+                    var t = promptQueue[idx];
+                    promptQueue[idx] = promptQueue[idx - 1];
+                    promptQueue[idx - 1] = t;
+                    renderQueue();
+                }
+            }).appendTo($actions);
+            $('<button type="button" title="Remove">&#128465;</button>').on('click', function () {
+                removeFromQueue(idx);
+                renderQueue();
+            }).appendTo($actions);
+            $item.append($actions);
+            $queueList.append($item);
+        });
+    }
+
+    function addToQueue(text) {
+        promptQueue.push({ text: text, id: Date.now() + '_' + Math.random().toString(36).slice(2) });
+        renderQueue();
+        setRequestUi(!!currentRequest);
+    }
+
+    function removeFromQueue(idx) {
+        promptQueue.splice(idx, 1);
+        renderQueue();
+        setRequestUi(!!currentRequest);
+    }
+
+    function shiftNextFromQueue() {
+        if (!promptQueue.length) return null;
+        return promptQueue.shift().text;
+    }
+
+    function processNextInQueue() {
+        var next = shiftNextFromQueue();
+        renderQueue();
+        setRequestUi(!!currentRequest);
+        if (next) {
+            setTimeout(function () { sendMessageInternal(next); }, 100);
+        }
     }
 
     function signalGraphActivity(sections, nodeIds, durationMs) {
@@ -396,9 +464,17 @@
     function sendMessage() {
         var text = ($input.val() || '').trim();
         if (!text) return;
+        $input.val('');
+        if (currentRequest) {
+            addToQueue(text);
+            return;
+        }
+        sendMessageInternal(text);
+    }
+
+    function sendMessageInternal(text) {
         wasStopped = false;
         setRequestUi(true);
-        $input.val('');
 
         var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
         var messages = [];
@@ -477,12 +553,17 @@
                     }, RECENT_ACTIVITY_HOLD_MS);
                 }
                 if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
-                setRequestUi(false);
+                processNextInQueue();
                 $input.focus();
             });
     }
 
     $send.on('click', sendMessage);
+    if ($queueHeader.length) {
+        $queueHeader.on('click', function () {
+            $queueWrap.toggleClass('collapsed');
+        });
+    }
     if ($stop.length) {
         $stop.on('click', function () {
             if (!currentRequest) return;
