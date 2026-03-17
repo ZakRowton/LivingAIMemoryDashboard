@@ -120,6 +120,16 @@
             border-radius: 50%;
             flex-shrink: 0;
         }
+        .graph-legend-categories-wrap {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(214, 219, 226, 0.12);
+        }
+        .graph-legend-subtitle {
+            font-size: 0.8rem;
+            color: var(--gold-dim);
+            margin-bottom: 4px;
+        }
         .chat-bar {
             position: fixed;
             bottom: 24px;
@@ -679,14 +689,21 @@
 
     <div class="graph-legend" id="graph-legend">
         <div class="graph-legend-title font-display">Nodes</div>
-        <ul class="graph-legend-list">
+        <ul class="graph-legend-list" id="graph-legend-static">
             <li><span class="graph-legend-swatch" style="background:#d9e4ff; box-shadow:0 0 8px rgba(217,228,255,0.7);"></span> Agent</li>
             <li><span class="graph-legend-swatch" style="background:#47d7c9; box-shadow:0 0 8px rgba(71,215,201,0.6);"></span> Memory</li>
             <li><span class="graph-legend-swatch" style="background:#ffc857; box-shadow:0 0 8px rgba(255,200,87,0.6);"></span> Tools</li>
             <li><span class="graph-legend-swatch" style="background:#7cb8ff; box-shadow:0 0 8px rgba(124,184,255,0.65);"></span> Instructions</li>
+            <li><span class="graph-legend-swatch" style="background:#b8a9e8; box-shadow:0 0 8px rgba(184,169,232,0.6);"></span> Research</li>
+            <li><span class="graph-legend-swatch" style="background:#e8a9b8; box-shadow:0 0 8px rgba(232,169,184,0.6);"></span> Rules</li>
             <li><span class="graph-legend-swatch" style="background:#6be38e; box-shadow:0 0 8px rgba(107,227,142,0.55);"></span> MCPs</li>
             <li><span class="graph-legend-swatch" style="background:#ff8f70; box-shadow:0 0 8px rgba(255,143,112,0.58);"></span> Jobs</li>
+            <li><span class="graph-legend-swatch" style="background:#a0d4e8; box-shadow:0 0 8px rgba(160,212,232,0.6);"></span> Categories</li>
         </ul>
+        <div class="graph-legend-categories-wrap" id="graph-legend-categories-wrap" style="display:none;">
+            <div class="graph-legend-subtitle">Category nodes</div>
+            <ul class="graph-legend-list graph-legend-categories" id="graph-legend-categories"></ul>
+        </div>
     </div>
 
 
@@ -883,6 +900,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="AgentState.js"></script>
+    <script>
+    window.MemoryGraphUpdateLegend = function (categories) {
+        var wrap = document.getElementById('graph-legend-categories-wrap');
+        var el = document.getElementById('graph-legend-categories');
+        if (!el || !wrap) return;
+        el.innerHTML = '';
+        var list = categories || [];
+        wrap.style.display = list.length ? 'block' : 'none';
+        list.forEach(function (cat) {
+            var li = document.createElement('li');
+            li.innerHTML = '<span class="graph-legend-swatch" style="background:#b0e4f8; box-shadow:0 0 8px rgba(176,228,248,0.6);"></span> ' + (cat.title || cat.name || '');
+            el.appendChild(li);
+        });
+    };
+    </script>
     <script src="js/graph.js"></script>
     <script>
     window.MEMORY_GRAPH_PROVIDERS = {

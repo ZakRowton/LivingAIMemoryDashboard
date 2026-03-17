@@ -278,6 +278,9 @@
             window.jobFiles = (results[6] || {}).jobs || [];
             window.categoryNodes = (results[7] || {}).categories || [];
             buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.categoryNodes);
+            if (typeof window.MemoryGraphUpdateLegend === 'function') {
+                window.MemoryGraphUpdateLegend(window.categoryNodes || []);
+            }
         }).catch(function () {});
     }
     window.MemoryGraphRefresh = loadDynamicNodes;
