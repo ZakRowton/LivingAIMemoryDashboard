@@ -6,6 +6,24 @@
 
 MemoryGraph is a lightweight all-in-one interface for connecting AI providers and models to a live execution framework with visual graph-based introspection.
 
+<details>
+<summary><strong>Screenshots</strong> — click to expand</summary>
+
+<p align="center">
+  <sub><strong>1</strong> — Graph &amp; workspace</sub><br />
+  <img src="Screenshot1.PNG" alt="Open Jarvis Dashboard — graph and workspace" width="720" />
+</p>
+<p align="center">
+  <sub><strong>2</strong> — Chat &amp; panels</sub><br />
+  <img src="Screenshot2.PNG" alt="Open Jarvis Dashboard — chat and side panels" width="720" />
+</p>
+<p align="center">
+  <sub><strong>3</strong> — Settings / tools</sub><br />
+  <img src="Screenshot3.PNG" alt="Open Jarvis Dashboard — settings or tools view" width="720" />
+</p>
+
+</details>
+
 ## Quick install
 
 One-command setup (installs or uses existing XAMPP/Apache+PHP, starts the server, and prepares the app):
