@@ -1,0 +1,17 @@
+{
+  "name": "mcp-sidecar",
+  "version": "1.0.0",
+  "description": "Persistent MCP sessions for MemoryGraph (localhost only)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  }
+}

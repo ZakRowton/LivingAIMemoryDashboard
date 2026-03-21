@@ -23,6 +23,42 @@
     var wasStopped = false;
     var lastGraphRefreshToken = '';
     var promptQueue = [];
+    var CHAT_TURNS_KEY = 'memoryGraphChatTurnsV1';
+    var CHAT_SESSION_KEY = 'memoryGraphChatSessionIdV1';
+    var MAX_STORED_TURNS = 40;
+
+    function getOrCreateChatSessionId() {
+        try {
+            var s = sessionStorage.getItem(CHAT_SESSION_KEY);
+            if (s && String(s).trim()) return String(s).trim();
+        } catch (e) {}
+        var id = 'cs_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
+        try {
+            sessionStorage.setItem(CHAT_SESSION_KEY, id);
+        } catch (e2) {}
+        return id;
+    }
+
+    function loadChatTurns() {
+        try {
+            var raw = sessionStorage.getItem(CHAT_TURNS_KEY);
+            if (!raw) return [];
+            var arr = JSON.parse(raw);
+            return Array.isArray(arr) ? arr : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function saveChatTurns(turns) {
+        try {
+            var t = turns.slice();
+            if (t.length > MAX_STORED_TURNS) t = t.slice(-MAX_STORED_TURNS);
+            sessionStorage.setItem(CHAT_TURNS_KEY, JSON.stringify(t));
+        } catch (e) {}
+    }
+
+    var chatTurns = loadChatTurns();
 
     function setRequestUi(active) {
         $send.prop('disabled', active);
@@ -139,7 +175,6 @@
         var inferredInstructionIds = Array.isArray(status.activeInstructionIds) ? status.activeInstructionIds.slice() : [];
         var inferredResearchIds = Array.isArray(status.activeResearchIds) ? status.activeResearchIds.slice() : [];
         var inferredRulesIds = Array.isArray(status.activeRulesIds) ? status.activeRulesIds.slice() : [];
-        var inferredCategoryIds = Array.isArray(status.activeCategoryIds) ? status.activeCategoryIds.slice() : [];
         var inferredMcpIds = Array.isArray(status.activeMcpIds) ? status.activeMcpIds.slice() : [];
         var inferredJobIds = Array.isArray(status.activeJobIds) ? status.activeJobIds.slice() : [];
 
@@ -149,9 +184,8 @@
             if (key.indexOf('instruction_file_') === 0 && inferredInstructionIds.indexOf(key) === -1) inferredInstructionIds.push(key);
             if (key.indexOf('research_file_') === 0 && inferredResearchIds.indexOf(key) === -1) inferredResearchIds.push(key);
             if (key.indexOf('rules_file_') === 0 && inferredRulesIds.indexOf(key) === -1) inferredRulesIds.push(key);
-            if (key.indexOf('category_') === 0 && inferredCategoryIds.indexOf(key) === -1) inferredCategoryIds.push(key);
             if (key.indexOf('mcp_server_') === 0 && inferredMcpIds.indexOf(key) === -1) inferredMcpIds.push(key);
-            if (key.indexOf('job_file_') === 0 && inferredJobIds.indexOf(key) === -1) inferredJobIds.push(key);
+            if ((key.indexOf('job_file_') === 0 || key.indexOf('job_cron_') === 0) && inferredJobIds.indexOf(key) === -1) inferredJobIds.push(key);
         });
 
         var inferredCheckingMcps = !!(status.checkingMcps || inferredMcpIds.length || executionDetails.mcps);
@@ -160,7 +194,6 @@
         var inferredInstructionExecution = !!(status.checkingInstructions || inferredInstructionIds.length || executionDetails.instructions);
         var inferredResearchExecution = !!(status.checkingResearch || inferredResearchIds.length || executionDetails.research);
         var inferredRulesExecution = !!(status.checkingRules || inferredRulesIds.length || executionDetails.rules);
-        var inferredCategoryExecution = !!(inferredCategoryIds.length || executionDetails.categories);
         var inferredJobExecution = !!(status.checkingJobs || inferredJobIds.length || executionDetails.jobs);
         var memoryActive = !!(status.checkingMemory || inferredMemoryIds.length > 0 || status.memoryToolExecuting || status.isAccessingMemoryFile);
         var durationMs = memoryActive && inferredMemoryIds.length > 0 ? 4500 : (status.thinking ? 2600 : 2200);
@@ -172,7 +205,6 @@
                 checkingInstructions: !!status.checkingInstructions,
                 checkingResearch: inferredResearchExecution,
                 checkingRules: inferredRulesExecution,
-                checkingCategories: inferredCategoryExecution,
                 checkingMcps: inferredCheckingMcps,
                 checkingJobs: !!status.checkingJobs,
                 activeToolIds: inferredToolIds,
@@ -180,7 +212,6 @@
                 activeInstructionIds: inferredInstructionIds,
                 activeResearchIds: inferredResearchIds,
                 activeRulesIds: inferredRulesIds,
-                activeCategoryIds: inferredCategoryIds,
                 activeMcpIds: inferredMcpIds,
                 activeJobIds: inferredJobIds,
                 executionDetailsByNode: executionDetails,
@@ -193,6 +224,9 @@
             if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
         }
         if (typeof window.MemoryGraphUpdateExecutionPanel === 'function') window.MemoryGraphUpdateExecutionPanel();
+        if (typeof window.SimpleUiLogFromStatus === 'function') {
+            window.SimpleUiLogFromStatus(status || {});
+        }
         if (!status.thinking && !stopPollingTimeout) {
             stopPollingTimeout = setTimeout(function () {
                 stopStatusPolling();
@@ -351,11 +385,54 @@
         });
     }
 
+    function getMarkedParseFn() {
+        var m = typeof marked !== 'undefined' ? marked : null;
+        if (!m) return null;
+        if (typeof m.parse === 'function') {
+            try {
+                m.setOptions({ gfm: true, breaks: true });
+            } catch (e1) {}
+            return function (src) {
+                return m.parse(src);
+            };
+        }
+        if (typeof m === 'function') {
+            return m;
+        }
+        return null;
+    }
+
+    function memoryGraphMarkdownToHtml(src) {
+        if (!src || typeof src !== 'string') return null;
+        var parseMd = getMarkedParseFn();
+        var purify = typeof DOMPurify !== 'undefined' ? DOMPurify : null;
+        if (!parseMd || !purify) return null;
+        try {
+            var raw = parseMd(src);
+            if (!raw || typeof raw !== 'string') return null;
+            return purify.sanitize(raw, { USE_PROFILES: { html: true } });
+        } catch (e2) {
+            return null;
+        }
+    }
+
     function appendTextBlock($container, text) {
         if (!text) return;
         var cleaned = text.replace(/^\s+|\s+$/g, '');
         if (!cleaned) return;
         $('<div class="response-modal-text">').text(cleaned).appendTo($container);
+    }
+
+    function appendMarkdownOrText($container, text) {
+        if (!text) return;
+        var cleaned = text.replace(/^\s+|\s+$/g, '');
+        if (!cleaned) return;
+        var html = memoryGraphMarkdownToHtml(cleaned);
+        if (html) {
+            $('<div class="response-modal-md font-serif">').html(html).appendTo($container);
+            return;
+        }
+        appendTextBlock($container, cleaned);
     }
 
     function appendCodeBlock($container, language, code) {
@@ -391,13 +468,13 @@
 
         while ((match = codeBlockRegex.exec(text)) !== null) {
             hasMatches = true;
-            appendTextBlock($container, text.slice(lastIndex, match.index));
+            appendMarkdownOrText($container, text.slice(lastIndex, match.index));
             appendCodeBlock($container, match[1] || '', match[2] || '');
             lastIndex = codeBlockRegex.lastIndex;
         }
 
         if (hasMatches) {
-            appendTextBlock($container, text.slice(lastIndex));
+            appendMarkdownOrText($container, text.slice(lastIndex));
             return;
         }
 
@@ -406,7 +483,7 @@
             return;
         }
 
-        appendTextBlock($container, text);
+        appendMarkdownOrText($container, text);
     }
 
     function renderModalContent(promptText, responseText) {
@@ -477,10 +554,13 @@
         setRequestUi(true);
 
         var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        var chatSessionId = getOrCreateChatSessionId();
         var messages = [];
-        if (settings.systemPrompt) {
-            messages.push({ role: 'system', content: settings.systemPrompt });
-        }
+        chatTurns.forEach(function (t) {
+            if (t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string') {
+                messages.push({ role: t.role, content: t.content });
+            }
+        });
         messages.push({ role: 'user', content: text });
         var requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
         lastGraphRefreshToken = '';
@@ -494,6 +574,7 @@
             contentType: 'application/json',
             data: JSON.stringify({
                 requestId: requestId,
+                chatSessionId: chatSessionId,
                 provider: settings.provider || 'mercury',
                 model: settings.model || 'mercury-2',
                 systemPrompt: settings.systemPrompt || '',
@@ -512,6 +593,9 @@
                 else if (typeof res === 'string') content = res;
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
                 showNotification(preview || 'No text in response.', text, content);
+                chatTurns.push({ role: 'user', content: text });
+                chatTurns.push({ role: 'assistant', content: content });
+                saveChatTurns(chatTurns);
                 if (res && res.jobToRun && typeof window.MemoryGraphRunJob === 'function') {
                     var jobs = Array.isArray(res.jobToRun) ? res.jobToRun : [res.jobToRun];
                     jobs.forEach(function (job) {

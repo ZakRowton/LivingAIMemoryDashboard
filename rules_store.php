@@ -27,7 +27,10 @@ function rules_node_id(string $filename): string {
     return 'rules_file_' . ($slug !== '' ? $slug : 'rules');
 }
 
-function list_rules_files_meta(): array {
+/**
+ * @param bool $includeContent If false, skips reading file bodies (fast for listings).
+ */
+function list_rules_files_meta(bool $includeContent = false): array {
     $dir = rules_dir_path();
     if (!is_dir($dir)) {
         return [];
@@ -36,12 +39,15 @@ function list_rules_files_meta(): array {
     $result = [];
     foreach ($files as $filePath) {
         $filename = basename($filePath);
-        $result[] = [
+        $row = [
             'name' => $filename,
             'title' => pathinfo($filename, PATHINFO_FILENAME),
             'nodeId' => rules_node_id($filename),
-            'content' => (string) file_get_contents($filePath),
         ];
+        if ($includeContent) {
+            $row['content'] = (string) file_get_contents($filePath);
+        }
+        $result[] = $row;
     }
     usort($result, function ($a, $b) {
         return strcasecmp($a['name'], $b['name']);
@@ -54,12 +60,16 @@ function get_rules_meta(string $name): ?array {
     if ($filename === '') {
         return null;
     }
-    foreach (list_rules_files_meta() as $rules) {
-        if (strcasecmp($rules['name'], $filename) === 0) {
-            return $rules;
-        }
+    $path = rules_dir_path() . DIRECTORY_SEPARATOR . $filename;
+    if (!is_file($path)) {
+        return null;
     }
-    return null;
+    return [
+        'name' => $filename,
+        'title' => pathinfo($filename, PATHINFO_FILENAME),
+        'nodeId' => rules_node_id($filename),
+        'content' => (string) file_get_contents($path),
+    ];
 }
 
 function write_rules_file(string $name, string $content): array {

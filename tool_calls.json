@@ -2,7 +2,7 @@
     "tools": [
         {
             "name": "display_table",
-            "description": "Generates an HTML table with optional styling and a caption for displaying data in a cell format view.",
+            "description": "REQUIRED for showing structured tabular data in the UI: SQL/ETL results, research comparisons, model release lists, timelines, or any row/column data. Call with headers (column names) and rows (each row = array of string cells). Renders a styled HTML table. Do NOT use markdown pipe tables for that data\u2014call display_table first, then optional short prose. Use render_chart for graphs. Optional caption and style.",
             "active": true,
             "parameters": {
                 "properties": {
@@ -36,6 +36,24 @@
                     "headers",
                     "rows"
                 ],
+                "type": "object"
+            }
+        },
+        {
+            "name": "render_chart",
+            "description": "Show a chart in the UI as a styled image. Prefer this over pasting long QuickChart URLs in markdown. Either pass chart_config (object or JSON string) as a Chart.js-style config for QuickChart (same as the `c` query parameter), or pass chart_url with an https URL to a chart image (e.g. QuickChart or image-charts). Use after summarizing data that benefits from a visual (bar, line, pie, etc.).",
+            "active": true,
+            "parameters": {
+                "properties": {
+                    "chart_config": {
+                        "description": "QuickChart chart definition (Chart.js config object). Example: { type: 'bar', data: { labels: ['A','B'], datasets: [{ label: 'x', data: [1,2] }] } }",
+                        "type": "object"
+                    },
+                    "chart_url": {
+                        "description": "Full https URL to a chart image (optional if chart_config is set).",
+                        "type": "string"
+                    }
+                },
                 "type": "object"
             }
         },
@@ -144,48 +162,8 @@
             }
         },
         {
-            "name": "mysql_tool",
-            "description": "Execute MySQL queries on the local MySQL server (localhost:3306) using root\/root credentials. Supports creating databases, tables, and arbitrary SQL queries.",
-            "active": true,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": [
-                            "query",
-                            "create_database",
-                            "drop_database",
-                            "create_table",
-                            "drop_table"
-                        ],
-                        "description": "The type of operation to perform."
-                    },
-                    "database": {
-                        "type": "string",
-                        "description": "Database name for actions that require a specific DB."
-                    },
-                    "sql": {
-                        "type": "string",
-                        "description": "Arbitrary SQL statement to execute (used with action 'query')."
-                    },
-                    "table_schema": {
-                        "type": "string",
-                        "description": "SQL schema for creating a table (used with action 'create_table')."
-                    },
-                    "table_name": {
-                        "type": "string",
-                        "description": "Name of the table to create or drop."
-                    }
-                },
-                "required": [
-                    "action"
-                ]
-            }
-        },
-        {
             "name": "cron_job_manager",
-            "description": "Create a cron job entry by storing it in a markdown file. This simulates scheduling a command at a given cron expression.",
+            "description": "Legacy helper: creates a scheduled agent job (cron) plus a human-readable line in memory/cron_jobs.md. The command text is passed to the agent as context at run time; it is NOT executed as a shell command. Prefer agent_cron_add for full control (at/every/cron, timezone, one-shot delete).",
             "active": true,
             "parameters": {
                 "type": "object",
@@ -196,17 +174,255 @@
                     },
                     "schedule": {
                         "type": "string",
-                        "description": "Cron schedule expression, e.g., \"0 * * * *\"."
+                        "description": "5-field cron expression, e.g. \"0 * * * *\"."
                     },
                     "command": {
                         "type": "string",
-                        "description": "The shell command to execute."
+                        "description": "What the agent should do (instructions); not run as OS shell."
                     }
                 },
                 "required": [
                     "job_name",
                     "schedule",
                     "command"
+                ]
+            }
+        },
+        {
+            "name": "agent_cron_add",
+            "description": "Schedule an autonomous agent turn (OpenClaw-style). Persists to runtime/cron/jobs.json. schedule_kind: \"at\" (one-shot ISO 8601 in at), \"every\" (every_ms interval in milliseconds, min 5000), or \"cron\" (5-field cron in cron + optional timezone IANA). message is the user prompt sent to the model when the job fires. Optional provider, model, temperature override defaults from agent config. delete_after_run: for at-jobs only, remove the job from the store after a successful run (default false; set true for one-shot auto-cleanup).",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Display name for the schedule."
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Prompt for the agent when the job runs (prefixed with [cron:name] server-side)."
+                    },
+                    "schedule_kind": {
+                        "type": "string",
+                        "enum": [
+                            "at",
+                            "every",
+                            "cron"
+                        ],
+                        "description": "at | every | cron"
+                    },
+                    "at": {
+                        "type": "string",
+                        "description": "ISO 8601 time when schedule_kind is at."
+                    },
+                    "every_ms": {
+                        "type": "integer",
+                        "description": "Interval in milliseconds when schedule_kind is every (min 5000)."
+                    },
+                    "cron": {
+                        "type": "string",
+                        "description": "5-field cron when schedule_kind is cron."
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "description": "IANA timezone for cron schedules, e.g. America/Chicago. Defaults to PHP default timezone."
+                    },
+                    "delete_after_run": {
+                        "type": "boolean",
+                        "description": "For at-jobs: remove from the store after a successful run (default false)."
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "Whether the job is active (default true)."
+                    },
+                    "provider": {
+                        "type": "string",
+                        "description": "Optional provider key override."
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Optional model id override."
+                    },
+                    "temperature": {
+                        "type": "number",
+                        "description": "Optional sampling temperature."
+                    }
+                },
+                "required": [
+                    "name",
+                    "message",
+                    "schedule_kind"
+                ]
+            }
+        },
+        {
+            "name": "agent_cron_list",
+            "description": "List persisted agent cron jobs (id, schedule, last runs, message preview).",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": []
+            }
+        },
+        {
+            "name": "agent_cron_remove",
+            "description": "Remove a scheduled agent job by job_id (from agent_cron_list).",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "Cron job id."
+                    }
+                },
+                "required": [
+                    "job_id"
+                ]
+            }
+        },
+        {
+            "name": "agent_cron_run_now",
+            "description": "Immediately run one agent turn for a persisted cron job (by job_id), without waiting for the schedule. Logs outcome to the job history.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "Cron job id."
+                    }
+                },
+                "required": [
+                    "job_id"
+                ]
+            }
+        },
+        {
+            "name": "agent_cron_set_enabled",
+            "description": "Enable or disable a cron job without deleting it.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "Cron job id."
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "true to enable, false to pause."
+                    }
+                },
+                "required": [
+                    "job_id",
+                    "enabled"
+                ]
+            }
+        },
+        {
+            "name": "etl",
+            "description": "ETL tool for Azure SQL connection",
+            "active": false,
+            "parameters": {
+                "type": "object",
+                "properties": []
+            }
+        },
+        {
+            "name": "etl_payroll_tool",
+            "description": "Execute a SELECT query against the ETL Payroll Azure SQL database and return results as JSON with headers and rows.",
+            "active": false,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "SQL query to execute."
+                    }
+                },
+                "required": [
+                    "query"
+                ]
+            }
+        },
+        {
+            "name": "vba_mcp_list_apis",
+            "description": "List available Vba MCP APIs (static placeholder).",
+            "active": false,
+            "parameters": {
+                "type": "object",
+                "properties": []
+            }
+        },
+        {
+            "name": "vbasoftware_list_apis",
+            "description": "List available APIs from VBASoftware MCP server",
+            "active": false,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "description": "API name filter"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number",
+                        "default": 1
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of APIs per page",
+                        "default": 10
+                    }
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "vbasoftware_call_endpoint",
+            "description": "Call a VBASoftware MCP endpoint with given method, path, query and body",
+            "active": false,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "api": {
+                        "type": "string",
+                        "description": "API name, e.g., 'members'"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Endpoint path, e.g., '\/search'"
+                    },
+                    "method": {
+                        "type": "string",
+                        "enum": [
+                            "GET",
+                            "POST",
+                            "PUT",
+                            "DELETE",
+                            "PATCH"
+                        ],
+                        "description": "HTTP method"
+                    },
+                    "query": {
+                        "type": "object",
+                        "description": "Query parameters as key\/value pairs",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "body": {
+                        "type": "object",
+                        "description": "JSON body for POST\/PUT\/PATCH"
+                    }
+                },
+                "required": [
+                    "api",
+                    "path",
+                    "method"
                 ]
             }
         }

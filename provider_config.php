@@ -31,6 +31,7 @@ function get_agent_provider_config(): array {
         'currentModel'    => 'mercury-2',
         'customProviders' => [],
         'customModels'    => [],
+        'systemPromptsByModel' => [],
     ];
     if (!file_exists($path)) {
         return $default;
@@ -50,7 +51,35 @@ function save_agent_provider_config(array $config): bool {
     $path = agent_provider_config_path();
     $config['customProviders'] = isset($config['customProviders']) && is_array($config['customProviders']) ? $config['customProviders'] : [];
     $config['customModels']    = isset($config['customModels']) && is_array($config['customModels']) ? $config['customModels'] : [];
+    if (!isset($config['systemPromptsByModel']) || !is_array($config['systemPromptsByModel'])) {
+        $config['systemPromptsByModel'] = [];
+    }
     return @file_put_contents($path, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) !== false;
+}
+
+/** Map key: "provider:modelId" */
+function get_system_prompts_by_model(): array {
+    $c = get_agent_provider_config();
+    $m = $c['systemPromptsByModel'] ?? [];
+    return is_array($m) ? $m : [];
+}
+
+function set_system_prompt_for_provider_model(string $provider, string $model, string $text): array {
+    $provider = preg_replace('/[^a-zA-Z0-9_\-]/', '', $provider);
+    $model = trim($model);
+    if ($provider === '' || $model === '') {
+        return ['error' => 'provider and model are required'];
+    }
+    $key = $provider . ':' . $model;
+    $config = get_agent_provider_config();
+    if (!isset($config['systemPromptsByModel']) || !is_array($config['systemPromptsByModel'])) {
+        $config['systemPromptsByModel'] = [];
+    }
+    $config['systemPromptsByModel'][$key] = $text;
+    if (!save_agent_provider_config($config)) {
+        return ['error' => 'Failed to save system prompt'];
+    }
+    return ['ok' => true, 'key' => $key];
 }
 
 function get_current_provider_model(): array {
@@ -100,6 +129,7 @@ function get_providers_for_ui(): array {
         'currentProvider' => (string) ($config['currentProvider'] ?? 'mercury'),
         'currentModel'    => (string) ($config['currentModel'] ?? 'mercury-2'),
         'providers'       => $providers,
+        'systemPromptsByModel' => get_system_prompts_by_model(),
     ];
 }
 

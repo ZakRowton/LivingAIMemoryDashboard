@@ -1,5 +1,6 @@
 .env
 MemoryGraph.zip
+mcp-sidecar/node_modules/
 mcp_servers.json
 memory/*
 !memory/.gitkeep
@@ -9,6 +10,13 @@ jobs/*
 !jobs/.gitkeep
 tools/*
 !tools/.gitkeep
+!tools/*.php
+api/sent_emails.log
+runtime/cron/
+runtime/mcp-expanded-tools.json
+runtime/mcp-tools-cache/
+runtime/prompt-memory-rules.cache.json
+runtime/categories.json
 runtime/chat-status/*
 !runtime/chat-status/.gitkeep
 runtime/chat-history/*

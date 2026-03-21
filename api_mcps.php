@@ -28,7 +28,13 @@ if ($action === 'tools') {
         echo json_encode(['error' => 'MCP server not found']);
         exit;
     }
-    $result = mcp_list_server_tools($server);
+    if (!empty($_GET['nocache'])) {
+        $k = mcp_tools_list_cache_key($server);
+        @unlink(mcp_tools_list_cache_path($k));
+        $result = mcp_list_server_tools_uncached($server);
+    } else {
+        $result = mcp_list_server_tools($server);
+    }
     if (isset($result['error'])) {
         http_response_code(400);
         echo json_encode($result);

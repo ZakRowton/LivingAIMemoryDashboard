@@ -1,5 +1,9 @@
 <?php
 
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'env.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'env.php';
+}
+
 function mcp_process_env(array $server): ?array {
     $customEnv = isset($server['env']) && is_array($server['env']) ? $server['env'] : [];
     if ($customEnv === []) {
@@ -408,7 +412,55 @@ function with_mcp_stdio_session(array $server, callable $callback): array {
     }
 }
 
-function mcp_list_server_tools(array $server): array {
+/**
+ * Seconds to cache MCP tools/list per server (disk). 0 = always fetch live.
+ * Env: MEMORYGRAPH_MCP_TOOLS_CACHE_TTL (e.g. 600). Default 600.
+ */
+function mcp_tools_list_cache_ttl_seconds(): int {
+    $raw = $_ENV['MEMORYGRAPH_MCP_TOOLS_CACHE_TTL'] ?? getenv('MEMORYGRAPH_MCP_TOOLS_CACHE_TTL');
+    if ($raw !== false && $raw !== null && (string) $raw !== '') {
+        return max(0, (int) $raw);
+    }
+    return 86400;
+}
+
+function mcp_tools_list_cache_dir(): string {
+    $dir = __DIR__ . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'mcp-tools-cache';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir;
+}
+
+function mcp_tools_list_cache_key(array $server): string {
+    $sig = [
+        'n' => (string) ($server['name'] ?? ''),
+        't' => mcp_effective_transport($server),
+        'u' => (string) ($server['url'] ?? ''),
+        'c' => (string) ($server['command'] ?? ''),
+        'a' => $server['args'] ?? [],
+        'h' => isset($server['headers']) && is_array($server['headers']) ? $server['headers'] : [],
+    ];
+    return hash('sha256', json_encode($sig, JSON_UNESCAPED_SLASHES));
+}
+
+function mcp_tools_list_cache_path(string $key): string {
+    return mcp_tools_list_cache_dir() . DIRECTORY_SEPARATOR . $key . '.json';
+}
+
+/** Clear all on-disk MCP tools/list caches (e.g. after server config change). */
+function mcp_invalidate_tools_list_disk_cache(): void {
+    $dir = mcp_tools_list_cache_dir();
+    foreach (glob($dir . DIRECTORY_SEPARATOR . '*.json') ?: [] as $f) {
+        @unlink($f);
+    }
+}
+
+function mcp_list_server_tools_uncached(array $server): array {
+    $viaProxy = mcp_try_proxy_list_tools($server);
+    if ($viaProxy !== null) {
+        return $viaProxy;
+    }
     $transport = mcp_effective_transport($server);
     if ($transport === 'streamablehttp' || $transport === 'streamable_http' || $transport === 'http') {
         return with_mcp_streamable_http_session($server, function ($sessionId) use ($server) {
@@ -439,7 +491,40 @@ function mcp_list_server_tools(array $server): array {
     });
 }
 
+/**
+ * List tools from an MCP server. Uses a short-lived disk cache to avoid blocking every chat request on network/subprocess I/O.
+ */
+function mcp_list_server_tools(array $server): array {
+    $ttl = mcp_tools_list_cache_ttl_seconds();
+    if ($ttl > 0) {
+        $key = mcp_tools_list_cache_key($server);
+        $path = mcp_tools_list_cache_path($key);
+        if (is_file($path)) {
+            $raw = @file_get_contents($path);
+            $entry = ($raw !== false && $raw !== '') ? json_decode($raw, true) : null;
+            if (is_array($entry) && isset($entry['saved_at'], $entry['payload']) && is_array($entry['payload'])) {
+                if ((time() - (int) $entry['saved_at']) < $ttl) {
+                    return $entry['payload'];
+                }
+            }
+        }
+    }
+    $fresh = mcp_list_server_tools_uncached($server);
+    if ($ttl > 0 && empty($fresh['error']) && isset($fresh['tools']) && is_array($fresh['tools'])) {
+        $key = mcp_tools_list_cache_key($server);
+        @file_put_contents(
+            mcp_tools_list_cache_path($key),
+            json_encode(['saved_at' => time(), 'payload' => $fresh], JSON_UNESCAPED_SLASHES)
+        );
+    }
+    return $fresh;
+}
+
 function mcp_call_server_tool(array $server, string $toolName, array $arguments): array {
+    $viaProxy = mcp_try_proxy_call_tool($server, $toolName, $arguments);
+    if ($viaProxy !== null) {
+        return $viaProxy;
+    }
     $transport = mcp_effective_transport($server);
     if ($transport === 'streamablehttp' || $transport === 'streamable_http' || $transport === 'http') {
         return with_mcp_streamable_http_session($server, function ($sessionId) use ($server, $toolName, $arguments) {
@@ -468,4 +553,218 @@ function mcp_call_server_tool(array $server, string $toolName, array $arguments)
         }
         return is_array($response['result'] ?? null) ? $response['result'] : ['result' => $response['result'] ?? null];
     });
+}
+
+// --- Optional localhost MCP sidecar (persistent sessions) ---
+
+function mcp_proxy_base_url(): ?string {
+    static $done = false;
+    static $out = null;
+    if ($done) {
+        return $out;
+    }
+    $done = true;
+    $u = function_exists('memory_graph_env')
+        ? (string) memory_graph_env('MEMORYGRAPH_MCP_PROXY_URL', '')
+        : (string) (getenv('MEMORYGRAPH_MCP_PROXY_URL') ?: '');
+    $u = trim($u);
+    if ($u === '') {
+        return null;
+    }
+    $out = rtrim($u, '/');
+    return $out;
+}
+
+function mcp_proxy_auth_header_lines(): array {
+    $tok = function_exists('memory_graph_env')
+        ? trim((string) memory_graph_env('MEMORYGRAPH_MCP_PROXY_SECRET', ''))
+        : trim((string) (getenv('MEMORYGRAPH_MCP_PROXY_SECRET') ?: ''));
+    if ($tok === '') {
+        return [];
+    }
+    return ['X-MemoryGraph-Mcp-Proxy: ' . $tok];
+}
+
+/**
+ * POST JSON to MCP sidecar. Returns decoded array or null on hard failure.
+ *
+ * @return ?array
+ */
+function mcp_proxy_http_post(string $path, array $body, float $timeoutSeconds = 60.0) {
+    $base = mcp_proxy_base_url();
+    if ($base === null) {
+        return null;
+    }
+    $url = $base . $path;
+    $payload = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        return null;
+    }
+    $headers = array_merge(
+        ['Content-Type: application/json', 'Accept: application/json'],
+        mcp_proxy_auth_header_lines()
+    );
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => max(1, (int) ceil($timeoutSeconds)),
+    ]);
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($raw === false || $raw === '') {
+        if (function_exists('memory_graph_env') && memory_graph_env('MEMORYGRAPH_MCP_DEBUG', '') === '1') {
+            error_log('[mcp_proxy] POST ' . $path . ' failed: ' . $err);
+        }
+        return null;
+    }
+    $decoded = json_decode((string) $raw, true);
+    if (!is_array($decoded)) {
+        return null;
+    }
+    if ($code >= 400 && function_exists('memory_graph_env') && memory_graph_env('MEMORYGRAPH_MCP_DEBUG', '') === '1') {
+        error_log('[mcp_proxy] POST ' . $path . ' HTTP ' . $code . ' body=' . substr((string) $raw, 0, 500));
+    }
+    return $decoded;
+}
+
+/** @return ?array Success payload or null to use in-process MCP */
+function mcp_try_proxy_list_tools(array $server): ?array {
+    if (mcp_proxy_base_url() === null) {
+        return null;
+    }
+    $key = mcp_tools_list_cache_key($server);
+    $resp = mcp_proxy_http_post('/v1/list-tools', [
+        'serverKey' => $key,
+        'server' => $server,
+    ], 45.0);
+    if (!is_array($resp) || empty($resp['ok']) || !isset($resp['tools']) || !is_array($resp['tools'])) {
+        return null;
+    }
+    return [
+        'tools' => array_values($resp['tools']),
+    ];
+}
+
+/** @return ?array Tool result array or null to use in-process MCP */
+function mcp_try_proxy_call_tool(array $server, string $toolName, array $arguments): ?array {
+    if (mcp_proxy_base_url() === null) {
+        return null;
+    }
+    $key = mcp_tools_list_cache_key($server);
+    $resp = mcp_proxy_http_post('/v1/call', [
+        'serverKey' => $key,
+        'server' => $server,
+        'toolName' => $toolName,
+        'arguments' => $arguments,
+    ], 120.0);
+    if (!is_array($resp) || empty($resp['ok']) || !array_key_exists('result', $resp)) {
+        return null;
+    }
+    $r = $resp['result'];
+    return is_array($r) ? $r : ['result' => $r];
+}
+
+/**
+ * Run multiple MCP tool calls through the sidecar in parallel (curl_multi).
+ * Preserves job order. Returns null if proxy off, single job, or any sub-request fails.
+ *
+ * @param list<array{server: array, toolName: string, arguments: array}> $jobs
+ * @return ?list<array>
+ */
+function mcp_proxy_parallel_call_tools(array $jobs): ?array {
+    $base = mcp_proxy_base_url();
+    if ($base === null || count($jobs) < 2) {
+        return null;
+    }
+    $n = count($jobs);
+    $mh = curl_multi_init();
+    if ($mh === false) {
+        return null;
+    }
+    $handles = [];
+    $auth = mcp_proxy_auth_header_lines();
+    for ($i = 0; $i < $n; $i++) {
+        $job = $jobs[$i];
+        $server = $job['server'];
+        if (!is_array($server)) {
+            foreach ($handles as $ch) {
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+            }
+            curl_multi_close($mh);
+            return null;
+        }
+        $key = mcp_tools_list_cache_key($server);
+        $payload = json_encode([
+            'serverKey' => $key,
+            'server' => $server,
+            'toolName' => (string) ($job['toolName'] ?? ''),
+            'arguments' => isset($job['arguments']) && is_array($job['arguments']) ? $job['arguments'] : [],
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($payload === false) {
+            foreach ($handles as $ch) {
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+            }
+            curl_multi_close($mh);
+            return null;
+        }
+        $ch = curl_init($base . '/v1/call');
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json', 'Accept: application/json'], $auth),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 180,
+        ]);
+        curl_multi_add_handle($mh, $ch);
+        $handles[$i] = $ch;
+    }
+    $running = null;
+    do {
+        $mrc = curl_multi_exec($mh, $running);
+        if ($running > 0) {
+            curl_multi_select($mh, 1.0);
+        }
+    } while ($running > 0 && $mrc === CURLM_OK);
+
+    $out = [];
+    for ($i = 0; $i < $n; $i++) {
+        $ch = $handles[$i];
+        $raw = curl_multi_getcontent($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+        $decoded = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        if ($httpCode >= 400 || !is_array($decoded) || empty($decoded['ok']) || !array_key_exists('result', $decoded)) {
+            for ($j = $i + 1; $j < $n; $j++) {
+                if (!isset($handles[$j])) {
+                    continue;
+                }
+                $h = $handles[$j];
+                curl_multi_remove_handle($mh, $h);
+                curl_close($h);
+            }
+            curl_multi_close($mh);
+            return null;
+        }
+        $r = $decoded['result'];
+        $out[$i] = is_array($r) ? $r : ['result' => $r];
+    }
+    curl_multi_close($mh);
+    return $out;
+}
+
+/** Notify sidecar to drop sessions (best-effort). */
+function mcp_proxy_post_invalidate(?string $serverKey = null): void {
+    if (mcp_proxy_base_url() === null) {
+        return;
+    }
+    $body = $serverKey !== null && $serverKey !== '' ? ['serverKey' => $serverKey] : [];
+    mcp_proxy_http_post('/invalidate', $body, 5.0);
 }

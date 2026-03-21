@@ -45,7 +45,7 @@ function write_chat_history_data(array $data): bool {
 /**
  * Append a completed exchange. Trims to max exchanges.
  */
-function append_chat_exchange(string $requestId, string $userContent, string $assistantContent): array {
+function append_chat_exchange(string $requestId, string $userContent, string $assistantContent, string $sessionId = ''): array {
     $data = read_chat_history_data();
     $exchanges = $data['exchanges'];
     $id = $requestId ?: ('hist_' . (string) (microtime(true) * 1000) . '_' . bin2hex(random_bytes(4)));
@@ -60,6 +60,7 @@ function append_chat_exchange(string $requestId, string $userContent, string $as
     $exchanges[] = [
         'id'        => $id,
         'requestId' => $requestId,
+        'sessionId' => trim($sessionId),
         'ts'        => (int) (microtime(true) * 1000),
         'user'      => $userContent,
         'assistant' => $assistantContent,
@@ -88,6 +89,7 @@ function list_chat_history(int $limit = 20, int $offset = 0): array {
         $list[] = [
             'id'         => $e['id'] ?? '',
             'requestId'  => $e['requestId'] ?? '',
+            'sessionId'  => $e['sessionId'] ?? '',
             'ts'         => $e['ts'] ?? 0,
             'userPreview'    => isset($e['user']) ? (strlen($e['user']) > $previewLen ? substr($e['user'], 0, $previewLen) . '…' : $e['user']) : '',
             'assistantPreview' => isset($e['assistant']) ? (strlen($e['assistant']) > $previewLen ? substr($e['assistant'], 0, $previewLen) . '…' : $e['assistant']) : '',
@@ -112,6 +114,7 @@ function get_chat_history(string $id): ?array {
             return [
                 'id'        => $e['id'] ?? '',
                 'requestId' => $e['requestId'] ?? '',
+                'sessionId' => $e['sessionId'] ?? '',
                 'ts'        => $e['ts'] ?? 0,
                 'user'      => $e['user'] ?? '',
                 'assistant' => $e['assistant'] ?? '',

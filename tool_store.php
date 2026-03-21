@@ -202,7 +202,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Reads a markdown instruction file by name.",
     ], [
         'name' => 'create_instruction_file',
-        'description' => 'Create a new markdown instruction file in the instructions folder. Returns an error if the file already exists.',
+        'description' => 'Create a new markdown instruction file in the instructions folder (agent behavior / prompt snippets only). Returns an error if the file already exists. Do NOT use this to "set up MCP" or register remote servers — use create_mcp_server, configure_mcp_server, set_mcp_server_header, etc. Instructions files are NOT MCP configuration.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -222,7 +222,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Creates a new markdown instruction file.",
     ], [
         'name' => 'update_instruction_file',
-        'description' => 'Modify an existing markdown instruction file in the instructions folder.',
+        'description' => 'Modify an existing markdown instruction file in the instructions folder (agent text only). Do NOT use this instead of MCP tools when the user wants MemoryGraph to connect to an MCP server.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -354,56 +354,6 @@ function get_builtin_tools(): array {
             'required' => ['name'],
         ],
         'code' => "// Built-in tool\n// Loads a markdown job file for execution.",
-    ], [
-        'name' => 'create_category_node',
-        'description' => 'Create a new child category node under the Agent in the graph. The node appears in real-time. Use this when the user asks you to create a category (e.g. "database", "api", "cache") to organize or represent a concept, data store, or subsystem. Each category is a direct child of the Agent node.',
-        'active' => true,
-        'builtin' => true,
-        'parameters' => [
-            'type' => 'object',
-            'properties' => [
-                'name' => [
-                    'type' => 'string',
-                    'description' => 'Unique category name (e.g. database, api, cache). Used as the node identifier.',
-                ],
-                'title' => [
-                    'type' => 'string',
-                    'description' => 'Optional display label. Defaults to name if empty.',
-                ],
-                'description' => [
-                    'type' => 'string',
-                    'description' => 'Optional description of what this category represents.',
-                ],
-            ],
-            'required' => ['name'],
-        ],
-        'code' => "// Built-in tool\n// Creates a child category node under the Agent in the graph.",
-    ], [
-        'name' => 'list_category_nodes',
-        'description' => 'List all category nodes that are direct children of the Agent in the graph.',
-        'active' => true,
-        'builtin' => true,
-        'parameters' => [
-            'type' => 'object',
-            'properties' => new stdClass(),
-        ],
-        'code' => "// Built-in tool\n// Lists all category nodes.",
-    ], [
-        'name' => 'delete_category_node',
-        'description' => 'Delete a category node by name. Removes it from the graph.',
-        'active' => true,
-        'builtin' => true,
-        'parameters' => [
-            'type' => 'object',
-            'properties' => [
-                'name' => [
-                    'type' => 'string',
-                    'description' => 'The category name to delete.',
-                ],
-            ],
-            'required' => ['name'],
-        ],
-        'code' => "// Built-in tool\n// Deletes a category node by name.",
     ], [
         'name' => 'list_research_files',
         'description' => 'List all markdown research files available in the research folder.',
@@ -610,7 +560,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Deletes a markdown rules file by name.",
     ], [
         'name' => 'list_mcp_servers',
-        'description' => 'List all configured MCP servers, including active state, transport, and node ids.',
+        'description' => 'List all configured MCP servers, including active state, transport, and node ids. Use proactively when planning work: discover which MCP backends exist so you can call their tools without the user asking.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -620,7 +570,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Lists configured MCP servers.",
     ], [
         'name' => 'read_mcp_server',
-        'description' => 'Read a configured MCP server definition by name.',
+        'description' => 'Read a configured MCP server definition by name. Use when you need transport/command details before invoking that server\'s tools.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -636,7 +586,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Reads one configured MCP server definition.",
     ], [
         'name' => 'list_mcp_server_tools',
-        'description' => 'Connect to a configured MCP server and list the tools it currently exposes.',
+        'description' => 'Connect to a configured MCP server and list the tools it currently exposes. Use proactively on active servers when a task might be solved by an MCP tool; then call those tools by name (often exposed as mcp__* in list_available_tools) without waiting for the user to mention MCP.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -652,7 +602,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Connects to an MCP server and lists its tools.",
     ], [
         'name' => 'create_mcp_server',
-        'description' => 'Create a new MCP server definition. For stdio servers, provide command and optional args/env/cwd.',
+        'description' => 'Register a NEW MCP server in MemoryGraph (writes mcp_servers.json). This is the correct tool when the user asks to add, connect, or set up an MCP server in THIS app. For remote HTTP/SSE MCP endpoints: set transport to "streamablehttp", set url to the full MCP base URL (e.g. https://example.com/mcp), optional headers object for auth; omit command or use empty string. For local stdio servers: transport "stdio", command (required), optional args/env/cwd. After creating, call list_mcp_server_tools to verify connectivity. Do NOT write VS Code/Cursor .mcp.json or instruction markdown as a substitute.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -660,16 +610,16 @@ function get_builtin_tools(): array {
             'properties' => [
                 'name' => ['type' => 'string', 'description' => 'Unique MCP server name.'],
                 'description' => ['type' => 'string', 'description' => 'Optional description for the MCP server.'],
-                'transport' => ['type' => 'string', 'description' => 'Transport type. Defaults to stdio.'],
-                'command' => ['type' => 'string', 'description' => 'Executable command for stdio MCP servers.'],
+                'transport' => ['type' => 'string', 'description' => 'stdio (local process) or streamablehttp (remote URL). Use streamablehttp for https://... MCP endpoints.'],
+                'command' => ['type' => 'string', 'description' => 'Required for stdio only: executable (e.g. npx). Leave empty for streamablehttp.'],
                 'args' => ['type' => 'array', 'description' => 'Command arguments for stdio MCP servers.', 'items' => ['type' => 'string']],
                 'env' => ['type' => 'object', 'description' => 'Environment variables for the MCP server process.'],
                 'cwd' => ['type' => 'string', 'description' => 'Working directory for the MCP server process.'],
-                'url' => ['type' => 'string', 'description' => 'Optional server URL for non-stdio transports.'],
-                'headers' => ['type' => 'object', 'description' => 'Optional headers for non-stdio transports.'],
+                'url' => ['type' => 'string', 'description' => 'Required for streamablehttp: full MCP HTTP endpoint URL.'],
+                'headers' => ['type' => 'object', 'description' => 'Optional HTTP headers for streamablehttp (e.g. Authorization).'],
                 'active' => ['type' => 'boolean', 'description' => 'Whether the MCP server should be enabled. Defaults to true.'],
             ],
-            'required' => ['name', 'command'],
+            'required' => ['name'],
         ],
         'code' => "// Built-in tool\n// Creates a new MCP server definition.",
     ], [
@@ -697,7 +647,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Updates an existing MCP server definition.",
     ], [
         'name' => 'configure_mcp_server',
-        'description' => 'Partially update an existing MCP server config by name. Use this to set command, args, cwd, env, headers, url, description, transport, or active without resending the full server definition.',
+        'description' => 'Partially update an existing MemoryGraph MCP server by name (url, transport streamablehttp, headers, command, active, etc.). Use when the user pastes an MCP URL or auth header for a server that already exists. Not for instruction files or external editor JSON.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -804,7 +754,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Deletes a configured MCP server definition.",
     ], [
         'name' => 'create_or_update_tool',
-        'description' => 'Create a PHP tool file in the tools folder and create or update its entry in tool_calls.json. After creating, you MUST immediately call the new tool to test it. If it fails, use edit_tool_file to fix the code and test again. Never respond to the user until the tool works successfully.',
+        'description' => 'Create a PHP tool file in the tools folder and create or update its entry in tool_calls.json. Do NOT use until you have called list_available_tools (all active tools including mcp__* proxies) AND list_mcp_servers + list_mcp_server_tools for servers that might already provide this capability. Only create a new tool if no existing or MCP tool fits. After creating, you MUST immediately call the new tool to test it. If it fails, use edit_tool_file to fix the code and test again. Never respond to the user until the tool works successfully.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -948,7 +898,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Lists models for a provider.",
     ], [
         'name' => 'list_chat_history',
-        'description' => 'List recent chat exchanges (past conversations). Returns id, requestId, ts, and short previews. Use when you need to refer to earlier context that may have been truncated.',
+        'description' => 'List recent chat exchanges (past conversations). Returns id, requestId, sessionId, ts, and short previews. Omit session_id to list all tabs; pass session_id from the system prompt (or current_session_only: true) to list only the current browser chat session.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -956,6 +906,8 @@ function get_builtin_tools(): array {
             'properties' => [
                 'limit' => ['type' => 'integer', 'description' => 'Max number of exchanges to return (default 20, max 100).'],
                 'offset' => ['type' => 'integer', 'description' => 'Skip this many from the start (for pagination).'],
+                'session_id' => ['type' => 'string', 'description' => 'If set, only exchanges from this browser tab session (see system prompt).'],
+                'current_session_only' => ['type' => 'boolean', 'description' => 'If true, same as passing the current tab session id (no need to copy the id).'],
             ],
         ],
         'code' => "// Built-in tool\n// Lists recent chat history.",

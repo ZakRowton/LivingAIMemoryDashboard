@@ -1,5 +1,5 @@
 /**
- * 3D graph: one main Agent node + fixed child nodes + dynamic tool, memory, instruction, MCP, and job child nodes.
+ * 3D graph: one main Agent node + fixed child nodes + dynamic tool, memory, instruction, MCP, job file + scheduled cron job child nodes.
  */
 (function () {
     var container = document.getElementById('graph-container');
@@ -229,7 +229,7 @@
         return out;
     }
 
-    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, categories) {
+    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, cronJobs, categoryNodes) {
         clearGraph();
         var nodeData = JSON.parse(JSON.stringify(staticNodeData));
         var positions = JSON.parse(JSON.stringify(staticPositions));
@@ -243,14 +243,25 @@
             });
         }
 
+        var jobsHub = (jobs || []).slice();
+        (cronJobs || []).forEach(function (c) {
+            if (!c || !c.nodeId) return;
+            jobsHub.push({
+                nodeId: c.nodeId,
+                name: c.name || c.title || 'cron',
+                title: c.title || c.name || 'cron',
+                active: c.active !== false && c.enabled !== false
+            });
+        });
+
         mergeChildren(layoutChildren(tools || [], positions.tools, 0.95, 0.75, 'sin', function (tool) { return 'tool_' + tool.name; }, 0xffd36f), 'tools');
         mergeChildren(layoutChildren(memories || [], positions.memory, 0.9, 0.8, 'cos', function (memory) { return memory.nodeId; }, 0x59ead9), 'memory');
         mergeChildren(layoutChildren(instructions || [], positions.instructions, 0.9, 0.82, 'sin', function (instruction) { return instruction.nodeId; }, 0x8dc5ff), 'instructions');
         mergeChildren(layoutChildren(research || [], positions.research, 0.9, 0.82, 'cos', function (r) { return r.nodeId; }, 0xc4b5f0), 'research');
         mergeChildren(layoutChildren(rules || [], positions.rules, 0.9, 0.82, 'sin', function (r) { return r.nodeId; }, 0xf0b5c4), 'rules');
         mergeChildren(layoutChildren(mcps || [], positions.mcps, 0.9, 0.8, 'sin', function (mcp) { return mcp.nodeId; }, 0x85f2a8), 'mcps');
-        mergeChildren(layoutChildren(jobs || [], positions.jobs, 0.92, 0.8, 'cos', function (job) { return job.nodeId; }, 0xff9f7f), 'jobs');
-        mergeChildren(layoutChildren(categories || [], positions.categories, 0.9, 0.85, 'sin', function (c) { return c.nodeId; }, 0xb0e4f8), 'agent');
+        mergeChildren(layoutChildren(jobsHub, positions.jobs, 0.92, 0.8, 'cos', function (job) { return job.nodeId; }, 0xff9f7f), 'jobs');
+        mergeChildren(layoutChildren(categoryNodes || [], positions.categories, 0.9, 0.85, 'sin', function (c) { return c.nodeId; }, 0xb0e4f8), 'categories');
 
         Object.keys(nodeData).forEach(function (id) {
             createNode(id, nodeData[id], positions[id] || [0, 0, 0]);
@@ -267,7 +278,12 @@
             fetch('api_rules.php?action=list').then(function (res) { return res.json(); }),
             fetch('api_mcps.php?action=list').then(function (res) { return res.json(); }),
             fetch('api_jobs.php?action=list').then(function (res) { return res.json(); }),
-            fetch('api_categories.php?action=list&_=' + Date.now()).then(function (res) { return res.json(); })
+            fetch('api/cron.php?action=list').then(function (res) {
+                return res.ok ? res.json() : { jobs: [] };
+            }).catch(function () { return { jobs: [] }; }),
+            fetch('api_categories.php?action=list&_=' + Date.now()).then(function (res) {
+                return res.ok ? res.json() : { categories: [] };
+            }).catch(function () { return { categories: [] }; })
         ]).then(function (results) {
             window.toolsData = (results[0] || {}).tools || [];
             window.memoryFiles = (results[1] || {}).memories || [];
@@ -276,8 +292,9 @@
             window.rulesFiles = (results[4] || {}).rules || [];
             window.mcpServers = (results[5] || {}).servers || [];
             window.jobFiles = (results[6] || {}).jobs || [];
-            window.categoryNodes = (results[7] || {}).categories || [];
-            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.categoryNodes);
+            window.cronJobs = (results[7] || {}).jobs || [];
+            window.categoryNodes = (results[8] || {}).categories || [];
+            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.cronJobs, window.categoryNodes);
             if (typeof window.MemoryGraphUpdateLegend === 'function') {
                 window.MemoryGraphUpdateLegend(window.categoryNodes || []);
             }
@@ -479,8 +496,15 @@
     }
 
     var clock = new THREE.Clock();
+    var renderEnabled = true;
+    window.MemoryGraphSetRenderEnabled = function (v) {
+        renderEnabled = !!v;
+    };
     function animate() {
         requestAnimationFrame(animate);
+        if (!renderEnabled) {
+            return;
+        }
         var t = clock.getElapsedTime();
         if (controls) controls.update();
         galaxyGroup.rotation.y += 0.0008;
@@ -501,7 +525,7 @@
             activeResearchIds = activeResearchIds.concat(state.backgroundActiveResearchIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('research_file_') : []);
             activeRulesIds = activeRulesIds.concat(state.backgroundActiveRulesIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('rules_file_') : []);
             activeMcpIds = activeMcpIds.concat(state.backgroundActiveMcpIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('mcp_server_') : []);
-            activeJobIds = activeJobIds.concat(state.backgroundJobIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('job_file_') : []);
+            activeJobIds = activeJobIds.concat(state.backgroundJobIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('job_file_') : [], state.getRecentNodeIds ? state.getRecentNodeIds('job_cron_') : []);
             activeCategoryIds = activeCategoryIds.concat(state.backgroundActiveCategoryIds || [], state.getRecentNodeIds ? state.getRecentNodeIds('category_') : []);
         }
 
@@ -514,7 +538,6 @@
         animateNode('rules', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('rules')) || activeRulesIds.length)), t, 12, 0.2, 1.2);
         animateNode('mcps', !!(state && (state.mcpToolExecuting || state.checkingMcps || state.backgroundCheckingMcps || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('mcps')) || activeMcpIds.length)), t, 12, 0.2, 1.2);
         animateNode('jobs', !!(state && (state.jobExecuting || state.checkingJobs || state.backgroundCheckingJobs || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('jobs')) || activeJobIds.length)), t, 12, 0.2, 1.2);
-        animateNode('categories', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('categories')) || activeCategoryIds.length)), t, 12, 0.2, 1.2);
 
         Object.keys(nodeGroups).forEach(function (id) {
             if (id.indexOf('tool_') === 0) animateNode(id, activeToolIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
@@ -524,6 +547,7 @@
             if (id.indexOf('rules_file_') === 0) animateNode(id, activeRulesIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('mcp_server_') === 0) animateNode(id, activeMcpIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('job_file_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            if (id.indexOf('job_cron_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('category_') === 0) animateNode(id, activeCategoryIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
         });
 

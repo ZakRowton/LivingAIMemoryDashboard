@@ -5,10 +5,7 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'rules_store.php';
 $action = $_GET['action'] ?? '';
 
 if ($action === 'list') {
-    $rules = array_map(function ($r) {
-        unset($r['content']);
-        return $r;
-    }, list_rules_files_meta());
+    $rules = list_rules_files_meta(false);
     echo json_encode(['rules' => array_values($rules)]);
     exit;
 }

@@ -40,7 +40,10 @@ function save_memory_state(array $state): void {
     file_put_contents(memory_state_path(), json_encode($state, JSON_PRETTY_PRINT));
 }
 
-function list_memory_files_meta(): array {
+/**
+ * @param bool $includeContent If false, skips reading file bodies (fast for list_memory_files tool / graph list).
+ */
+function list_memory_files_meta(bool $includeContent = false): array {
     $dir = memory_dir_path();
     if (!is_dir($dir)) {
         return [];
@@ -50,13 +53,16 @@ function list_memory_files_meta(): array {
     $result = [];
     foreach ($files as $filePath) {
         $filename = basename($filePath);
-        $result[] = [
+        $row = [
             'name' => $filename,
             'title' => pathinfo($filename, PATHINFO_FILENAME),
             'active' => array_key_exists($filename, $state) ? !empty($state[$filename]['active']) : true,
             'nodeId' => memory_node_id($filename),
-            'content' => (string) file_get_contents($filePath),
         ];
+        if ($includeContent) {
+            $row['content'] = (string) file_get_contents($filePath);
+        }
+        $result[] = $row;
     }
     usort($result, function ($a, $b) {
         return strcasecmp($a['name'], $b['name']);
@@ -69,12 +75,18 @@ function get_memory_meta(string $name): ?array {
     if ($filename === '') {
         return null;
     }
-    foreach (list_memory_files_meta() as $memory) {
-        if (strcasecmp($memory['name'], $filename) === 0) {
-            return $memory;
-        }
+    $path = memory_dir_path() . DIRECTORY_SEPARATOR . $filename;
+    if (!is_file($path)) {
+        return null;
     }
-    return null;
+    $state = load_memory_state();
+    return [
+        'name' => $filename,
+        'title' => pathinfo($filename, PATHINFO_FILENAME),
+        'active' => array_key_exists($filename, $state) ? !empty($state[$filename]['active']) : true,
+        'nodeId' => memory_node_id($filename),
+        'content' => (string) file_get_contents($path),
+    ];
 }
 
 function write_memory_file(string $name, string $content): array {

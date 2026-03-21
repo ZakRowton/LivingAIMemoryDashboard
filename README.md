@@ -54,6 +54,7 @@ The AI can create, manage, and extend its own runtime environment. All of the fo
 | **Research** | List, read, create, update, and delete research files. Structured research notes and findings the AI can store and reference. |
 | **Categories** | Create, list, and delete category nodes in the graph. Organize concepts (e.g. database, api, cache) as child nodes under the Agent. |
 | **Jobs** | Create, update, and delete job files. Launch parallel background jobs with step-by-step execution. |
+| **Scheduled agent cron** | Persist schedules in `runtime/cron/jobs.json` (similar to [OpenClaw cron](https://docs.openclaw.ai/cron)): one-shot `at`, interval `every` (ms), or 5-field `cron` with optional IANA timezone. Each fire runs a full agent turn via `api/chat.php` with the stored prompt. Tools: `agent_cron_add`, `agent_cron_list`, `agent_cron_remove`, `agent_cron_run_now`, `agent_cron_set_enabled`. Run `php cron_tick.php` from Task Scheduler/cron every minute (set `MEMORYGRAPH_PUBLIC_BASE_URL`), or set `MEMORYGRAPH_CRON_BROWSER_TICK=1` to poll from an open localhost dashboard. |
 | **Providers & Models** | List providers and models, add custom providers, add models to providers, switch the active provider/model. |
 | **Chat History** | List past chat exchanges and retrieve full conversation content for context. |
 
@@ -144,6 +145,28 @@ The AI can:
 
 The UI lets you inspect and edit MCP server config directly from the graph panel as well.
 
+#### MCP sidecar (optional, faster tool calls)
+
+By default each MCP `tools/call` from PHP starts a new session (slow for many calls). For lower latency, run the **Node MCP sidecar** on loopback: it keeps one session per configured server and reuses it until idle timeout.
+
+1. Install [Node.js 18+](https://nodejs.org/), then:
+
+   ```bash
+   cd mcp-sidecar
+   npm install
+   node server.js
+   ```
+
+2. In `.env` set:
+
+   - `MEMORYGRAPH_MCP_PROXY_URL=http://127.0.0.1:8765` (must match sidecar host/port)
+   - Optional: `MEMORYGRAPH_MCP_PROXY_SECRET` — shared secret; sidecar and PHP must use the same value (sent as header `X-MemoryGraph-Mcp-Proxy`).
+   - Optional: `MEMORYGRAPH_MCP_SIDECAR_PORT`, `MEMORYGRAPH_MCP_SIDECAR_HOST`, `MEMORYGRAPH_MCP_SIDECAR_IDLE_MS` (sidecar process env).
+
+3. Health check (from the browser or curl): `api/mcp_health.php` — reports whether the sidecar answers `GET /health`.
+
+When the proxy URL is **unset**, behavior is unchanged (in-process MCP only). When several MCP tools run in one assistant turn and the proxy is enabled, the chat loop may call the sidecar **in parallel** via `curl_multi`.
+
 ### Parallel jobs
 
 Jobs are markdown task lists stored in `jobs/`.
@@ -213,10 +236,10 @@ Key files and folders:
 - `rules/` - markdown rules files
 - `jobs/` - markdown job files
 - `api_mcps.php` - MCP server management API
-- `api_categories.php` - category node API
-- `category_store.php` - category storage
 - `mcp_store.php` - MCP config storage
-- `mcp_client.php` - stdio MCP client bridge
+- `mcp_client.php` - MCP client (stdio / streamable HTTP) and optional localhost sidecar proxy
+- `mcp-sidecar/` - Node daemon for persistent MCP sessions (`node server.js`)
+- `api/mcp_health.php` - JSON health check for the MCP sidecar
 - `tool_calls.json` - custom tool registry
 - `mcp_servers.json` - local MCP server registry
 - `.env` - local API key and secret storage

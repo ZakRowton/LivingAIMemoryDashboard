@@ -64,7 +64,14 @@ switch ($action) {
         echo json_encode(add_model_to_provider($providerKey, $modelId));
         break;
 
+    case 'set_system_prompt':
+        $provider = isset($input['provider']) ? (string) $input['provider'] : '';
+        $model = isset($input['model']) ? (string) $input['model'] : '';
+        $prompt = isset($input['systemPrompt']) ? (string) $input['systemPrompt'] : '';
+        echo json_encode(set_system_prompt_for_provider_model($provider, $model, $prompt));
+        break;
+
     default:
         http_response_code(400);
-        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, or add_model']);
+        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, or set_system_prompt']);
 }

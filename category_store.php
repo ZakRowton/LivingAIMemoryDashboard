@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 function category_registry_path(): string {
     $dir = __DIR__ . DIRECTORY_SEPARATOR . 'runtime';

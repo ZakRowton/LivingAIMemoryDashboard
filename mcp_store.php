@@ -1,5 +1,24 @@
 <?php
 
+function mcp_expanded_tools_snapshot_path(): string {
+    $dir = __DIR__ . DIRECTORY_SEPARATOR . 'runtime';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir . DIRECTORY_SEPARATOR . 'mcp-expanded-tools.json';
+}
+
+function mcp_notify_registry_changed(): void {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'mcp_client.php';
+    if (function_exists('mcp_invalidate_tools_list_disk_cache')) {
+        mcp_invalidate_tools_list_disk_cache();
+    }
+    if (function_exists('mcp_proxy_post_invalidate')) {
+        mcp_proxy_post_invalidate(null);
+    }
+    @unlink(mcp_expanded_tools_snapshot_path());
+}
+
 function mcp_registry_path(): string {
     return __DIR__ . DIRECTORY_SEPARATOR . 'mcp_servers.json';
 }
@@ -159,6 +178,9 @@ function upsert_mcp_server_artifact(array $serverData, string $originalName = ''
     if ($normalized['transport'] === 'stdio' && $normalized['command'] === '') {
         return ['error' => 'A stdio MCP server requires a command'];
     }
+    if ($normalized['transport'] === 'streamablehttp' && trim($normalized['url']) === '') {
+        return ['error' => 'A streamablehttp MCP server requires a non-empty url (the remote MCP HTTP endpoint)'];
+    }
 
     $originalSlug = sanitize_mcp_server_slug($originalName !== '' ? $originalName : $normalized['name']);
     $data = read_mcp_registry_data();
@@ -180,6 +202,7 @@ function upsert_mcp_server_artifact(array $serverData, string $originalName = ''
     }
 
     save_mcp_registry_data($data);
+    mcp_notify_registry_changed();
     $normalized['success'] = true;
     $normalized['__mcp_registry_changed'] = true;
     return $normalized;
@@ -279,6 +302,7 @@ function delete_mcp_server_artifact(string $name): array {
         return ['error' => 'MCP server not found'];
     }
     save_mcp_registry_data($data);
+    mcp_notify_registry_changed();
     return [
         'success' => true,
         'name' => $deleted['name'],
@@ -309,6 +333,7 @@ function set_mcp_server_active_artifact(string $name, bool $active): array {
         return ['error' => 'MCP server not found'];
     }
     save_mcp_registry_data($data);
+    mcp_notify_registry_changed();
     $updated['success'] = true;
     $updated['__mcp_registry_changed'] = true;
     return $updated;
@@ -321,6 +346,7 @@ function set_all_mcp_servers_active_artifact(bool $active): array {
     }
     unset($server);
     save_mcp_registry_data($data);
+    mcp_notify_registry_changed();
     return [
         'success' => true,
         'active' => $active,

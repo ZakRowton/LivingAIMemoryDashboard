@@ -5,10 +5,7 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'memory_store.php';
 $action = $_GET['action'] ?? '';
 
 if ($action === 'list') {
-    $memories = array_map(function ($memory) {
-        unset($memory['content']);
-        return $memory;
-    }, list_memory_files_meta());
+    $memories = list_memory_files_meta(false);
     echo json_encode(['memories' => array_values($memories)]);
     exit;
 }

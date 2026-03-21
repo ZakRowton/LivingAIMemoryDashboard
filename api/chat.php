@@ -14,11 +14,11 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'memory_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'instruction_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'research_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'rules_store.php';
-require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'category_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'job_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_client.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tool_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'cron_pending.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     http_response_code(204);
@@ -112,13 +112,20 @@ function markExecutionStatus(array &$status, string $requestId, bool $gettingAva
     $status['checkingResearch'] = $checkingResearch;
     $status['checkingRules'] = $checkingRules;
     $status['checkingMcps'] = $checkingMcps;
-    $status['checkingJobs'] = $checkingJobs;
     $status['activeToolIds'] = array_values($activeToolIds);
     $status['activeMemoryIds'] = array_values($activeMemoryIds);
     $status['activeInstructionIds'] = array_values($activeInstructionIds);
     $status['activeResearchIds'] = array_values($activeResearchIds);
     $status['activeRulesIds'] = array_values($activeRulesIds);
     $status['activeMcpIds'] = array_values($activeMcpIds);
+    $cronNid = isset($GLOBALS['MEMORY_GRAPH_CRON_NODE_ID']) ? trim((string) $GLOBALS['MEMORY_GRAPH_CRON_NODE_ID']) : '';
+    if ($cronNid !== '') {
+        if (!in_array($cronNid, $activeJobIds, true)) {
+            $activeJobIds[] = $cronNid;
+        }
+        $checkingJobs = $checkingJobs || true;
+    }
+    $status['checkingJobs'] = $checkingJobs;
     $status['activeJobIds'] = array_values($activeJobIds);
     $status['executionDetailsByNode'] = $executionDetailsByNode;
     $status['lastGettingAvailTools'] = $gettingAvailTools;
@@ -213,14 +220,6 @@ function isRulesToolName(string $toolName): bool {
     ], true);
 }
 
-function isCategoryToolName(string $toolName): bool {
-    return in_array($toolName, [
-        'create_category_node',
-        'list_category_nodes',
-        'delete_category_node',
-    ], true);
-}
-
 function isMcpManagementToolName(string $toolName): bool {
     return in_array($toolName, [
         'list_mcp_servers',
@@ -255,6 +254,10 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'delete_instruction_file',
         'create_job_file',
         'delete_job_file',
+        'agent_cron_add',
+        'agent_cron_remove',
+        'agent_cron_set_enabled',
+        'cron_job_manager',
         'create_mcp_server',
         'update_mcp_server',
         'configure_mcp_server',
@@ -264,8 +267,36 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'remove_mcp_server_header',
         'set_mcp_server_active',
         'delete_mcp_server',
-        'create_category_node',
-        'delete_category_node',
+    ], true);
+}
+
+function clearMemoryGraphToolRegistryCache(): void {
+    unset($GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY']);
+}
+
+/** After these tool calls, the OpenAI tool schema / MCP proxy list must be rebuilt (cannot reuse in-request cache). */
+function shouldInvalidateToolRegistryCache(string $toolName, array $toolResult): bool {
+    if (isset($toolResult['error'])) {
+        return false;
+    }
+    if (!empty($toolResult['__mcp_registry_changed'])) {
+        return true;
+    }
+    $n = normalizeToolName($toolName);
+    return in_array($n, [
+        'create_or_update_tool',
+        'delete_tool',
+        'edit_tool_file',
+        'edit_tool_registry_entry',
+        'create_mcp_server',
+        'update_mcp_server',
+        'configure_mcp_server',
+        'set_mcp_server_env_var',
+        'remove_mcp_server_env_var',
+        'set_mcp_server_header',
+        'remove_mcp_server_header',
+        'set_mcp_server_active',
+        'delete_mcp_server',
     ], true);
 }
 
@@ -275,28 +306,70 @@ function queueGraphRefresh(array &$status, string $requestId): void {
     writeStatus($requestId, $status);
 }
 
-function loadToolRegistry(): array {
-    $data = read_tool_registry_data();
-    $tools = [];
-    foreach (get_builtin_tools() as $tool) {
-        $tools[$tool['name']] = $tool;
+function memory_graph_env_truthy(string $key): bool {
+    $v = $_ENV[$key] ?? getenv($key);
+    if ($v === false || $v === null) {
+        return false;
     }
-    if (!is_array($data) || !isset($data['tools']) || !is_array($data['tools'])) {
-        return $tools;
+    $s = strtolower(trim((string) $v));
+    return $s === '1' || $s === 'true' || $s === 'yes' || $s === 'on';
+}
+
+function memory_graph_mcp_servers_registry_mtime(): int {
+    $p = mcp_registry_path();
+    return is_file($p) ? (int) filemtime($p) : 0;
+}
+
+function memory_graph_mcp_snapshot_max_age_seconds(): int {
+    $raw = $_ENV['MEMORYGRAPH_MCP_SNAPSHOT_MAX_AGE'] ?? getenv('MEMORYGRAPH_MCP_SNAPSHOT_MAX_AGE');
+    if ($raw !== false && $raw !== null && (string) $raw !== '') {
+        return max(0, (int) $raw);
     }
-    foreach ($data['tools'] as $tool) {
-        if (!is_array($tool) || empty($tool['name'])) {
-            continue;
-        }
-        $name = (string) $tool['name'];
-        if (is_builtin_tool_name($name)) {
-            continue;
-        }
-        $tool['parameters'] = normalize_tool_parameters($tool['parameters'] ?? null);
-        $tool['active'] = !empty($tool['active']);
-        $tools[$name] = $tool;
+    return 86400;
+}
+
+function memory_graph_load_mcp_expanded_snapshot(): ?array {
+    $p = mcp_expanded_tools_snapshot_path();
+    if (!is_file($p)) {
+        return null;
     }
+    $raw = @file_get_contents($p);
+    $data = ($raw !== false && $raw !== '') ? json_decode($raw, true) : null;
+    if (!is_array($data) || !array_key_exists('tools', $data) || !is_array($data['tools'])) {
+        return null;
+    }
+    if ((int) ($data['registry_mtime'] ?? -1) !== memory_graph_mcp_servers_registry_mtime()) {
+        return null;
+    }
+    $maxAge = memory_graph_mcp_snapshot_max_age_seconds();
+    if ($maxAge > 0 && (time() - (int) ($data['saved_at'] ?? 0)) > $maxAge) {
+        return null;
+    }
+    return $data['tools'];
+}
+
+function memory_graph_save_mcp_expanded_snapshot(array $mcpToolsMap): void {
+    $payload = [
+        'saved_at' => time(),
+        'registry_mtime' => memory_graph_mcp_servers_registry_mtime(),
+        'tools' => $mcpToolsMap,
+    ];
+    @file_put_contents(mcp_expanded_tools_snapshot_path(), json_encode($payload, JSON_UNESCAPED_SLASHES));
+}
+
+function memory_graph_should_skip_mcp_server_for_expand(array $server): bool {
+    if (memory_graph_env_truthy('MEMORYGRAPH_CHAT_SKIP_STDIO_MCP')) {
+        return mcp_effective_transport($server) === 'stdio';
+    }
+    return false;
+}
+
+function memory_graph_build_mcp_tool_map_for_registry(): array {
+    $mcpMap = [];
     foreach (list_active_mcp_servers_meta() as $server) {
+        if (memory_graph_should_skip_mcp_server_for_expand($server)) {
+            continue;
+        }
         $remoteTools = mcp_list_server_tools($server);
         if (!empty($remoteTools['error']) || empty($remoteTools['tools']) || !is_array($remoteTools['tools'])) {
             continue;
@@ -306,7 +379,7 @@ function loadToolRegistry(): array {
                 continue;
             }
             $exposedName = mcp_exposed_tool_name((string) ($server['name'] ?? ''), (string) $remoteTool['name']);
-            $tools[$exposedName] = [
+            $mcpMap[$exposedName] = [
                 'name' => $exposedName,
                 'description' => trim('MCP server "' . ($server['name'] ?? '') . '" tool "' . (string) $remoteTool['name'] . '". ' . (string) ($remoteTool['description'] ?? '')),
                 'active' => true,
@@ -321,6 +394,82 @@ function loadToolRegistry(): array {
             ];
         }
     }
+    return $mcpMap;
+}
+
+function memory_rules_prompt_cache_path(): string {
+    $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    return $dir . DIRECTORY_SEPARATOR . 'prompt-memory-rules.cache.json';
+}
+
+function memory_rules_prompt_cache_signature(): string {
+    $parts = [];
+    $statePath = memory_dir_path() . DIRECTORY_SEPARATOR . '_memory_state.json';
+    $parts[] = 'ms:' . (is_file($statePath) ? filemtime($statePath) : 0);
+    $rulesDir = rules_dir_path();
+    foreach (glob($rulesDir . DIRECTORY_SEPARATOR . '*.md') ?: [] as $f) {
+        $parts[] = 'r:' . strtolower(basename($f)) . ':' . filemtime($f) . ':' . filesize($f);
+    }
+    $state = load_memory_state();
+    $memDir = memory_dir_path();
+    foreach (glob($memDir . DIRECTORY_SEPARATOR . '*.md') ?: [] as $f) {
+        $bn = basename($f);
+        $active = array_key_exists($bn, $state) ? !empty($state[$bn]['active']) : true;
+        $parts[] = 'm:' . strtolower($bn) . ':' . ($active ? '1' : '0') . ':' . filemtime($f) . ':' . filesize($f);
+    }
+    sort($parts);
+    return hash('sha256', implode("\0", $parts));
+}
+
+function loadToolRegistry(): array {
+    if (isset($GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY']) && is_array($GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY'])) {
+        return $GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY'];
+    }
+    $data = read_tool_registry_data();
+    $tools = [];
+    foreach (get_builtin_tools() as $tool) {
+        $tools[$tool['name']] = $tool;
+    }
+    if (!is_array($data) || !isset($data['tools']) || !is_array($data['tools'])) {
+        $GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY'] = $tools;
+        return $tools;
+    }
+    foreach ($data['tools'] as $tool) {
+        if (!is_array($tool) || empty($tool['name'])) {
+            continue;
+        }
+        $name = (string) $tool['name'];
+        if (is_builtin_tool_name($name)) {
+            continue;
+        }
+        $tool['parameters'] = normalize_tool_parameters($tool['parameters'] ?? null);
+        $tool['active'] = !empty($tool['active']);
+        $tools[$name] = $tool;
+    }
+    if (!memory_graph_env_truthy('MEMORYGRAPH_CHAT_NO_MCP_EXPAND')) {
+        $fromSnap = memory_graph_load_mcp_expanded_snapshot();
+        if ($fromSnap !== null) {
+            foreach ($fromSnap as $name => $entry) {
+                if (!is_string($name) || $name === '' || !is_array($entry) || !isset($entry['name'])) {
+                    continue;
+                }
+                if (isset($entry['parameters'])) {
+                    $entry['parameters'] = normalize_tool_parameters($entry['parameters']);
+                }
+                $tools[$name] = $entry;
+            }
+        } else {
+            $mcpMap = memory_graph_build_mcp_tool_map_for_registry();
+            memory_graph_save_mcp_expanded_snapshot($mcpMap);
+            foreach ($mcpMap as $name => $entry) {
+                $tools[$name] = $entry;
+            }
+        }
+    }
+    $GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY'] = $tools;
     return $tools;
 }
 
@@ -344,7 +493,6 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     $checkingInstructions = isInstructionToolName($normalizedFunctionName);
     $checkingResearch = isResearchToolName($normalizedFunctionName);
     $checkingRules = isRulesToolName($normalizedFunctionName);
-    $checkingCategories = isCategoryToolName($normalizedFunctionName);
     $checkingMcps = isMcpManagementToolName($normalizedFunctionName) || !empty($activeTools[$normalizedFunctionName]['mcp']);
     $checkingJobs = isJobToolName($normalizedFunctionName);
 
@@ -386,12 +534,6 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     }
     if ($checkingRules) {
         $executionDetails['rules'] = [
-            'toolName' => $normalizedFunctionName,
-            'arguments' => $arguments,
-        ];
-    }
-    if ($checkingCategories) {
-        $executionDetails['categories'] = [
             'toolName' => $normalizedFunctionName,
             'arguments' => $arguments,
         ];
@@ -523,20 +665,6 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
             'arguments' => $arguments,
         ];
     }
-    if (in_array($normalizedFunctionName, ['create_category_node', 'delete_category_node'], true) && !empty($arguments['name'])) {
-        $categoryNodeId = category_node_id((string) $arguments['name']);
-        $executionDetails[$categoryNodeId] = [
-            'toolName' => $normalizedFunctionName,
-            'arguments' => $arguments,
-        ];
-    }
-    if ($checkingCategories && in_array($normalizedFunctionName, ['list_category_nodes'], true)) {
-        $executionDetails['categories'] = $executionDetails['categories'] ?? [
-            'toolName' => $normalizedFunctionName,
-            'arguments' => $arguments,
-        ];
-    }
-
     return [
         'gettingAvailTools' => $gettingAvailTools,
         'checkingMemory' => $checkingMemory,
@@ -556,12 +684,70 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     ];
 }
 
+/**
+ * Shrink MCP tool schemas/descriptions for the provider when env limits are set (reduces tokens + latency).
+ */
+function memory_graph_truncate_json_schema_for_llm($node, int $maxDepth, int $depth = 0) {
+    if ($maxDepth <= 0 || $depth >= $maxDepth) {
+        return ['type' => 'object', 'properties' => new stdClass()];
+    }
+    if ($node === null) {
+        return ['type' => 'object', 'properties' => new stdClass()];
+    }
+    if (is_object($node)) {
+        $node = (array) $node;
+    }
+    if (!is_array($node)) {
+        return $node;
+    }
+    unset($node['examples'], $node['example'], $node['default']);
+    foreach (['properties', 'patternProperties', 'definitions', '$defs'] as $pk) {
+        if (!isset($node[$pk]) || !is_array($node[$pk])) {
+            continue;
+        }
+        foreach ($node[$pk] as $k => $sub) {
+            $node[$pk][$k] = memory_graph_truncate_json_schema_for_llm($sub, $maxDepth, $depth + 1);
+        }
+    }
+    if (isset($node['items'])) {
+        $node['items'] = memory_graph_truncate_json_schema_for_llm($node['items'], $maxDepth, $depth + 1);
+    }
+    if (isset($node['additionalProperties']) && is_array($node['additionalProperties'])) {
+        $node['additionalProperties'] = memory_graph_truncate_json_schema_for_llm($node['additionalProperties'], $maxDepth, $depth + 1);
+    }
+    foreach (['oneOf', 'anyOf', 'allOf'] as $comb) {
+        if (!isset($node[$comb]) || !is_array($node[$comb])) {
+            continue;
+        }
+        foreach ($node[$comb] as $i => $sub) {
+            $node[$comb][$i] = memory_graph_truncate_json_schema_for_llm($sub, $maxDepth, $depth + 1);
+        }
+    }
+    return $node;
+}
+
+function memory_graph_apply_openai_tool_trim_for_llm(array $tool): array {
+    if (empty($tool['mcp'])) {
+        return $tool;
+    }
+    $maxDesc = function_exists('memory_graph_env_int') ? memory_graph_env_int('MEMORYGRAPH_OPENAI_TOOL_DESC_MAX', 0) : 0;
+    $maxDepth = function_exists('memory_graph_env_int') ? memory_graph_env_int('MEMORYGRAPH_OPENAI_TOOL_SCHEMA_MAX_DEPTH', 0) : 0;
+    if ($maxDesc > 0 && isset($tool['description']) && is_string($tool['description']) && strlen($tool['description']) > $maxDesc) {
+        $tool['description'] = substr($tool['description'], 0, max(0, $maxDesc - 3)) . '...';
+    }
+    if ($maxDepth > 0 && isset($tool['parameters'])) {
+        $tool['parameters'] = memory_graph_truncate_json_schema_for_llm($tool['parameters'], $maxDepth, 0);
+    }
+    return $tool;
+}
+
 function buildOpenAiTools(array $tools): array {
     $out = [];
     foreach ($tools as $tool) {
         if (empty($tool['active'])) {
             continue;
         }
+        $tool = memory_graph_apply_openai_tool_trim_for_llm($tool);
         $out[] = [
             'type' => 'function',
             'function' => [
@@ -575,6 +761,20 @@ function buildOpenAiTools(array $tools): array {
         ];
     }
     return $out;
+}
+
+/** @param list<array{callId: string, functionName: string, arguments: array, normalizedName: string}> $prepared */
+function chat_openai_tool_calls_all_mcp_parallel_eligible(array $prepared, array $activeTools): bool {
+    if (count($prepared) < 2 || mcp_proxy_base_url() === null) {
+        return false;
+    }
+    foreach ($prepared as $row) {
+        $n = $row['normalizedName'];
+        if (!isset($activeTools[$n]) || empty($activeTools[$n]['active']) || empty($activeTools[$n]['mcp'])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function normalizeToolName(string $name): string {
@@ -591,10 +791,6 @@ function normalizeToolName(string $name): string {
         'get_instruction' => 'read_instruction_file',
         'list_tool' => 'list_available_tools',
         'get_tool' => 'list_available_tools',
-        'create_category' => 'create_category_node',
-        'createcategorynode' => 'create_category_node',
-        'add_category' => 'create_category_node',
-        'add_category_node' => 'create_category_node',
     ];
     return $aliases[$normalized] ?? $aliases[$name] ?? $normalized;
 }
@@ -744,14 +940,10 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         ];
     }
     if ($toolName === 'list_memory_files') {
-        $all = list_memory_files_meta();
+        $all = list_memory_files_meta(false);
         $memories = array_values(array_filter($all, function ($m) {
             return !empty($m['active']);
         }));
-        $memories = array_map(function ($memory) {
-            unset($memory['content']);
-            return $memory;
-        }, $memories);
         return ['memories' => $memories];
     }
     if ($toolName === 'list_instruction_files') {
@@ -838,10 +1030,7 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         return delete_research_file_by_name((string) ($arguments['name'] ?? ''));
     }
     if ($toolName === 'list_rules_files') {
-        return ['rules' => array_map(function ($r) {
-            unset($r['content']);
-            return $r;
-        }, list_rules_files_meta())];
+        return ['rules' => array_values(list_rules_files_meta(false))];
     }
     if ($toolName === 'read_rules_file') {
         $rules = get_rules_meta((string) ($arguments['name'] ?? ''));
@@ -870,19 +1059,6 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     }
     if ($toolName === 'delete_job_file') {
         return delete_job_file_by_name((string) ($arguments['name'] ?? ''));
-    }
-    if ($toolName === 'create_category_node') {
-        return create_category_node(
-            (string) ($arguments['name'] ?? ''),
-            (string) ($arguments['title'] ?? ''),
-            (string) ($arguments['description'] ?? '')
-        );
-    }
-    if ($toolName === 'list_category_nodes') {
-        return ['categories' => list_category_nodes_meta()];
-    }
-    if ($toolName === 'delete_category_node') {
-        return delete_category_node_by_name((string) ($arguments['name'] ?? ''));
     }
     if ($toolName === 'create_mcp_server') {
         return upsert_mcp_server_artifact($arguments);
@@ -988,7 +1164,11 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         $offset = isset($arguments['offset']) ? (int) $arguments['offset'] : 0;
         $limit = max(1, min(100, $limit));
         $offset = max(0, $offset);
-        return list_chat_history($limit, $offset);
+        $sess = isset($arguments['session_id']) ? trim((string) $arguments['session_id']) : '';
+        if ($sess === '' && !empty($arguments['current_session_only'])) {
+            $sess = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_SESSION_ID'] ?? '');
+        }
+        return list_chat_history($limit, $offset, $sess !== '' ? $sess : null);
     }
     if ($toolName === 'get_chat_history') {
         $id = (string) ($arguments['id'] ?? $arguments['requestId'] ?? '');
@@ -1024,9 +1204,9 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     return ['error' => 'Unknown built-in tool: ' . $toolName . '. Use list_available_tools to see valid tool names.'];
 }
 
-function executeToolCall(string $toolName, array $arguments, array $activeTools): array {
+function executeToolCall(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     try {
-        return executeToolCallInner($toolName, $arguments, $activeTools);
+        return executeToolCallInner($toolName, $arguments, $activeTools, $mcpResultOverride);
     } catch (Throwable $e) {
         $msg = $e->getMessage();
         $class = get_class($e);
@@ -1040,7 +1220,7 @@ function executeToolCall(string $toolName, array $arguments, array $activeTools)
     }
 }
 
-function executeToolCallInner(string $toolName, array $arguments, array $activeTools): array {
+function executeToolCallInner(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     $normalizedName = normalizeToolName($toolName);
     if (!isset($activeTools[$normalizedName])) {
         return ['error' => 'Tool is not active or not registered', '__disabled' => false];
@@ -1062,7 +1242,11 @@ function executeToolCallInner(string $toolName, array $arguments, array $activeT
                 '__disabled' => true,
             ];
         }
-        $result = mcp_call_server_tool($server, (string) ($activeTools[$normalizedName]['mcpToolName'] ?? $normalizedName), $arguments);
+        if ($mcpResultOverride !== null) {
+            $result = $mcpResultOverride;
+        } else {
+            $result = mcp_call_server_tool($server, (string) ($activeTools[$normalizedName]['mcpToolName'] ?? $normalizedName), $arguments);
+        }
         $result['__mcp_server_name'] = $server['name'] ?? '';
         $result['__mcp_node_id'] = $server['nodeId'] ?? '';
         return $result;
@@ -1101,15 +1285,149 @@ function executeToolCallInner(string $toolName, array $arguments, array $activeT
     return executePhpTool($normalizedName, normalizeToolArguments($normalizedName, $arguments));
 }
 
+/**
+ * Merge all rules/*.md and active memory/*.md into one system-prompt block for the model.
+ */
+function buildMemoryAndRulesSystemPromptSection(int $maxTotalChars = 120000): string {
+    $cacheSig = memory_rules_prompt_cache_signature() . "\0max:" . $maxTotalChars;
+    $cachePath = memory_rules_prompt_cache_path();
+    if (is_file($cachePath)) {
+        $raw = @file_get_contents($cachePath);
+        $cached = ($raw !== false && $raw !== '') ? json_decode($raw, true) : null;
+        if (is_array($cached) && ($cached['sig'] ?? '') === $cacheSig && isset($cached['text']) && is_string($cached['text'])) {
+            return $cached['text'];
+        }
+    }
+    $sections = [];
+    $rulesParts = [];
+    foreach (list_rules_files_meta(true) as $r) {
+        $name = (string) ($r['name'] ?? '');
+        $content = trim((string) ($r['content'] ?? ''));
+        if ($name === '' || $content === '') {
+            continue;
+        }
+        $rulesParts[] = '### Rules file: ' . $name . "\n\n" . $content;
+    }
+    if ($rulesParts !== []) {
+        $sections[] = "## Merged rules (all files under rules/)\n\n" . implode("\n\n---\n\n", $rulesParts);
+    }
+    $memParts = [];
+    foreach (list_memory_files_meta(false) as $m) {
+        if (empty($m['active'])) {
+            continue;
+        }
+        $name = (string) ($m['name'] ?? '');
+        if ($name === '') {
+            continue;
+        }
+        $path = memory_dir_path() . DIRECTORY_SEPARATOR . $name;
+        if (!is_file($path)) {
+            continue;
+        }
+        $content = trim((string) file_get_contents($path));
+        if ($content === '') {
+            continue;
+        }
+        $memParts[] = '### Memory file: ' . $name . "\n\n" . $content;
+    }
+    if ($memParts !== []) {
+        $sections[] = "## Merged memory (active files under memory/)\n\n" . implode("\n\n---\n\n", $memParts);
+    }
+    $out = trim(implode("\n\n", $sections));
+    if ($out === '') {
+        return '';
+    }
+    if (strlen($out) > $maxTotalChars) {
+        $out = substr($out, 0, $maxTotalChars - 40) . "\n\n[Memory/rules section truncated to max length]";
+    }
+    @file_put_contents(
+        $cachePath,
+        json_encode(['sig' => $cacheSig, 'text' => $out], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    );
+    return $out;
+}
+
+/**
+ * Build a compact catalog of discovery-style tools (list_*, get_*, read_*) so the model
+ * can call them immediately without waiting for list_available_tools first.
+ * Matches: names starting with list_/get_/read_, or containing _list_/ _get_ (e.g. list_memory_files).
+ */
+function buildListGetReadToolsQuickReference(array $activeTools): string {
+    $listNames = [];
+    $getNames = [];
+    $readNames = [];
+    foreach ($activeTools as $tool) {
+        if (empty($tool['active']) || !is_array($tool)) {
+            continue;
+        }
+        $name = (string) ($tool['name'] ?? '');
+        if ($name === '') {
+            continue;
+        }
+        if ($name === 'agent_cron_list') {
+            $listNames[$name] = true;
+            continue;
+        }
+        if (preg_match('#^list_|_list_#', $name) === 1) {
+            $listNames[$name] = true;
+        } elseif (preg_match('#^get_|_get_#', $name) === 1) {
+            $getNames[$name] = true;
+        } elseif (preg_match('#^read_#', $name) === 1) {
+            $readNames[$name] = true;
+        }
+    }
+    $list = array_keys($listNames);
+    $get = array_keys($getNames);
+    $read = array_keys($readNames);
+    sort($list);
+    sort($get);
+    sort($read);
+    if ($list === [] && $get === [] && $read === []) {
+        return '';
+    }
+    $lines = [
+        'QUICK REFERENCE — List / get / read tools (when the user needs inventory, metadata, or file/API content, call the matching tool in the SAME turn as your reasoning; you do not need to ask permission):',
+    ];
+    if ($list !== []) {
+        $lines[] = '- List / enumerate: ' . implode(', ', $list);
+    }
+    if ($get !== []) {
+        $lines[] = '- Get / fetch (by id, key, or query where applicable): ' . implode(', ', $get);
+    }
+    if ($read !== []) {
+        $lines[] = '- Read / load by name: ' . implode(', ', $read);
+    }
+    return implode("\n", $lines) . "\n";
+}
 
 function buildToolUsageInstruction(array $activeTools): string {
+    $activeList = array_filter($activeTools, function ($tool) {
+        return !empty($tool['active']);
+    });
     $toolNames = array_values(array_map(function ($tool) {
         return (string) ($tool['name'] ?? '');
-    }, array_filter($activeTools, function ($tool) {
-        return !empty($tool['active']);
-    })));
+    }, $activeList));
     sort($toolNames);
     $toolList = implode(', ', array_slice($toolNames, 0, 80));
+
+    $mcpToolCount = 0;
+    foreach ($activeList as $tool) {
+        if (!is_array($tool)) {
+            continue;
+        }
+        $n = (string) ($tool['name'] ?? '');
+        if ($n === '') {
+            continue;
+        }
+        if (!empty($tool['mcp']) || strpos($n, 'mcp__') === 0) {
+            $mcpToolCount++;
+        }
+    }
+    $mcpAutonomyLine = $mcpToolCount > 0
+        ? "There are {$mcpToolCount} MCP-connected tool(s) in your active tool list (names usually start with mcp__).\n"
+        : '';
+
+    $listGetReadRef = buildListGetReadToolsQuickReference($activeList);
 
     return trim(
         "You have access to tools, including tools for reading/writing memory when they are active.\n" .
@@ -1117,18 +1435,159 @@ function buildToolUsageInstruction(array $activeTools): string {
         "If native function calling is unavailable or not used, you must call a tool by replying with ONLY valid JSON in this exact shape and nothing else:\n" .
         "{\"tool\":\"tool_name\",\"arguments\":{\"arg\":\"value\"}}\n" .
         "Do not wrap that JSON in markdown fences.\n" .
+        "CRITICAL — MCP autonomy: You must proactively use MCP tools whenever they can help complete the task. Never wait for the user to say \"use MCP\", \"call the MCP\", or similar. If list_available_tools shows mcp__* tools, or if configured MCP servers could provide data/actions the user needs, call those tools as part of your normal workflow. Treat MCP-exposed tools like any other first-class tool. If you are unsure what an MCP server offers, call list_mcp_servers then list_mcp_server_tools for active servers, then invoke the matching tool by name.\n" .
+        $mcpAutonomyLine .
         "To discover what tools are currently available, call list_available_tools.\n" .
-        "To work with memory, use the memory tools such as list_memory_files and read_memory_file when available.\n" .
-        "To configure MCP servers, use the MCP config tools such as configure_mcp_server or set_mcp_server_env_var when available.\n" .
-        "When the user asks to create a category node (e.g. database, api, cache) under the Agent, use create_category_node; the node appears in the graph in real-time.\n" .
-        "If you need context from earlier conversations, use list_chat_history and get_chat_history to look up past exchanges.\n" .
+        ($listGetReadRef !== '' ? $listGetReadRef : '') .
+        "CRITICAL — Before create_or_update_tool (or writing a new PHP tool): You MUST first exhaust existing capabilities. (1) Call list_available_tools and read every active tool name and description — custom tools, builtins, and MCP-proxied tools (names often look like mcp__ServerSlug__tool_slug) are all listed there. (2) Call list_mcp_servers, then for each relevant active server call list_mcp_server_tools to see remote MCP tools and parameters. Only if nothing fits should you create a new PHP tool. Prefer calling an existing tool or an MCP-exposed tool over building new code.\n" .
+        "To work with memory, use the memory tools such as list_memory_files and read_memory_file when available. If the user asks for facts that may already appear in the merged memory section of this system prompt, answer from that text first—do not call list_memory_files unless you need a file name or content not shown above.\n" .
+        "CRITICAL — MCP setup in MemoryGraph: When the user asks to add, connect, configure, or set up an MCP server in this app, you MUST register it with create_mcp_server (new) or configure_mcp_server / update_mcp_server (existing). For HTTP remote MCP (URLs like https://.../mcp): use transport \"streamablehttp\", url set to that endpoint, optional headers for auth (set_mcp_server_header). Do NOT use create_instruction_file, update_instruction_file, add_memory_file, or similar to document MCP setup as a substitute — those do not register servers. Do NOT stop after writing markdown or example VS Code/Cursor .mcp.json unless the user explicitly asked only for external editor config. After saving the server, call list_mcp_server_tools (and list_mcp_servers) to confirm; then summarize what you registered for the user.\n" .
+        "To configure MCP servers, use the MCP config tools such as create_mcp_server, configure_mcp_server, set_mcp_server_header, or set_mcp_server_env_var when available.\n" .
+        "Active rules (*.md in rules/) and active memory (*.md in memory/) are merged into the system prompt above (when non-empty). If you need more exchanges than the in-thread messages, use list_chat_history (optionally session_id for this browser tab only) and get_chat_history.\n" .
         "If the user explicitly provides local credentials, private keys, API keys, env vars, headers, or similar config values for a tool or MCP server, you may use them to configure the local app and MCP servers. Do not refuse solely because the value looks secret.\n" .
         "CRITICAL - Tool creation: When you use create_or_update_tool, you MUST immediately call the newly created tool to test it. If it fails (error in result), use edit_tool_file to fix the PHP code and call the tool again. Repeat until the tool succeeds. Never respond to the user or report success until you have tested the tool and it works. This applies no matter what - always test, always fix until success.\n" .
         "When any tool returns an error (result contains an 'error' field), you MUST fix the tool and retry: use edit_tool_file to change the tool's PHP code, or edit_tool_registry_entry to change its description/parameters. Then call the tool again. Keep editing and retrying until the tool succeeds; do not give up or report the error to the user until you have retried by fixing the tool.\n" .
+        "CRITICAL — Tabular output: If display_table is active, use it for any row/column data you want the user to see clearly (SQL/ETL, research comparisons, release lists, benchmarks—not only databases). Pass headers and rows (string cells). Do not use markdown pipe tables for that data; call display_table first, then short prose.\n" .
+        "CRITICAL — Charts: If render_chart is active, use it for bar/line/pie (etc.) visuals: pass chart_config as a QuickChart/Chart.js config object, or chart_url as an https image URL. Prefer render_chart over embedding huge QuickChart URLs in markdown.\n" .
         ($toolList !== '' ? "Currently active tools include: " . $toolList . "\n" : '') .
         "When you are not calling a tool, answer normally.\n" .
         "CRITICAL - Do not stop prematurely: Use as many tool calls as needed to complete the task. Never respond with 'no tool calls', 'I have no tools to use', or similar - keep using tools until the task is complete, then give your final answer."
     );
+}
+
+/**
+ * Format etl_payroll_tool rows as markdown for the model (avoids huge JSON + truncation).
+ */
+function formatEtlPayrollToolResultForModel(array $toolResult): string {
+    if (isset($toolResult['error'])) {
+        return (string) json_encode($toolResult, JSON_UNESCAPED_UNICODE);
+    }
+    $rows = $toolResult['result'] ?? null;
+    if (!is_array($rows)) {
+        return (string) json_encode($toolResult, JSON_UNESCAPED_UNICODE);
+    }
+    $count = isset($toolResult['count']) ? (int) $toolResult['count'] : count($rows);
+    $esc = static function (string $s): string {
+        $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
+        $s = str_replace(['|', "\0"], ['\\|', ''], $s);
+        if (function_exists('mb_strlen') && mb_strlen($s, 'UTF-8') > 100) {
+            $s = mb_substr($s, 0, 97, 'UTF-8') . '...';
+        } elseif (strlen($s) > 120) {
+            $s = substr($s, 0, 117) . '...';
+        }
+        return trim($s);
+    };
+
+    $lines = [
+        '## etl_Payroll (SQL result)',
+        '',
+        '**Row count:** ' . $count,
+    ];
+    if ($count === 0) {
+        $lines[] = '';
+        $lines[] = '_Empty result set._';
+        $lines[] = '';
+        $lines[] = 'When summarizing: use **normal spaces only** in markdown (no narrow/thin Unicode spaces).';
+        return implode("\n", $lines);
+    }
+
+    $allKeys = [];
+    foreach ($rows as $r) {
+        if (is_array($r)) {
+            foreach (array_keys($r) as $k) {
+                if (!in_array($k, $allKeys, true)) {
+                    $allKeys[] = $k;
+                }
+            }
+        }
+    }
+    $maxCols = 14;
+    $maxRows = 25;
+    $displayKeys = array_slice($allKeys, 0, $maxCols);
+    $moreCols = count($allKeys) - count($displayKeys);
+
+    $lines[] = '**Columns (' . count($allKeys) . '):** ' . implode(', ', $allKeys);
+    $lines[] = '';
+    $lines[] = '### Preview table';
+    $lines[] = '';
+    $lines[] = '| ' . implode(' | ', array_map($esc, $displayKeys)) . ' |';
+    $lines[] = '|' . str_repeat(' --- |', count($displayKeys));
+
+    $slice = array_slice($rows, 0, $maxRows);
+    foreach ($slice as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $cells = [];
+        foreach ($displayKeys as $k) {
+            $v = $row[$k] ?? '';
+            if ($v === null) {
+                $v = '';
+            }
+            if (!is_scalar($v)) {
+                $v = json_encode($v, JSON_UNESCAPED_UNICODE);
+            }
+            $cells[] = $esc((string) $v);
+        }
+        $lines[] = '| ' . implode(' | ', $cells) . ' |';
+    }
+    if ($moreCols > 0) {
+        $lines[] = '';
+        $lines[] = '_(' . $moreCols . ' more columns omitted from table; full names listed above.)_';
+    }
+    if ($count > $maxRows) {
+        $lines[] = '';
+        $lines[] = '_Showing first ' . $maxRows . ' of ' . $count . ' rows._';
+    }
+    $lines[] = '';
+    $lines[] = '**MANDATORY — Reply to the user:** Call **display_table** with:';
+    $lines[] = '- `headers`: ' . json_encode($allKeys, JSON_UNESCAPED_UNICODE) . ' (or a subset if you only show some columns)';
+    $lines[] = '- `rows`: each row from the query as an array of string cells (match header order; use full result set from your tool memory for all rows, not only the preview above)';
+    $lines[] = '- optional `caption` (e.g. query summary)';
+    $lines[] = 'Do **not** answer with a markdown pipe table. After display_table, you may add short bullets (mask SSNs/sensitive IDs in prose).';
+    return implode("\n", $lines);
+}
+
+/** Normalize model quirks (narrow spaces etc.) in assistant text for cleaner UI/JSON. */
+function normalizeAssistantFormatting(string $content): string {
+    if ($content === '') {
+        return $content;
+    }
+    $repl = [
+        "\xE2\x80\xAF" => ' ', // U+202F narrow no-break space
+        "\xC2\xA0" => ' ',     // U+00A0 nbsp
+        "\xE2\x80\x89" => ' ', // U+2009 thin space
+        "\xE2\x80\x8B" => '',  // U+200B zero-width space
+    ];
+    return str_replace(array_keys($repl), array_values($repl), $content);
+}
+
+/**
+ * Safe string for lastToolResultText fallback (avoids Array to string when result is rows).
+ */
+function lastToolResultDisplayText(string $toolName, array $toolResult): string {
+    $toolName = normalizeToolName($toolName);
+    if (isset($toolResult['text']) && is_string($toolResult['text'])) {
+        return $toolResult['text'];
+    }
+    if (isset($toolResult['error'])) {
+        $e = $toolResult['error'];
+        return is_scalar($e) ? (string) $e : (string) json_encode($e, JSON_UNESCAPED_UNICODE);
+    }
+    $r = $toolResult['result'] ?? null;
+    if (is_array($r)) {
+        if ($toolName === 'etl_payroll_tool') {
+            return formatEtlPayrollToolResultForModel($toolResult);
+        }
+        return (string) json_encode([
+            'row_count' => isset($toolResult['count']) ? (int) $toolResult['count'] : count($r),
+            'preview' => array_slice($r, 0, 2),
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    if (is_scalar($r)) {
+        return (string) $r;
+    }
+    return '';
 }
 
 /** Build the user/tool message content for a tool result; when result has 'error', append fix-and-retry directive. */
@@ -1138,6 +1597,13 @@ function formatToolResultForModel(string $toolName, array $toolResult, bool $inl
         $fixDirective = ' Fix the error in tools/' . $toolResult['file'] . ' at line ' . $toolResult['line'] . ' using edit_tool_file, then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
     } elseif (isset($toolResult['error'])) {
         $fixDirective = ' You MUST fix the tool using edit_tool_file (to change the PHP code) or edit_tool_registry_entry (to change parameters), then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
+    }
+    if ($toolName === 'etl_payroll_tool' && !isset($toolResult['error'])) {
+        $s = formatEtlPayrollToolResultForModel($toolResult);
+        if ($inlineFormat) {
+            $s .= "\n\nContinue and answer the original user request.";
+        }
+        return $s;
     }
     $json = json_encode($toolResult);
     if ($inlineFormat) {
@@ -1228,6 +1694,12 @@ function truncateConversationForContext(array $conversation): array {
         }
         $role = $msg['role'] ?? 'user';
         $cap = ($role === 'tool') ? $maxToolContentChars : $maxContentChars;
+        if ($role === 'system') {
+            $cap = 250000;
+        }
+        if ($role === 'tool' && (($msg['name'] ?? '') === 'etl_payroll_tool')) {
+            $cap = min(56000, max($cap, 32000));
+        }
         if (strlen($content) > $cap) {
             $msg = array_merge($msg, ['content' => substr($content, 0, $cap) . "\n\n[truncated]"]);
         }
@@ -1357,6 +1829,17 @@ function requestGemini(array $provider, string $model, array $conversation, floa
 
 $input = json_decode(file_get_contents('php://input'), true);
 $input = is_array($input) ? $input : [];
+$GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS'] = [];
+$GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'] = '';
+$skipCronPendingDelivery = !empty($input['skipCronPendingDelivery']);
+if ($skipCronPendingDelivery) {
+    $cj = isset($input['cronJobId']) ? preg_replace('/[^a-f0-9]/i', '', (string) $input['cronJobId']) : '';
+    if ($cj !== '') {
+        $GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'] = mg_cron_job_node_id($cj);
+    }
+}
+$chatSessionIdInput = isset($input['chatSessionId']) ? trim((string) $input['chatSessionId']) : '';
+$GLOBALS['MEMORY_GRAPH_CHAT_SESSION_ID'] = $chatSessionIdInput;
 $messages = $input['messages'] ?? [];
 $providerKey = $input['provider'] ?? 'mercury';
 $model = isset($input['model']) ? (string) $input['model'] : null;
@@ -1392,6 +1875,15 @@ $status = [
     'lastEventExpiresAtMs' => 0,
     'graphRefreshToken' => '',
 ];
+if (!empty($GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'])) {
+    $nid = (string) $GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'];
+    $status['checkingJobs'] = true;
+    $status['activeJobIds'] = [$nid];
+    $status['lastCheckingJobs'] = true;
+    $status['lastActiveJobIds'] = [$nid];
+    $status['executionDetailsByNode']['jobs'] = true;
+    $status['lastExecutionDetailsByNode']['jobs'] = true;
+}
 writeStatus($requestId, $status);
 
 if (empty($messages)) {
@@ -1429,9 +1921,28 @@ if ($model !== null && $model !== '' && !in_array($model, $allowedModels, true))
 $modelId = ($model !== null && $model !== '') ? $model : ($provider['defaultModel'] ?? '');
 $activeTools = loadToolRegistry();
 $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
-$effectiveSystemPrompt = trim(($systemPrompt !== '' ? $systemPrompt . "\n\n" : '') . buildToolUsageInstruction($activeTools));
+$memoryRulesBlock = buildMemoryAndRulesSystemPromptSection();
+$sessionCtx = $chatSessionIdInput !== ''
+    ? 'Current browser chat session id (for list_chat_history): ' . json_encode($chatSessionIdInput, JSON_UNESCAPED_UNICODE) . ' Pass it as session_id, or set current_session_only to true.'
+    : '';
+$cronPendingBlock = '';
+if (!$skipCronPendingDelivery) {
+    $pack = mg_cron_pending_build_for_chat();
+    if ($pack['block'] !== '') {
+        $GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS'] = $pack['paths'];
+        $cronPendingBlock = $pack['block'];
+    }
+}
+$effectiveSystemPrompt = trim(
+    ($systemPrompt !== '' ? $systemPrompt . "\n\n" : '')
+    . ($cronPendingBlock !== '' ? $cronPendingBlock . "\n\n" : '')
+    . ($memoryRulesBlock !== '' ? $memoryRulesBlock . "\n\n" : '')
+    . ($sessionCtx !== '' ? $sessionCtx . "\n\n" : '')
+    . buildToolUsageInstruction($activeTools)
+);
 $conversation = normalizeConversation($messages, $effectiveSystemPrompt, $provider['type']);
 $finalContent = '';
+$lastToolResultText = '';
 $loopCount = 0;
 $jobsToRun = [];
 
@@ -1510,12 +2021,50 @@ while (true) {
                 'content' => $assistantContent,
                 'tool_calls' => $toolCalls,
             ];
+            $prepared = [];
             foreach ($toolCalls as $toolCall) {
                 $callId = $toolCall['id'] ?? uniqid('tool_', true);
                 $functionName = $toolCall['function']['name'] ?? '';
                 $arguments = json_decode($toolCall['function']['arguments'] ?? '{}', true);
                 $arguments = is_array($arguments) ? $arguments : [];
                 $normalizedFunctionName = normalizeToolName($functionName);
+                $prepared[] = [
+                    'callId' => $callId,
+                    'functionName' => $functionName,
+                    'arguments' => $arguments,
+                    'normalizedName' => $normalizedFunctionName,
+                ];
+            }
+
+            $parallelMcpResults = null;
+            if (chat_openai_tool_calls_all_mcp_parallel_eligible($prepared, $activeTools)) {
+                $jobs = [];
+                foreach ($prepared as $row) {
+                    $n = $row['normalizedName'];
+                    $server = get_mcp_server_meta((string) ($activeTools[$n]['mcpServerName'] ?? ''));
+                    if ($server === null || empty($server['active'])) {
+                        $jobs = [];
+                        break;
+                    }
+                    $jobs[] = [
+                        'server' => $server,
+                        'toolName' => (string) ($activeTools[$n]['mcpToolName'] ?? $n),
+                        'arguments' => $row['arguments'],
+                    ];
+                }
+                if (count($jobs) === count($prepared)) {
+                    $tryParallel = mcp_proxy_parallel_call_tools($jobs);
+                    if (is_array($tryParallel) && count($tryParallel) === count($prepared)) {
+                        $parallelMcpResults = $tryParallel;
+                    }
+                }
+            }
+
+            foreach ($prepared as $idx => $row) {
+                $callId = $row['callId'];
+                $functionName = $row['functionName'];
+                $arguments = $row['arguments'];
+                $normalizedFunctionName = $row['normalizedName'];
                 $executionState = buildExecutionStateForToolCall($normalizedFunctionName, $arguments, $activeTools);
                 markExecutionStatus(
                     $status,
@@ -1536,9 +2085,12 @@ while (true) {
                     $executionState['activeJobIds'],
                     $executionState['executionDetails']
                 );
-                usleep(120000);
+                $mcpOverride = null;
+                if ($parallelMcpResults !== null && isset($parallelMcpResults[$idx])) {
+                    $mcpOverride = $parallelMcpResults[$idx];
+                }
                 try {
-                    $toolResult = executeToolCall($functionName, $arguments, $activeTools);
+                    $toolResult = executeToolCall($functionName, $arguments, $activeTools, $mcpOverride);
                 } catch (Throwable $e) {
                     $toolResult = [
                         'error' => 'Tool execution threw: ' . $e->getMessage(),
@@ -1566,6 +2118,10 @@ while (true) {
                     $finalContent = 'That memory file has been disabled for me, please enable it if you want me to use that memory.';
                     break 2;
                 }
+                $t = lastToolResultDisplayText($normalizedFunctionName, $toolResult);
+                if ($t !== '') {
+                    $lastToolResultText = $t;
+                }
                 $toolResultArr = is_array($toolResult) ? $toolResult : ['result' => $toolResult];
                 $conversation[] = [
                     'role' => 'tool',
@@ -1573,8 +2129,11 @@ while (true) {
                     'name' => normalizeToolName($functionName),
                     'content' => formatToolResultForModel($normalizedFunctionName, $toolResultArr, false),
                 ];
-                $activeTools = loadToolRegistry();
-                $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
+                if (shouldInvalidateToolRegistryCache($normalizedFunctionName, $toolResult)) {
+                    clearMemoryGraphToolRegistryCache();
+                    $activeTools = loadToolRegistry();
+                    $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
+                }
                 if ($normalizedFunctionName === 'set_provider_model' && is_array($toolResult) && !empty($toolResult['ok'])) {
                     $cfg = get_current_provider_model();
                     $providerKey = $cfg['provider'];
@@ -1618,7 +2177,6 @@ while (true) {
                 $executionState['activeJobIds'],
                 $executionState['executionDetails']
             );
-            usleep(45000);
             try {
                 $toolResult = executeToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
             } catch (Throwable $e) {
@@ -1649,14 +2207,21 @@ while (true) {
                 $finalContent = 'That memory file has been disabled for me, please enable it if you want me to use that memory.';
                 break;
             }
+            $t = lastToolResultDisplayText($normalizedInlineName, $toolResult);
+            if ($t !== '') {
+                $lastToolResultText = $t;
+            }
             $conversation[] = ['role' => 'assistant', 'content' => $assistantContent];
             $toolResultArr = is_array($toolResult) ? $toolResult : ['result' => $toolResult];
             $conversation[] = [
                 'role' => 'user',
                 'content' => formatToolResultForModel($inlineToolCall['name'], $toolResultArr, true),
             ];
-            $activeTools = loadToolRegistry();
-            $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
+            if (shouldInvalidateToolRegistryCache($inlineToolCall['name'], $toolResult)) {
+                clearMemoryGraphToolRegistryCache();
+                $activeTools = loadToolRegistry();
+                $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
+            }
             if ($inlineToolCall['name'] === 'set_provider_model' && is_array($toolResult) && !empty($toolResult['ok'])) {
                 $cfg = get_current_provider_model();
                 $providerKey = $cfg['provider'];
@@ -1712,7 +2277,6 @@ while (true) {
             $executionState['activeJobIds'],
             $executionState['executionDetails']
         );
-        usleep(120000);
         try {
             $toolResult = executeToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
         } catch (Throwable $e) {
@@ -1743,14 +2307,21 @@ while (true) {
             $finalContent = 'That memory file has been disabled for me, please enable it if you want me to use that memory.';
             break;
         }
+        $t = lastToolResultDisplayText($normalizedInlineName, $toolResult);
+        if ($t !== '') {
+            $lastToolResultText = $t;
+        }
         $conversation[] = ['role' => 'assistant', 'content' => $assistantContent];
         $toolResultArr = is_array($toolResult) ? $toolResult : ['result' => $toolResult];
         $conversation[] = [
             'role' => 'user',
             'content' => formatToolResultForModel($inlineToolCall['name'], $toolResultArr, true),
         ];
-        $activeTools = loadToolRegistry();
-        $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
+        if (shouldInvalidateToolRegistryCache($inlineToolCall['name'], $toolResult)) {
+            clearMemoryGraphToolRegistryCache();
+            $activeTools = loadToolRegistry();
+            $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
+        }
         if ($inlineToolCall['name'] === 'set_provider_model' && is_array($toolResult) && !empty($toolResult['ok'])) {
             $cfg = get_current_provider_model();
             $providerKey = $cfg['provider'];
@@ -1775,12 +2346,18 @@ while (true) {
     break;
 }
 
+if (trim($finalContent) === '' && $lastToolResultText !== '') {
+    $finalContent = $lastToolResultText;
+}
+
 clearStatusFlags($status);
 clearCurrentExecutionStatus($status, $requestId);
 writeStatus($requestId, $status);
 
+$finalContent = normalizeAssistantFormatting($finalContent);
+
 if ($initialUserContent !== '' && trim($finalContent) !== '') {
-    append_chat_exchange($requestId, $initialUserContent, $finalContent);
+    append_chat_exchange($requestId, $initialUserContent, $finalContent, $chatSessionIdInput);
 }
 
 $response = [
@@ -1800,4 +2377,8 @@ if (!empty($jobsToRun)) {
 if (!empty($status['graphRefreshNeeded'])) {
     $response['graphRefreshNeeded'] = true;
 }
-echo json_encode($response);
+if (!empty($GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS']) && !$skipCronPendingDelivery) {
+    mg_cron_pending_delete_paths($GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS']);
+    $GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS'] = [];
+}
+echo json_encode($response, JSON_UNESCAPED_UNICODE);

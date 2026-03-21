@@ -283,7 +283,10 @@
                         stopJobByName(name);
                     } else if (action === 'view') {
                         if (typeof window.MemoryGraphShowResponseModal === 'function') {
-                            window.MemoryGraphShowResponseModal(jobs[name] && jobs[name].promptText ? jobs[name].promptText : ('Job: ' + name), responseCache[name] || (jobs[name] && jobs[name].fullResponse) || '');
+                            var promptForView = (jobs[name] && jobs[name].cronViewPrompt)
+                                ? jobs[name].cronViewPrompt
+                                : (jobs[name] && jobs[name].promptText ? jobs[name].promptText : ('Job: ' + name));
+                            window.MemoryGraphShowResponseModal(promptForView, responseCache[name] || (jobs[name] && jobs[name].fullResponse) || '');
                         }
                     } else {
                         if (jobs[name] && jobs[name].removeTimeout) {
@@ -325,6 +328,23 @@
         }
     }
 
+    function cronProgressSummary(status) {
+        if (!status) return 'Scheduled run in progress…';
+        if (!status.thinking) return 'Finishing up…';
+        var parts = [];
+        if (status.gettingAvailTools) parts.push('listing tools');
+        if (status.checkingMemory || (status.memoryToolExecuting && !status.checkingMemory)) parts.push('memory');
+        if (status.checkingInstructions) parts.push('instructions');
+        if (status.checkingResearch) parts.push('research');
+        if (status.checkingRules) parts.push('rules');
+        if (status.checkingMcps || (status.executionDetailsByNode && status.executionDetailsByNode.mcps)) parts.push('MCP');
+        if (status.checkingJobs) parts.push('jobs');
+        var tools = status.activeToolIds && status.activeToolIds.length;
+        if (tools) parts.push('tools (' + status.activeToolIds.slice(0, 2).join(', ') + (tools > 2 ? '…' : '') + ')');
+        if (parts.length) return 'Cron: ' + parts.join(' · ');
+        return 'Cron: agent thinking…';
+    }
+
     function ensurePollTimer() {
         if (pollTimer) return;
         pollTimer = setInterval(function () {
@@ -339,7 +359,9 @@
                         if (!jobs[name] || jobs[name].requestId !== requestId || activePollRequests[name] !== requestId) return;
                         jobs[name].lastStatus = status || {};
                         scheduleGraphStateSync();
-                        if (status && status.thinking && jobs[name].statusText !== 'Running in background...') {
+                        if (jobs[name].isCron) {
+                            setJobState(name, { statusText: cronProgressSummary(status || {}) });
+                        } else if (status && status.thinking && jobs[name].statusText !== 'Running in background...') {
                             setJobState(name, {
                                 statusText: 'Running in background...'
                             });
@@ -514,6 +536,131 @@
         });
         if (hasCompleted) scheduleRenderJobs();
     }, 1000);
+
+    var prevCronActiveRequestIds = {};
+
+    function buildCronCompletedViewText(jobRow, apiRes) {
+        var promptLine = (jobRow && jobRow.promptText) ? String(jobRow.promptText) : '';
+        if (apiRes && apiRes.ok && apiRes.result) {
+            var r = apiRes.result;
+            var promptShown = (r.cronPrompt && String(r.cronPrompt).trim() !== '')
+                ? String(r.cronPrompt)
+                : (promptLine || '(scheduled cron)');
+            var parts = [];
+            parts.push('Prompt');
+            parts.push(promptShown);
+            parts.push('');
+            parts.push('---');
+            parts.push('');
+            if (r.ok === false || (r.error && String(r.error).trim() !== '')) {
+                parts.push('Run status: failed or incomplete');
+                parts.push(String(r.error || 'Unknown error'));
+                parts.push('');
+            } else {
+                parts.push('Run status: success');
+                parts.push('');
+            }
+            var body = (r.assistantContent && String(r.assistantContent).trim() !== '')
+                ? String(r.assistantContent)
+                : (r.summary && String(r.summary).trim() !== '' ? String(r.summary) : '');
+            parts.push('Response');
+            parts.push(body !== '' ? body : '(No assistant message body — the model may have only used tools. Check Research / Memory in the app.)');
+            return parts.join('\n');
+        }
+        return [
+            'Prompt',
+            promptLine || '(scheduled cron)',
+            '',
+            '---',
+            '',
+            'Response',
+            'Could not load saved cron output (missing or expired). Open chat history or research files for details.'
+        ].join('\n');
+    }
+
+    function syncCronActiveRuns() {
+        jQuery.getJSON('api/cron.php?action=list_active')
+            .done(function (data) {
+                var runs = (data && data.runs) ? data.runs : [];
+                var nowMap = {};
+                runs.forEach(function (r) {
+                    if (!r || !r.requestId) return;
+                    var rid = r.requestId;
+                    nowMap[rid] = true;
+                    var key = 'cron:' + rid;
+                    if (!jobs[key]) {
+                        setJobState(key, {
+                            name: '[Cron] ' + (r.jobName || 'Scheduled job'),
+                            nodeId: r.nodeId || null,
+                            state: 'running',
+                            statusText: 'Scheduled run starting…',
+                            requestId: rid,
+                            isCron: true,
+                            cronJobName: r.jobName || '',
+                            promptText: 'Scheduled cron job: ' + (r.jobName || r.jobId || rid)
+                        });
+                        startJobPolling(key, rid);
+                        try {
+                            window.alert('Cron job started: ' + (r.jobName || r.jobId || 'scheduled job') + '\n\nProgress is shown under Running Jobs (and on the graph).');
+                        } catch (e1) {}
+                    }
+                });
+                Object.keys(prevCronActiveRequestIds).forEach(function (rid) {
+                    if (nowMap[rid]) return;
+                    var key = 'cron:' + rid;
+                    var j = jobs[key];
+                    if (j && j.isCron && j.state === 'running') {
+                        jQuery.getJSON('api/cron.php', { action: 'run_result', request_id: rid })
+                            .done(function (apiRes) {
+                                var r = (apiRes && apiRes.ok && apiRes.result) ? apiRes.result : null;
+                                var assist = '';
+                                var cronPrompt = '';
+                                if (r) {
+                                    cronPrompt = (r.cronPrompt && String(r.cronPrompt).trim() !== '')
+                                        ? String(r.cronPrompt)
+                                        : (j.promptText || '');
+                                    assist = String(r.assistantContent || r.summary || '').trim();
+                                    if (!assist && r.error && String(r.error).trim() !== '') {
+                                        assist = '## Cron run failed\n\n' + String(r.error);
+                                    }
+                                }
+                                if (!assist) {
+                                    assist = '_No assistant text was saved (tools-only run or empty reply). Check **Research** and **Memory** in the app._';
+                                }
+                                responseCache[key] = assist;
+                                if (jobs[key]) {
+                                    jobs[key].fullResponse = assist;
+                                    jobs[key].cronViewPrompt = cronPrompt || j.promptText || '';
+                                }
+                                try {
+                                    var ac = assist.replace(/^#+\s*/gm, '').replace(/\*|_/g, '');
+                                    var preview = ac.replace(/\s+/g, ' ').trim().slice(0, 280);
+                                    window.alert('Cron job finished: ' + (j.cronJobName || j.name || rid) +
+                                        (preview ? '\n\n' + preview + (ac.length > 280 ? '…' : '') : '\n\nOpen Running Jobs → View response for the formatted report.'));
+                                } catch (e2) {}
+                                finishJob(key, 'completed', 'Scheduled run completed.');
+                            })
+                            .fail(function () {
+                                var fallback = '_Could not load saved cron output (missing or expired). Check chat history or research files._';
+                                responseCache[key] = fallback;
+                                if (jobs[key]) {
+                                    jobs[key].fullResponse = fallback;
+                                    jobs[key].cronViewPrompt = j.promptText || '';
+                                }
+                                try {
+                                    window.alert('Cron job finished: ' + (j.cronJobName || j.name || rid) + '\n\nSaved output was not found on the server.');
+                                } catch (e3) {}
+                                finishJob(key, 'completed', 'Scheduled run completed.');
+                            });
+                    }
+                });
+                prevCronActiveRequestIds = nowMap;
+            })
+            .fail(function () {});
+    }
+
+    setInterval(syncCronActiveRuns, 450);
+    setTimeout(syncCronActiveRuns, 300);
 
     renderJobs();
 })();

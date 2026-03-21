@@ -1,3 +1,12 @@
+<?php
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'env.php';
+memory_graph_load_env();
+$mgCronBrowserTick = false;
+$mgCronBt = memory_graph_env('MEMORYGRAPH_CRON_BROWSER_TICK', '');
+if ($mgCronBt !== null && $mgCronBt !== '') {
+    $mgCronBrowserTick = in_array(strtolower(trim($mgCronBt)), ['1', 'true', 'yes', 'on'], true);
+}
+?>
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -51,11 +60,8 @@
             font-family: 'Playfair Display', serif;
             background: var(--black);
             color: var(--gold-light);
-            background-image:
-                linear-gradient(27deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.018) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.018) 50%, rgba(255,255,255,0.018) 75%, transparent 75%, transparent 100%),
-                linear-gradient(153deg, rgba(255,255,255,0.012) 0%, rgba(255,255,255,0.012) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.012) 50%, rgba(255,255,255,0.012) 75%, transparent 75%, transparent 100%),
-                radial-gradient(circle at top center, #11161d 0%, #040507 48%, #000000 100%);
-            background-size: 18px 18px, 18px 18px, cover;
+            background-image: radial-gradient(circle at top center, #11161d 0%, #040507 48%, #000000 100%);
+            background-size: cover;
         }
         [data-theme="light"] body {
             background: #f5f0e6;
@@ -84,39 +90,67 @@
         }
         .graph-legend {
             position: fixed;
-            top: 20px;
-            left: 20px;
+            top: 16px;
+            left: 16px;
             z-index: 90;
             background: var(--panel-bg);
             backdrop-filter: blur(14px);
             border: 1px solid rgba(214, 219, 226, 0.22);
-            border-radius: 12px;
-            padding: 12px 14px;
-            box-shadow: 0 0 18px rgba(214, 219, 226, 0.07), 0 8px 32px rgba(0,0,0,0.4);
+            border-radius: 10px;
+            padding: 0;
+            box-shadow: 0 0 14px rgba(214, 219, 226, 0.06), 0 6px 20px rgba(0,0,0,0.35);
+            max-width: min(200px, calc(100vw - 32px));
         }
-        .graph-legend-title {
+        .graph-legend-dropdown > summary {
+            list-style: none;
+            cursor: pointer;
+            font-family: 'Cinzel', serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
             color: var(--gold);
-            font-size: 0.95rem;
-            margin-bottom: 8px;
-            text-shadow: 0 0 12px rgba(214, 219, 226, 0.18);
+            padding: 6px 10px;
+            user-select: none;
+            text-shadow: 0 0 8px rgba(214, 219, 226, 0.12);
+        }
+        .graph-legend-dropdown > summary::-webkit-details-marker {
+            display: none;
+        }
+        .graph-legend-dropdown > summary::after {
+            content: ' \25BE';
+            font-size: 0.65em;
+            opacity: 0.75;
+        }
+        .graph-legend-dropdown[open] > summary::after {
+            content: ' \25B4';
+        }
+        .graph-legend-dropdown > summary:hover {
+            color: var(--gold-light);
+        }
+        .graph-legend-panel {
+            border-top: 1px solid rgba(214, 219, 226, 0.12);
+            padding: 4px 8px 8px;
+            max-height: min(52vh, 280px);
+            overflow-y: auto;
         }
         .graph-legend-list {
             list-style: none;
             margin: 0;
             padding: 0;
-            font-size: 0.88rem;
+            font-size: 0.68rem;
+            line-height: 1.25;
             color: var(--gold-light);
         }
         .graph-legend-list li {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 3px 0;
+            gap: 5px;
+            padding: 2px 0;
         }
         .graph-legend-swatch {
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             flex-shrink: 0;
         }
@@ -130,34 +164,68 @@
             color: var(--gold-dim);
             margin-bottom: 4px;
         }
-        .chat-bar {
+        /* Bottom dock: jobs (left) + chat (right) — avoids overlap */
+        .bottom-dock {
             position: fixed;
-            bottom: 24px;
-            left: 50%;
-            transform: translateX(-50%);
+            bottom: 14px;
+            left: 14px;
+            right: 14px;
             z-index: 110;
-            width: min(560px, calc(100vw - 32px));
+            display: grid;
+            grid-template-columns: min(240px, min(34vw, calc(100vw - 100px))) 1fr;
+            gap: 10px;
+            align-items: end;
+            pointer-events: none;
+        }
+        .bottom-dock > * {
+            pointer-events: auto;
+        }
+        @media (max-width: 900px) {
+            .bottom-dock {
+                grid-template-columns: 1fr;
+                gap: 12px;
+                left: 12px;
+                right: 12px;
+                bottom: 16px;
+            }
+        }
+        .chat-bar {
+            position: relative;
+            left: auto;
+            bottom: auto;
+            transform: none;
+            justify-self: center;
+            width: min(380px, 100%);
+            max-width: 100%;
             background: var(--panel-bg);
             backdrop-filter: blur(12px);
             border: 1px solid rgba(214, 219, 226, 0.18);
-            border-radius: 12px;
-            padding: 10px 14px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            border-radius: 10px;
+            padding: 6px 9px;
+            box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+        }
+        @media (max-width: 900px) {
+            .chat-bar {
+                justify-self: stretch;
+                width: 100%;
+                order: 2;
+            }
         }
         .chat-bar .input-wrap {
             display: flex;
-            gap: 10px;
+            gap: 6px;
             align-items: center;
         }
         .chat-bar input {
             flex: 1;
+            min-width: 0;
             background: rgba(255,255,255,0.06);
             border: 1px solid rgba(214, 219, 226, 0.16);
-            border-radius: 8px;
-            padding: 12px 14px;
+            border-radius: 7px;
+            padding: 7px 10px;
             color: var(--gold-light);
             font-family: 'Playfair Display', serif;
-            font-size: 1rem;
+            font-size: 0.8125rem;
         }
         .chat-bar input::placeholder { color: rgba(249, 241, 216, 0.5); }
         .chat-bar input:focus {
@@ -169,11 +237,14 @@
             background: linear-gradient(180deg, #eef2f6, #9ca7b2);
             color: #07090c;
             border: none;
-            border-radius: 8px;
-            padding: 12px 20px;
+            border-radius: 7px;
+            padding: 7px 12px;
             font-family: 'Cinzel', serif;
+            font-size: 0.68rem;
             font-weight: 700;
+            letter-spacing: 0.04em;
             cursor: pointer;
+            flex-shrink: 0;
         }
         .chat-bar .btn-send:hover { filter: brightness(1.1); }
         .chat-bar .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -342,6 +413,90 @@
             overflow: hidden;
             display: block;
         }
+        /* Markdown-rendered AI response (modal + cron results) */
+        .response-modal-md {
+            font-family: 'Playfair Display', Georgia, serif;
+            line-height: 1.75;
+            color: var(--gold-light, #F9F1D8);
+            margin-bottom: 18px;
+            font-size: 1rem;
+        }
+        .response-modal-md h1, .response-modal-md h2, .response-modal-md h3, .response-modal-md h4 {
+            font-family: 'Cinzel', serif;
+            color: var(--gold, #D4AF37);
+            margin: 1.15em 0 0.45em;
+            font-weight: 700;
+            line-height: 1.25;
+        }
+        .response-modal-md h1 { font-size: 1.35rem; }
+        .response-modal-md h2 { font-size: 1.2rem; }
+        .response-modal-md h3 { font-size: 1.08rem; }
+        .response-modal-md p { margin: 0.65em 0; }
+        .response-modal-md ul, .response-modal-md ol { margin: 0.65em 0; padding-left: 1.35em; }
+        .response-modal-md li { margin: 0.35em 0; }
+        .response-modal-md hr {
+            border: none;
+            border-top: 1px solid rgba(212, 175, 55, 0.22);
+            margin: 1.25em 0;
+        }
+        .response-modal-md table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.9rem;
+            border: 1px solid rgba(212, 175, 55, 0.25);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .response-modal-md th, .response-modal-md td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.12);
+            text-align: left;
+            vertical-align: top;
+        }
+        .response-modal-md th {
+            background: rgba(212, 175, 55, 0.1);
+            color: var(--gold, #D4AF37);
+            font-family: 'Cinzel', serif;
+            font-weight: 600;
+        }
+        .response-modal-md tbody tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+        .response-modal-md img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 10px;
+            border: 1px solid rgba(212, 175, 55, 0.22);
+            margin: 14px 0;
+            display: block;
+        }
+        .response-modal-md code {
+            font-family: "Courier New", monospace;
+            background: rgba(0,0,0,0.45);
+            padding: 0.12em 0.4em;
+            border-radius: 4px;
+            font-size: 0.88em;
+        }
+        .response-modal-md pre {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            border-radius: 10px;
+            padding: 14px;
+            overflow: auto;
+            margin: 14px 0;
+        }
+        .response-modal-md pre code { background: transparent; padding: 0; }
+        .response-modal-md blockquote {
+            border-left: 3px solid var(--gold, #D4AF37);
+            margin: 12px 0;
+            padding: 6px 16px;
+            color: var(--gold-light, #F9F1D8);
+            opacity: 0.95;
+        }
+        .response-modal-md a { color: #98C0EF; text-decoration: underline; }
+        .response-modal-md a:hover { color: #b8d4f5; }
+        [data-theme="light"] .response-modal-md { color: #5C2329; }
+        [data-theme="light"] .response-modal-md th { color: #6b5a2a; }
+        [data-theme="light"] .response-modal-md blockquote { color: #4a4238; }
         @media (max-width: 768px) {
             #graph-container {
                 pointer-events: auto;
@@ -386,7 +541,11 @@
             top: 20px;
             right: 20px;
             z-index: 90;
-            width: min(320px, calc(100vw - 40px));
+            width: min(400px, calc(100vw - 40px));
+            max-height: calc(100vh - 40px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
             background: var(--panel-bg);
             backdrop-filter: blur(14px);
             border: 1px solid rgba(214, 219, 226, 0.2);
@@ -414,6 +573,7 @@
                 inset 0 1px 0 rgba(214, 219, 226, 0.08);
         }
         .node-widget-header {
+            flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -435,7 +595,17 @@
             opacity: 0.8;
         }
         .node-widget-close:hover { opacity: 1; color: var(--gold); }
-        .node-widget-body { padding: 14px; color: var(--gold-light); font-size: 0.95rem; line-height: 1.5; }
+        .node-widget-body {
+            padding: 14px;
+            color: var(--gold-light);
+            font-size: 0.95rem;
+            line-height: 1.5;
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
         .node-widget-label {
             color: var(--gold);
             font-weight: 600;
@@ -519,59 +689,62 @@
             min-width: 80px;
         }
         .running-jobs-widget {
-            position: fixed;
-            left: 20px;
-            bottom: 20px;
-            z-index: 108;
-            width: min(360px, calc(100vw - 40px));
+            position: relative;
+            left: auto;
+            bottom: auto;
+            z-index: 1;
+            width: 100%;
+            max-width: 240px;
             background: var(--panel-bg);
             backdrop-filter: blur(16px);
             border: 1px solid rgba(214, 219, 226, 0.24);
-            border-radius: 16px;
-            padding: 14px;
-            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.48), 0 0 24px rgba(214, 219, 226, 0.08);
+            border-radius: 11px;
+            padding: 9px 10px;
+            box-shadow: 0 8px 26px rgba(0, 0, 0, 0.42), 0 0 16px rgba(214, 219, 226, 0.06);
         }
-        @media (max-width: 768px) {
+        @media (max-width: 900px) {
             .running-jobs-widget {
-                left: 50%;
-                transform: translateX(-50%);
-                bottom: 100px;
-                width: min(360px, calc(100vw - 24px));
+                max-width: none;
+                width: 100%;
+                order: 1;
             }
         }
         .running-jobs-title {
             color: var(--gold);
-            font-size: 0.95rem;
-            margin-bottom: 10px;
-            text-shadow: 0 0 10px rgba(214, 219, 226, 0.18);
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+            text-shadow: 0 0 8px rgba(214, 219, 226, 0.14);
         }
         .running-jobs-list {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            max-height: 280px;
+            gap: 6px;
+            max-height: 160px;
             overflow-y: auto;
         }
         .running-job-item {
             border: 1px solid rgba(214, 219, 226, 0.14);
-            border-radius: 12px;
-            padding: 12px;
+            border-radius: 8px;
+            padding: 8px 9px;
             background: rgba(255,255,255,0.03);
         }
         .running-job-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 10px;
-            margin-bottom: 8px;
+            gap: 6px;
+            margin-bottom: 5px;
         }
         .running-job-name {
             color: var(--gold-light);
-            font-size: 0.95rem;
+            font-size: 0.78rem;
+            line-height: 1.25;
         }
         .running-job-spinner {
-            width: 16px;
-            height: 16px;
+            width: 13px;
+            height: 13px;
             border: 2px solid rgba(214, 219, 226, 0.25);
             border-top-color: var(--gold);
             border-radius: 50%;
@@ -579,9 +752,9 @@
             flex-shrink: 0;
         }
         .running-job-status {
-            font-size: 0.82rem;
+            font-size: 0.7rem;
             color: var(--gold-dim);
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             white-space: pre-wrap;
             word-break: break-word;
         }
@@ -592,16 +765,17 @@
         }
         .running-job-btn {
             border: 1px solid rgba(214, 219, 226, 0.16);
-            border-radius: 8px;
-            padding: 7px 10px;
+            border-radius: 6px;
+            padding: 5px 8px;
             background: rgba(255,255,255,0.05);
             color: var(--gold-light);
             font-family: 'Cinzel', serif;
-            font-size: 0.75rem;
+            font-size: 0.65rem;
         }
         .running-job-empty {
             color: var(--gold-dim);
-            font-size: 0.88rem;
+            font-size: 0.74rem;
+            line-height: 1.35;
         }
         @keyframes running-job-spin {
             from { transform: rotate(0deg); }
@@ -676,10 +850,463 @@
         }
         .mb-1 { margin-bottom: 0.25rem; }
         .mb-2 { margin-bottom: 0.5rem; }
+
+        /* Settings FAB + panel */
+        .settings-fab {
+            position: fixed;
+            right: max(14px, env(safe-area-inset-right, 0px) + 8px);
+            bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+            z-index: 125;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 1px solid rgba(214, 219, 226, 0.35);
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            color: var(--gold);
+            font-size: 1.35rem;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 4px 22px rgba(0,0,0,0.4), 0 0 18px rgba(214, 219, 226, 0.08);
+            transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+        .settings-fab:hover {
+            transform: scale(1.06);
+            border-color: rgba(214, 219, 226, 0.55);
+            color: var(--gold-light);
+        }
+        @media (max-width: 900px) {
+            .settings-fab {
+                right: max(12px, env(safe-area-inset-right, 0px) + 8px);
+                bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+            }
+        }
+        .settings-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 117;
+            background: rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.25s ease, visibility 0.25s ease;
+        }
+        .settings-backdrop.is-open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .settings-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: min(360px, 100vw);
+            height: 100%;
+            z-index: 118;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            border-left: 1px solid rgba(214, 219, 226, 0.2);
+            box-shadow: -8px 0 40px rgba(0, 0, 0, 0.45);
+            transform: translateX(100%);
+            transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+        }
+        .settings-panel.is-open {
+            transform: translateX(0);
+        }
+        .settings-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 18px;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.15);
+            font-size: 1.1rem;
+            color: var(--gold);
+            text-shadow: 0 0 12px rgba(214, 219, 226, 0.12);
+        }
+        .settings-panel-close {
+            background: none;
+            border: none;
+            color: var(--gold-dim);
+            font-size: 1.5rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 8px;
+        }
+        .settings-panel-close:hover {
+            color: var(--gold-light);
+        }
+        .settings-panel-body {
+            padding: 18px 22px 22px;
+            overflow-y: auto;
+            overflow-x: visible;
+            flex: 1;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .settings-row {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.1);
+        }
+        .settings-label {
+            font-size: 0.95rem;
+            color: var(--gold-light);
+        }
+        .settings-hint {
+            font-family: 'Playfair Display', serif;
+            font-size: 0.82rem;
+            color: var(--gold-dim);
+            margin-top: 4px;
+            line-height: 1.35;
+        }
+        /* Bootstrap switch uses negative margin-left; ps-0 clips the thumb — keep default padding */
+        .settings-panel .settings-interface-switch.form-switch {
+            padding-left: 2.75em;
+        }
+        .settings-panel .settings-interface-switch .form-check-input {
+            width: 2.75rem;
+            height: 1.35rem;
+            cursor: pointer;
+            margin-top: 0.15em;
+        }
+        .settings-panel .settings-interface-switch .form-check-label {
+            cursor: pointer;
+            color: var(--gold-light);
+            font-family: 'Playfair Display', serif;
+            padding-top: 0.1em;
+        }
+
+        /* Simple chat layout (replaces visible 3D graph) */
+        html.mg-simple-ui #graph-container {
+            display: none !important;
+        }
+        html.mg-simple-ui .graph-legend {
+            display: none !important;
+        }
+        .simple-ui-root {
+            position: fixed;
+            inset: 0;
+            z-index: 45;
+            display: none;
+            flex-direction: row;
+            padding-top: 56px;
+            padding-bottom: 100px;
+            box-sizing: border-box;
+            background: var(--black);
+            background-image: radial-gradient(circle at top center, #11161d 0%, #040507 48%, #000000 100%);
+        }
+        html.mg-simple-ui .simple-ui-root {
+            display: flex !important;
+        }
+        [data-theme="light"] .simple-ui-root {
+            background: #f5f0e6;
+            background-image: radial-gradient(circle at top center, #ebe5d9 0%, #e8e0d2 100%);
+        }
+        .simple-side-nav {
+            width: min(200px, 28vw);
+            flex-shrink: 0;
+            border-right: 1px solid rgba(214, 219, 226, 0.15);
+            background: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            padding: 10px 0;
+            overflow-y: auto;
+        }
+        .simple-nav-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 10px 14px;
+            border: none;
+            background: transparent;
+            color: var(--gold-dim);
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .simple-nav-btn:hover {
+            background: rgba(214, 219, 226, 0.08);
+            color: var(--gold-light);
+        }
+        .simple-nav-btn.is-active {
+            color: var(--gold);
+            background: rgba(214, 219, 226, 0.1);
+            border-right: 2px solid var(--gold);
+        }
+        .simple-main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .simple-toolbar {
+            padding: 10px 16px;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.12);
+        }
+        .simple-toolbar h2 {
+            margin: 0;
+            font-size: 1rem;
+            color: var(--gold);
+        }
+        .simple-toolbar-pulses {
+            display: none;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        @media (max-width: 768px) {
+            .simple-toolbar-pulses {
+                display: flex;
+            }
+        }
+        .simple-activity-log-mobile {
+            display: none;
+            max-height: 72px;
+            overflow-y: auto;
+            margin-top: 8px;
+            padding: 6px 8px;
+            font-family: "Courier New", monospace;
+            font-size: 0.62rem;
+            line-height: 1.35;
+            color: var(--gold-dim);
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 8px;
+            border: 1px solid rgba(214, 219, 226, 0.1);
+        }
+        @media (max-width: 768px) {
+            .simple-activity-log-mobile {
+                display: block;
+            }
+        }
+        .simple-split {
+            flex: 1;
+            display: grid;
+            grid-template-columns: minmax(180px, 36%) 1fr;
+            gap: 0;
+            min-height: 0;
+        }
+        @media (max-width: 768px) {
+            .simple-split {
+                grid-template-columns: 1fr;
+                grid-template-rows: minmax(120px, 32%) 1fr;
+            }
+        }
+        .simple-list-col {
+            border-right: 1px solid rgba(214, 219, 226, 0.1);
+            overflow-y: auto;
+            padding: 10px 12px;
+        }
+        @media (max-width: 768px) {
+            .simple-list-col {
+                border-right: none;
+                border-bottom: 1px solid rgba(214, 219, 226, 0.1);
+            }
+        }
+        .simple-detail-col {
+            overflow-y: auto;
+            padding: 12px 16px;
+        }
+        .simple-item-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        .simple-item-btn {
+            width: 100%;
+            text-align: left;
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            border: 1px solid rgba(214, 219, 226, 0.12);
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--gold-light);
+            font-size: 0.88rem;
+            cursor: pointer;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+        .simple-item-btn:hover {
+            border-color: rgba(214, 219, 226, 0.28);
+            background: rgba(214, 219, 226, 0.06);
+        }
+        .simple-item-btn.is-selected {
+            border-color: rgba(214, 219, 226, 0.45);
+            background: rgba(214, 219, 226, 0.1);
+        }
+        .simple-item-off {
+            font-size: 0.75rem;
+            color: var(--gold-dim);
+            margin-left: 6px;
+        }
+        .simple-detail-title {
+            font-size: 1.05rem;
+            color: var(--gold);
+            margin: 0 0 10px;
+        }
+        .simple-detail-pre {
+            font-family: "Courier New", monospace;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            word-break: break-word;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(214, 219, 226, 0.15);
+            border-radius: 10px;
+            padding: 12px;
+            max-height: min(52vh, 420px);
+            overflow: auto;
+            color: #dce3ea;
+        }
+        [data-theme="light"] .simple-detail-pre {
+            background: rgba(255, 255, 255, 0.65);
+            color: #1d2228;
+        }
+        .simple-open-panel-btn {
+            margin-top: 12px;
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(214, 219, 226, 0.35);
+            background: rgba(214, 219, 226, 0.12);
+            color: var(--gold);
+            font-family: 'Cinzel', serif;
+            font-size: 0.72rem;
+            cursor: pointer;
+        }
+        .simple-open-panel-btn:hover {
+            background: rgba(214, 219, 226, 0.2);
+        }
+        .simple-loading, .simple-empty, .simple-warn {
+            font-size: 0.9rem;
+            color: var(--gold-dim);
+        }
+        .simple-warn { color: #c9a227; }
+        .simple-activity-col {
+            width: min(220px, 30vw);
+            flex-shrink: 0;
+            border-left: 1px solid rgba(214, 219, 226, 0.12);
+            background: rgba(0, 0, 0, 0.18);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        @media (max-width: 768px) {
+            .simple-activity-col {
+                display: none;
+            }
+        }
+        .simple-activity-title {
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            color: var(--gold);
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.1);
+        }
+        .simple-activity-pulses {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.08);
+        }
+        .simple-pulse-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.62rem;
+            color: var(--gold-dim);
+        }
+        .simple-pulse-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            opacity: 0.35;
+            transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .simple-pulse-dot.is-live {
+            opacity: 1;
+            transform: scale(1.15);
+            animation: simplePulseGlow 1.1s ease-in-out infinite;
+        }
+        @keyframes simplePulseGlow {
+            0%, 100% { box-shadow: 0 0 4px currentColor; }
+            50% { box-shadow: 0 0 12px rgba(214, 219, 226, 0.85); }
+        }
+        .simple-activity-log {
+            flex: 1;
+            min-height: 80px;
+            overflow-y: auto;
+            padding: 8px 10px;
+            font-family: "Courier New", monospace;
+            font-size: 0.68rem;
+            line-height: 1.4;
+            color: var(--gold-dim);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
+    <script>
+    try {
+        if (localStorage.getItem('memoryGraphInterfaceMode') === 'simple') {
+            document.documentElement.classList.add('mg-simple-ui');
+        }
+    } catch (e) {}
+    </script>
     <div id="graph-container"></div>
+
+    <button type="button" id="settings-fab" class="settings-fab font-display" aria-label="Open settings" title="Settings">&#9881;</button>
+    <div id="settings-backdrop" class="settings-backdrop" hidden></div>
+    <aside id="settings-panel" class="settings-panel font-display" aria-hidden="true">
+        <div class="settings-panel-header">
+            <span>Settings</span>
+            <button type="button" class="settings-panel-close" id="settings-panel-close" aria-label="Close settings">&times;</button>
+        </div>
+        <div class="settings-panel-body">
+            <div class="settings-row">
+                <div>
+                    <div class="settings-label">Interface mode</div>
+                    <div class="settings-hint">Use the 3D memory graph, or a focused chat layout with sidebar navigation and live activity hints.</div>
+                </div>
+                <div class="form-check form-switch settings-interface-switch">
+                    <input class="form-check-input" type="checkbox" id="ui-mode-simple-switch" role="switch" aria-label="Simple chat layout">
+                    <label class="form-check-label" for="ui-mode-simple-switch">Simple chat layout</label>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <div id="simple-ui-root" class="simple-ui-root">
+        <nav class="simple-side-nav font-display" aria-label="Resource sections">
+            <button type="button" class="simple-nav-btn" data-section="memory">Memory</button>
+            <button type="button" class="simple-nav-btn" data-section="tools">Tools</button>
+            <button type="button" class="simple-nav-btn" data-section="instructions">Instructions</button>
+            <button type="button" class="simple-nav-btn" data-section="research">Research</button>
+            <button type="button" class="simple-nav-btn" data-section="rules">Rules</button>
+            <button type="button" class="simple-nav-btn" data-section="mcps">MCPs</button>
+            <button type="button" class="simple-nav-btn" data-section="jobs">Jobs</button>
+            <button type="button" class="simple-nav-btn" data-section="scheduled">Scheduled</button>
+        </nav>
+        <main class="simple-main">
+            <div class="simple-toolbar">
+                <h2 id="simple-section-title" class="font-display">Memory</h2>
+                <div id="simple-toolbar-pulses" class="simple-toolbar-pulses" aria-hidden="true"></div>
+                <div id="simple-activity-log-mobile" class="simple-activity-log-mobile" aria-live="polite"></div>
+            </div>
+            <div class="simple-split">
+                <div id="simple-list-col" class="simple-list-col font-serif"></div>
+                <div id="simple-detail-col" class="simple-detail-col font-serif"></div>
+            </div>
+        </main>
+        <aside class="simple-activity-col" aria-label="Agent activity">
+            <div class="simple-activity-title font-display">Activity</div>
+            <div id="simple-activity-pulses" class="simple-activity-pulses"></div>
+            <div id="simple-activity-log" class="simple-activity-log"></div>
+        </aside>
+    </div>
 
     <div style="position:fixed;top:20px;left:0;width:100%;z-index:95;text-align:center;pointer-events:none;">
         <div style="display:inline-block;pointer-events:auto;color:var(--gold);font-family:'Cinzel',serif;text-shadow:0 0 16px rgba(214,219,226,0.26);">
@@ -706,20 +1333,26 @@
         </div>
     </div>
 
-
-
-    <div class="chat-bar">
-        <div id="chat-queue-wrap" class="chat-queue-wrap" style="display: none;">
-            <div class="chat-queue-header" id="chat-queue-header">
-                <span class="chat-queue-toggle" id="chat-queue-toggle">&#9660;</span>
-                <span id="chat-queue-count">0 Queued</span>
+    <div class="bottom-dock" id="bottom-dock">
+        <aside id="running-jobs-widget" class="running-jobs-widget" aria-hidden="false">
+            <div class="running-jobs-title font-display">Running Jobs</div>
+            <div id="running-jobs-list" class="running-jobs-list">
+                <div class="running-job-empty">No jobs running.</div>
             </div>
-            <div class="chat-queue-list" id="chat-queue-list"></div>
-        </div>
-        <div class="input-wrap">
-            <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
-            <button type="button" class="btn-send" id="chat-send">Send</button>
-            <button type="button" class="btn-send btn-stop" id="chat-stop">Stop</button>
+        </aside>
+        <div class="chat-bar">
+            <div id="chat-queue-wrap" class="chat-queue-wrap" style="display: none;">
+                <div class="chat-queue-header" id="chat-queue-header">
+                    <span class="chat-queue-toggle" id="chat-queue-toggle">&#9660;</span>
+                    <span id="chat-queue-count">0 Queued</span>
+                </div>
+                <div class="chat-queue-list" id="chat-queue-list"></div>
+            </div>
+            <div class="input-wrap">
+                <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
+                <button type="button" class="btn-send" id="chat-send">Send</button>
+                <button type="button" class="btn-send btn-stop" id="chat-stop">Stop</button>
+            </div>
         </div>
     </div>
 
@@ -799,13 +1432,6 @@
             <div id="rules-parent-panel" style="display: none; margin-top: 15px;">
                 <div id="rules-list-panel" class="tool-list-panel"></div>
             </div>
-            <div id="categories-parent-panel" style="display: none; margin-top: 15px;">
-                <div id="categories-list-panel" class="tool-list-panel"></div>
-            </div>
-            <div id="category-config-panel" style="display: none; margin-top: 15px;">
-                <p class="mb-2 text-muted" style="font-size:0.9rem">Category nodes are created by the AI via the create_category_node tool.</p>
-                <button type="button" id="category-delete-btn" class="panel-action-btn btn-stop">Delete Category</button>
-            </div>
             <div id="rules-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Rules Contents</label>
                 <textarea id="rules-content-input" class="provider-textarea" rows="10" placeholder="Rules file contents..."></textarea>
@@ -866,19 +1492,23 @@
                     <button type="button" id="job-delete-btn" class="panel-action-btn btn-stop">Delete Job</button>
                 </div>
             </div>
+            <div id="cron-config-panel" style="display: none; margin-top: 15px;">
+                <label class="provider-label">Schedule &amp; runs</label>
+                <pre id="cron-detail-pre" class="provider-textarea" style="min-height:120px;max-height:220px;overflow:auto;font-family:'Courier New',monospace;font-size:0.78rem;"></pre>
+                <label class="provider-label">Prompt preview</label>
+                <p id="cron-message-preview" class="mb-2" style="font-size:0.85rem;color:var(--gold-dim);"></p>
+                <div class="panel-action-btn-row" style="flex-wrap:wrap;gap:8px;">
+                    <button type="button" id="cron-run-now-btn" class="panel-action-btn">Run now</button>
+                    <button type="button" id="cron-toggle-enabled-btn" class="panel-action-btn">Enable / Disable</button>
+                    <button type="button" id="cron-delete-btn" class="panel-action-btn btn-stop">Remove schedule</button>
+                </div>
+            </div>
         </div>
     </aside>
 
     <aside id="execution-widget" class="execution-widget" aria-hidden="true">
         <div class="execution-widget-title font-display">Execution Parameters</div>
         <pre id="execution-widget-body"></pre>
-    </aside>
-
-    <aside id="running-jobs-widget" class="running-jobs-widget" aria-hidden="false">
-        <div class="running-jobs-title font-display">Running Jobs</div>
-        <div id="running-jobs-list" class="running-jobs-list">
-            <div class="running-job-empty">No jobs running.</div>
-        </div>
     </aside>
 
     <div id="notifications"></div>
@@ -916,6 +1546,7 @@
     };
     </script>
     <script src="js/graph.js"></script>
+    <script src="js/ui_settings_simple.js"></script>
     <script>
     window.MEMORY_GRAPH_PROVIDERS = {
         mercury: { name: 'Mercury (Inception Labs)', models: ['mercury-2'] },
@@ -936,6 +1567,46 @@
         var modelSelect = document.getElementById('model-select');
         var systemPromptInput = document.getElementById('system-prompt-input');
         var temperatureInput = document.getElementById('temperature-input');
+        window.MEMORY_GRAPH_SYSTEM_PROMPTS = {};
+        var agentSelProvider = '';
+        var agentSelModel = '';
+        var systemPromptSaveTimer = null;
+
+        function agentPromptKey(pv, mv) {
+            return (pv || '') + ':' + (mv || '');
+        }
+
+        function captureAgentSelection() {
+            agentSelProvider = providerSelect ? providerSelect.value : '';
+            agentSelModel = modelSelect ? modelSelect.value : '';
+        }
+
+        function persistSystemPromptToServer(pv, mv, text) {
+            var k = agentPromptKey(pv, mv);
+            if (!pv || !mv || k === ':') return;
+            window.MEMORY_GRAPH_SYSTEM_PROMPTS[k] = text;
+            fetch('api/agent_config.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'set_system_prompt',
+                    provider: pv,
+                    model: mv,
+                    systemPrompt: text
+                })
+            }).catch(function () {});
+        }
+
+        function scheduleSystemPromptSave() {
+            if (!systemPromptInput || !providerSelect || !modelSelect) return;
+            clearTimeout(systemPromptSaveTimer);
+            systemPromptSaveTimer = setTimeout(function () {
+                var pv = providerSelect.value;
+                var mv = modelSelect.value;
+                window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(pv, mv)] = systemPromptInput.value;
+                persistSystemPromptToServer(pv, mv, systemPromptInput.value);
+            }, 500);
+        }
 
         function syncModelSelect() {
             var p = (providerSelect && providerSelect.value) || 'mercury';
@@ -949,12 +1620,13 @@
                 modelSelect.appendChild(opt);
             });
         }
-        if (providerSelect) providerSelect.addEventListener('change', syncModelSelect);
-        syncModelSelect();
 
         function applyAgentConfig(data) {
             if (!data || !data.providers) return;
             window.MEMORY_GRAPH_PROVIDERS = data.providers;
+            window.MEMORY_GRAPH_SYSTEM_PROMPTS = (data.systemPromptsByModel && typeof data.systemPromptsByModel === 'object')
+                ? JSON.parse(JSON.stringify(data.systemPromptsByModel))
+                : {};
             if (providerSelect) {
                 providerSelect.innerHTML = '';
                 Object.keys(data.providers).forEach(function (key) {
@@ -966,9 +1638,65 @@
                 if (data.currentProvider) providerSelect.value = data.currentProvider;
                 syncModelSelect();
             }
-            if (modelSelect && data.currentModel) modelSelect.value = data.currentModel;
+            if (modelSelect && data.currentModel) {
+                if (Array.prototype.some.call(modelSelect.options, function (o) { return o.value === data.currentModel; })) {
+                    modelSelect.value = data.currentModel;
+                }
+            }
+            captureAgentSelection();
+            if (systemPromptInput) {
+                var k = agentPromptKey(agentSelProvider, agentSelModel);
+                systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
+                    ? window.MEMORY_GRAPH_SYSTEM_PROMPTS[k]
+                    : '';
+            }
         }
         window.applyAgentConfig = applyAgentConfig;
+
+        if (providerSelect) {
+            providerSelect.addEventListener('change', function () {
+                if (systemPromptInput && agentSelProvider && agentSelModel) {
+                    window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(agentSelProvider, agentSelModel)] = systemPromptInput.value;
+                    persistSystemPromptToServer(agentSelProvider, agentSelModel, systemPromptInput.value);
+                }
+                syncModelSelect();
+                captureAgentSelection();
+                if (systemPromptInput) {
+                    var k = agentPromptKey(agentSelProvider, agentSelModel);
+                    systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
+                        ? window.MEMORY_GRAPH_SYSTEM_PROMPTS[k]
+                        : '';
+                }
+            });
+        }
+        if (modelSelect) {
+            modelSelect.addEventListener('change', function () {
+                if (systemPromptInput && agentSelProvider && agentSelModel) {
+                    window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(agentSelProvider, agentSelModel)] = systemPromptInput.value;
+                    persistSystemPromptToServer(agentSelProvider, agentSelModel, systemPromptInput.value);
+                }
+                captureAgentSelection();
+                if (systemPromptInput) {
+                    var k = agentPromptKey(agentSelProvider, agentSelModel);
+                    systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
+                        ? window.MEMORY_GRAPH_SYSTEM_PROMPTS[k]
+                        : '';
+                }
+            });
+        }
+        if (systemPromptInput) {
+            systemPromptInput.addEventListener('input', scheduleSystemPromptSave);
+            systemPromptInput.addEventListener('blur', function () {
+                clearTimeout(systemPromptSaveTimer);
+                if (!providerSelect || !modelSelect) return;
+                var pv = providerSelect.value;
+                var mv = modelSelect.value;
+                window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(pv, mv)] = systemPromptInput.value;
+                persistSystemPromptToServer(pv, mv, systemPromptInput.value);
+            });
+        }
+        syncModelSelect();
+        captureAgentSelection();
         fetch('api/agent_config.php')
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) { if (data) applyAgentConfig(data); })
@@ -985,6 +1713,8 @@
         };
     })();
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/jobs.js"></script>
     <script>
@@ -1006,6 +1736,12 @@
         var mcpsParentPanel = document.getElementById('mcps-parent-panel');
         var mcpConfig = document.getElementById('mcp-config-panel');
         var jobConfig = document.getElementById('job-config-panel');
+        var cronConfig = document.getElementById('cron-config-panel');
+        var cronDetailPre = document.getElementById('cron-detail-pre');
+        var cronMessagePreview = document.getElementById('cron-message-preview');
+        var cronRunNowBtn = document.getElementById('cron-run-now-btn');
+        var cronToggleEnabledBtn = document.getElementById('cron-toggle-enabled-btn');
+        var cronDeleteBtn = document.getElementById('cron-delete-btn');
         var toolSwitchEl = document.getElementById('tool-active-switch');
         var toolsListPanel = document.getElementById('tools-list-panel');
         var toolsEnableAllBtn = document.getElementById('tools-enable-all-btn');
@@ -1030,10 +1766,6 @@
         var rulesContentInput = document.getElementById('rules-content-input');
         var rulesSaveBtn = document.getElementById('rules-save-btn');
         var rulesDeleteBtn = document.getElementById('rules-delete-btn');
-        var categoriesParentPanel = document.getElementById('categories-parent-panel');
-        var categoryConfig = document.getElementById('category-config-panel');
-        var categoriesListPanel = document.getElementById('categories-list-panel');
-        var categoryDeleteBtn = document.getElementById('category-delete-btn');
         var mcpNewBtn = document.getElementById('mcp-new-btn');
         var mcpsEnableAllBtn = document.getElementById('mcps-enable-all-btn');
         var mcpsDisableAllBtn = document.getElementById('mcps-disable-all-btn');
@@ -1062,6 +1794,7 @@
         window.currentOpenedMemory = null;
         window.currentOpenedMcp = null;
         window.currentOpenedJob = null;
+        window.currentOpenedCron = null;
         window.currentOpenedNodeId = null;
 
         function escapeHtml(s) {
@@ -1081,19 +1814,18 @@
             if (researchConfig) researchConfig.style.display = 'none';
             if (rulesParentPanel) rulesParentPanel.style.display = 'none';
             if (rulesConfig) rulesConfig.style.display = 'none';
-            if (categoriesParentPanel) categoriesParentPanel.style.display = 'none';
-            if (categoryConfig) categoryConfig.style.display = 'none';
             if (mcpsParentPanel) mcpsParentPanel.style.display = 'none';
             if (mcpConfig) mcpConfig.style.display = 'none';
             if (jobConfig) jobConfig.style.display = 'none';
+            if (cronConfig) cronConfig.style.display = 'none';
             window.currentOpenedTool = null;
             window.currentOpenedMemory = null;
             window.currentOpenedInstruction = null;
             window.currentOpenedResearch = null;
             window.currentOpenedRules = null;
-            window.currentOpenedCategory = null;
             window.currentOpenedMcp = null;
             window.currentOpenedJob = null;
+            window.currentOpenedCron = null;
         }
 
         function hideExecutionWidget() {
@@ -1188,15 +1920,6 @@
                 });
         }
 
-        function refreshCategoriesData() {
-            return fetch('api_categories.php?action=list')
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    window.categoryNodes = data.categories || [];
-                    return window.categoryNodes;
-                });
-        }
-
         function refreshMcpData() {
             return fetch('api_mcps.php?action=list')
                 .then(function (res) { return res.json(); })
@@ -1284,6 +2007,10 @@
 
         function openMcpConfigPanel(server) {
             if (!mcpConfig) return;
+            if (mcpsParentPanel) {
+                mcpsParentPanel.style.display = 'block';
+                renderMcpList();
+            }
             mcpConfig.style.display = 'block';
             window.currentOpenedMcp = server ? {
                 id: server.nodeId || null,
@@ -1438,34 +2165,6 @@
             }
         }
 
-        function renderCategoriesList() {
-            if (!categoriesListPanel) return;
-            var files = window.categoryNodes || [];
-            categoriesListPanel.innerHTML = '';
-            files.forEach(function (c) {
-                var row = document.createElement('div');
-                row.className = 'tool-list-item';
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'tool-list-name';
-                btn.style.background = 'none';
-                btn.style.border = 'none';
-                btn.style.padding = '0';
-                btn.style.textAlign = 'left';
-                btn.style.cursor = 'pointer';
-                btn.style.width = '100%';
-                btn.textContent = c.title || c.name;
-                btn.addEventListener('click', function () {
-                    openWidget(c.title || c.name, c.nodeId);
-                });
-                row.appendChild(btn);
-                categoriesListPanel.appendChild(row);
-            });
-            if (!files.length) {
-                categoriesListPanel.innerHTML = '<div class="running-job-empty">No category nodes. Ask the AI to create one (e.g. "create a category node called database").</div>';
-            }
-        }
-
         function toggleAllMcps(active) {
             fetch('api_mcps.php?action=toggle_all', {
                 method: 'POST',
@@ -1550,10 +2249,11 @@
                 });
         }
 
-        function loadMcpTools(name) {
+        function loadMcpTools(name, nocache) {
             if (!mcpToolsDisplay) return;
             mcpToolsDisplay.textContent = 'Loading MCP tools...';
-            fetch('api_mcps.php?action=tools&name=' + encodeURIComponent(name))
+            var q = 'api_mcps.php?action=tools&name=' + encodeURIComponent(name) + (nocache ? '&nocache=1' : '');
+            fetch(q)
                 .then(function (res) { return res.json(); })
                 .then(function (payload) {
                     if (!window.currentOpenedMcp || window.currentOpenedMcp.name !== name) return;
@@ -1577,11 +2277,31 @@
 
         function loadMcpIntoPanel(name) {
             fetch('api_mcps.php?action=get&name=' + encodeURIComponent(name))
-                .then(function (res) { return res.json(); })
-                .then(function (server) {
-                    if (!window.currentOpenedMcp || window.currentOpenedMcp.originalName !== server.name) return;
+                .then(function (res) {
+                    return res.json().then(function (data) {
+                        return { ok: res.ok, data: data };
+                    });
+                })
+                .then(function (result) {
+                    if (!window.currentOpenedMcp) return;
+                    var server = result.data;
+                    if (!result.ok || !server || server.error) {
+                        var errMsg = (server && server.error) ? server.error : 'Could not load MCP server.';
+                        infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> ' + escapeHtml(name) + '</p><p class="mb-1 text-muted">' + escapeHtml(errMsg) + '</p>';
+                        openMcpConfigPanel(null);
+                        if (mcpNameInput) mcpNameInput.value = name || '';
+                        return;
+                    }
+                    var opened = window.currentOpenedMcp;
+                    if (opened.originalName !== server.name && opened.name !== server.name) return;
                     infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> ' + escapeHtml(server.name) + '</p><p class="mb-1"><strong>Transport:</strong> ' + escapeHtml(server.transport || 'stdio') + '</p>';
                     openMcpConfigPanel(server);
+                })
+                .catch(function () {
+                    if (!window.currentOpenedMcp) return;
+                    infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> ' + escapeHtml(name) + '</p><p class="mb-1 text-muted">Could not load MCP server.</p>';
+                    openMcpConfigPanel(null);
+                    if (mcpNameInput) mcpNameInput.value = name || '';
                 });
         }
 
@@ -1629,13 +2349,6 @@
                 if (rulesParentPanel) {
                     rulesParentPanel.style.display = 'block';
                     renderRulesList();
-                }
-            } else if (id === 'categories') {
-                var categories = window.categoryNodes || [];
-                infoEl.innerHTML = '<p class="mb-1"><strong>Categories:</strong> ' + categories.length + ' nodes (created by AI)</p>';
-                if (categoriesParentPanel) {
-                    categoriesParentPanel.style.display = 'block';
-                    renderCategoriesList();
                 }
             } else if (id === 'mcps') {
                 var servers = window.mcpServers || [];
@@ -1712,23 +2425,16 @@
                     if (rulesContentInput) rulesContentInput.value = '';
                     loadRulesIntoPanel(rulesName);
                 }
-            } else if (id && id.indexOf('category_') === 0) {
-                var cat = (window.categoryNodes || []).find(function (c) { return c.nodeId === id; });
-                var catName = cat ? cat.name : refName;
-                var catTitle = cat ? (cat.title || cat.name) : refName;
-                var catDesc = cat ? (cat.description || '') : '';
-                infoEl.innerHTML = '<p class="mb-1"><strong>Category:</strong> ' + escapeHtml(catTitle) + '</p>' + (catDesc ? '<p class="mb-1 text-muted" style="font-size:0.85rem">' + escapeHtml(catDesc) + '</p>' : '');
-                if (categoryConfig) {
-                    categoryConfig.style.display = 'block';
-                    window.currentOpenedCategory = { id: id, name: catName };
-                    if (categoryDeleteBtn) categoryDeleteBtn.disabled = !cat;
-                }
             } else if (id && id.indexOf('mcp_server_') === 0) {
                 var server = (window.mcpServers || []).find(function (item) { return item.nodeId === id; });
                 var serverName = server ? server.name : refName;
                 infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> ' + escapeHtml(serverName) + '</p>';
                 if (mcpConfig) {
                     mcpConfig.style.display = 'block';
+                    if (mcpsParentPanel) {
+                        mcpsParentPanel.style.display = 'block';
+                        renderMcpList();
+                    }
                     window.currentOpenedMcp = {
                         id: id,
                         name: serverName,
@@ -1750,6 +2456,45 @@
                     if (jobContentInput) jobContentInput.value = '';
                     loadJobIntoPanel(jobName);
                 }
+            } else if (id && id.indexOf('job_cron_') === 0) {
+                var cron = (window.cronJobs || []).find(function (c) { return c.nodeId === id; });
+                function fillCronPanel(c) {
+                    if (!c || !cronConfig) return;
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Scheduled job:</strong> ' + escapeHtml(c.name || refName) + '</p>';
+                    cronConfig.style.display = 'block';
+                    window.currentOpenedCron = { id: c.id, nodeId: c.nodeId, name: c.name };
+                    if (cronDetailPre) {
+                        cronDetailPre.textContent = JSON.stringify({
+                            id: c.id,
+                            schedule: c.schedule,
+                            enabled: c.enabled,
+                            createdAt: c.createdAt,
+                            updatedAt: c.updatedAt,
+                            runtime: c.runtime
+                        }, null, 2);
+                    }
+                    if (cronMessagePreview) {
+                        cronMessagePreview.textContent = c.messagePreview || '(no preview)';
+                    }
+                    var on = c.enabled !== false && c.active !== false;
+                    if (cronToggleEnabledBtn) cronToggleEnabledBtn.textContent = on ? 'Disable' : 'Enable';
+                }
+                if (cron) {
+                    fillCronPanel(cron);
+                } else {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Scheduled job</strong></p><p class="text-muted" style="font-size:0.85rem">Loading…</p>';
+                    fetch('api/cron.php?action=list')
+                        .then(function (res) { return res.json(); })
+                        .then(function (data) {
+                            window.cronJobs = data.jobs || [];
+                            var c2 = (window.cronJobs || []).find(function (x) { return x.nodeId === id; });
+                            if (c2 && window.currentOpenedNodeId === id) fillCronPanel(c2);
+                            else infoEl.innerHTML = '<p class="mb-1">Scheduled job</p><p class="text-muted">Not found. Refresh the graph.</p>';
+                        })
+                        .catch(function () {
+                            infoEl.innerHTML = '<p class="mb-1">Scheduled job</p><p class="text-muted">Could not load cron list.</p>';
+                        });
+                }
             } else {
                 infoEl.innerHTML = '<p class="mb-1">' + escapeHtml(refName) + '</p>';
             }
@@ -1763,6 +2508,7 @@
             widget.classList.remove('is-open');
             widget.setAttribute('aria-hidden', 'true');
             window.currentOpenedNodeId = null;
+            window.currentOpenedCron = null;
             hideExecutionWidget();
         }
 
@@ -2117,29 +2863,6 @@
                 });
             });
         }
-        if (categoryDeleteBtn) {
-            categoryDeleteBtn.addEventListener('click', function () {
-                if (!window.currentOpenedCategory) return;
-                if (!confirm('Delete category "' + window.currentOpenedCategory.name + '"?')) return;
-                categoryDeleteBtn.disabled = true;
-                fetch('api_categories.php?action=delete', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ name: window.currentOpenedCategory.name })
-                }).then(function (res) { return res.json(); })
-                .then(function (result) {
-                    if (result && result.error) throw new Error(result.error);
-                    return refreshCategoriesData();
-                }).then(function () {
-                    refreshGraph();
-                    closeWidget();
-                }).catch(function (err) {
-                    infoEl.innerHTML = '<p class="mb-1"><strong>Category:</strong> ' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
-                }).finally(function () {
-                    categoryDeleteBtn.disabled = false;
-                });
-            });
-        }
         if (mcpNewBtn) {
             mcpNewBtn.addEventListener('click', function () {
                 infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> New MCP server</p>';
@@ -2251,7 +2974,7 @@
         if (mcpRefreshToolsBtn) {
             mcpRefreshToolsBtn.addEventListener('click', function () {
                 if (!window.currentOpenedMcp || !window.currentOpenedMcp.originalName) return;
-                loadMcpTools(window.currentOpenedMcp.originalName);
+                loadMcpTools(window.currentOpenedMcp.originalName, true);
             });
         }
         if (mcpDeleteBtn) {
@@ -2270,6 +2993,7 @@
                         window.currentOpenedMcp = null;
                         infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> Deleted.</p>';
                         if (mcpConfig) mcpConfig.style.display = 'none';
+                        if (mcpsParentPanel) mcpsParentPanel.style.display = 'block';
                         renderMcpList();
                         refreshGraph();
                     });
@@ -2350,6 +3074,74 @@
                 });
             });
         }
+        function memoryGraphCronPost(body) {
+            return fetch('api/cron.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                credentials: 'same-origin'
+            }).then(function (r) {
+                return r.text().then(function (t) {
+                    var res = null;
+                    try {
+                        res = t ? JSON.parse(t) : null;
+                    } catch (e) {}
+                    if (!r.ok) {
+                        throw new Error((res && res.error) ? res.error : (t || ('HTTP ' + r.status)));
+                    }
+                    return res || {};
+                });
+            });
+        }
+        if (cronRunNowBtn) {
+            cronRunNowBtn.addEventListener('click', function () {
+                if (!window.currentOpenedCron || !window.currentOpenedCron.id) return;
+                cronRunNowBtn.disabled = true;
+                memoryGraphCronPost({ action: 'run', job_id: window.currentOpenedCron.id }).then(function (res) {
+                    var sum = res && res.ran && res.ran.summary ? String(res.ran.summary) : '';
+                    var ok = res && res.ok;
+                    var sub = ok && sum ? '<p class="mb-1 text-muted" style="font-size:0.85rem">' + escapeHtml(sum.slice(0, 600)) + '</p>' : '';
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Scheduled:</strong> ' + (ok ? 'Run finished (see chat / pending cron notes).' : escapeHtml(res && res.error ? res.error : 'Failed')) + '</p>' + sub;
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Scheduled:</strong> ' + escapeHtml(err && err.message ? err.message : 'Request failed.') + '</p>';
+                }).finally(function () { cronRunNowBtn.disabled = false; });
+            });
+        }
+        if (cronToggleEnabledBtn) {
+            cronToggleEnabledBtn.addEventListener('click', function () {
+                if (!window.currentOpenedCron || !window.currentOpenedCron.id) return;
+                var c = (window.cronJobs || []).find(function (x) { return x.id === window.currentOpenedCron.id; });
+                var on = c ? (c.enabled !== false && c.active !== false) : true;
+                cronToggleEnabledBtn.disabled = true;
+                memoryGraphCronPost({ action: 'set_enabled', job_id: window.currentOpenedCron.id, enabled: !on }).then(function (res) {
+                    if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Failed');
+                    return fetch('api/cron.php?action=list').then(function (r) { return r.json(); });
+                }).then(function (data) {
+                    window.cronJobs = (data && data.jobs) ? data.jobs : [];
+                    refreshGraph();
+                    var c2 = (window.cronJobs || []).find(function (x) { return x.id === window.currentOpenedCron.id; });
+                    if (c2 && cronToggleEnabledBtn) {
+                        cronToggleEnabledBtn.textContent = (c2.enabled !== false && c2.active !== false) ? 'Disable' : 'Enable';
+                    }
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1">' + escapeHtml(err && err.message ? err.message : 'Toggle failed') + '</p>';
+                }).finally(function () { cronToggleEnabledBtn.disabled = false; });
+            });
+        }
+        if (cronDeleteBtn) {
+            cronDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedCron || !window.currentOpenedCron.id) return;
+                if (!confirm('Remove this scheduled job?')) return;
+                cronDeleteBtn.disabled = true;
+                memoryGraphCronPost({ action: 'remove_job', job_id: window.currentOpenedCron.id }).then(function (res) {
+                    if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Failed');
+                    refreshGraph();
+                    closeWidget();
+                }).catch(function (err) {
+                    infoEl.innerHTML = '<p class="mb-1">' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
+                }).finally(function () { cronDeleteBtn.disabled = false; });
+            });
+        }
         window.MemoryGraphShowNodePanel = function (label, id) {
             openWidget(label, id);
         };
@@ -2358,5 +3150,21 @@
         };
     })();
     </script>
+<?php if (!empty($mgCronBrowserTick)) { ?>
+<script>
+(function () {
+    function tick() {
+        fetch('api/cron.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'tick' }),
+            credentials: 'same-origin'
+        }).catch(function () {});
+    }
+    setInterval(tick, 45000);
+    setTimeout(tick, 8000);
+})();
+</script>
+<?php } ?>
 </body>
 </html>

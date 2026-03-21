@@ -49,6 +49,17 @@ if (!function_exists('memory_graph_load_env')) {
     }
 }
 
+if (!function_exists('memory_graph_env_int')) {
+    function memory_graph_env_int(string $key, int $default = 0): int {
+        memory_graph_load_env();
+        $v = memory_graph_env($key, '');
+        if ($v === null || $v === '') {
+            return $default;
+        }
+        return (int) $v;
+    }
+}
+
 if (!function_exists('memory_graph_env')) {
     function memory_graph_env(string $key, ?string $default = null): ?string {
         memory_graph_load_env();
