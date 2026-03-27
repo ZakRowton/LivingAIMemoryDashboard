@@ -536,6 +536,56 @@
         return div.innerHTML;
     }
 
+    /**
+     * OpenAI-compatible APIs sometimes return message.content as an array of parts, not a string.
+     * jQuery used (content || '') which kept non-strings and broke previews/modal (blank "Response").
+     */
+    function extractAssistantTextFromChatResponse(res) {
+        if (!res || !res.choices || !res.choices[0] || !res.choices[0].message) {
+            if (res && typeof res.response === 'string' && res.response.trim()) {
+                return res.response.trim();
+            }
+            if (res && res.memory_graph && typeof res.memory_graph.hint === 'string' && res.memory_graph.hint.trim()) {
+                return res.memory_graph.hint.trim();
+            }
+            return '';
+        }
+        var msg = res.choices[0].message;
+        var c = msg.content;
+        if (typeof c === 'string') {
+            return c;
+        }
+        if (c === null || c === undefined) {
+            if (res.memory_graph && typeof res.memory_graph.hint === 'string' && res.memory_graph.hint.trim()) {
+                return res.memory_graph.hint.trim();
+            }
+            return '';
+        }
+        if (typeof c === 'number' || typeof c === 'boolean') {
+            return String(c);
+        }
+        if (Array.isArray(c)) {
+            var parts = [];
+            for (var i = 0; i < c.length; i++) {
+                var p = c[i];
+                if (p == null || typeof p !== 'object') continue;
+                if (typeof p.text === 'string') parts.push(p.text);
+                else if (p.text && typeof p.text === 'object' && typeof p.text.value === 'string') parts.push(p.text.value);
+                else if (typeof p.content === 'string') parts.push(p.content);
+            }
+            var joined = parts.join('');
+            if (joined) return joined;
+        }
+        if (res.memory_graph && typeof res.memory_graph.hint === 'string' && res.memory_graph.hint.trim()) {
+            return res.memory_graph.hint.trim();
+        }
+        try {
+            return JSON.stringify(c);
+        } catch (e) {
+            return '';
+        }
+    }
+
     window.MemoryGraphShowResponseModal = openResponseModal;
 
     function sendMessage() {
@@ -587,10 +637,11 @@
                 if (res && res.graphRefreshNeeded && typeof window.MemoryGraphRefresh === 'function') {
                     window.MemoryGraphRefresh();
                 }
-                var content = '';
-                if (res && res.choices && res.choices[0] && res.choices[0].message)
-                    content = res.choices[0].message.content || '';
-                else if (typeof res === 'string') content = res;
+                if (res && res.web_app && typeof window.MemoryGraphOpenWebApp === 'function') {
+                    window.MemoryGraphOpenWebApp(res.web_app);
+                }
+                var content = extractAssistantTextFromChatResponse(res);
+                if (!content && typeof res === 'string') content = res;
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
                 showNotification(preview || 'No text in response.', text, content);
                 chatTurns.push({ role: 'user', content: text });
@@ -667,4 +718,6 @@
             sendMessage();
         }
     });
+
+    window.MemoryGraphExtractAssistantFromChatResponse = extractAssistantTextFromChatResponse;
 })();

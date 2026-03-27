@@ -13,7 +13,8 @@ if ($apiKey === '' || $apiKey === 'your_gemini_api_key') {
     echo json_encode(['error' => 'GEMINI_API_KEY is not set. Configure it in .env (never commit .env or hardcode keys).']);
     exit;
 }
-$url = 'https://generativeai.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=' . rawurlencode($apiKey);
+// Use the same API base as api/chat.php (v1beta); v1/models often 404s for newer model ids.
+$url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . rawurlencode($apiKey);
 $payload = [
     'contents' => [
         [

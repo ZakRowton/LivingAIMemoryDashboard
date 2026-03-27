@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo counter</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: Georgia, 'Times New Roman', serif;
+            background: radial-gradient(circle at top, #1a1510 0%, #0a0a0a 100%);
+            color: #f9f1d8;
+        }
+        h1 { font-size: 1.25rem; letter-spacing: 0.08em; color: #d4af37; margin-bottom: 1rem; }
+        #n { font-size: 3rem; margin: 0.5rem 0 1.25rem; }
+        button {
+            padding: 0.6rem 1.2rem;
+            margin: 0 0.35rem;
+            border: 1px solid rgba(212, 175, 55, 0.45);
+            background: rgba(212, 175, 55, 0.12);
+            color: #f9f1d8;
+            border-radius: 8px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover { background: rgba(212, 175, 55, 0.22); }
+    </style>
+</head>
+<body>
+    <h1>MemoryGraph app</h1>
+    <p style="opacity:0.75;font-size:0.9rem;">Sample HTML/JS — build more with <code>create_web_app</code></p>
+    <div id="n">0</div>
+    <div>
+        <button type="button" id="dec">−</button>
+        <button type="button" id="inc">+</button>
+        <button type="button" id="reset">Reset</button>
+    </div>
+    <script>
+        (function () {
+            var n = 0;
+            var el = document.getElementById('n');
+            function render() { el.textContent = String(n); }
+            document.getElementById('inc').onclick = function () { n++; render(); };
+            document.getElementById('dec').onclick = function () { n--; render(); };
+            document.getElementById('reset').onclick = function () { n = 0; render(); };
+        })();
+    </script>
+</body>
+</html>

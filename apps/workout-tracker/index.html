@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Super Insane Workout Lifting Tracker</title>
+<style>
+  body,html{margin:0;padding:0;height:100%;font-family:Arial,Helvetica,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;}
+  header{background:#222;padding:20px;width:100%;text-align:center;}
+  h1{margin:0;font-size:2.5rem;color:#0ff;}
+  #form{margin:20px;padding:20px;background:#222;border-radius:8px;width:90%;max-width:600px;}
+  #form input,#form select{margin:5px 0;padding:8px;width:100%;border:none;border-radius:4px;}
+  #form button{margin-top:10px;padding:10px 20px;background:#0ff;color:#111;border:none;border-radius:4px;cursor:pointer;font-weight:bold;}
+  #log{width:90%;max-width:800px;margin:20px;}
+  table{width:100%;border-collapse:collapse;}
+  th,td{padding:8px;border:1px solid #444;text-align:center;}
+  th{background:#333;}
+  #chartContainer{width:90%;max-width:800px;margin:20px;}
+</style>
+</head>
+<body>
+<header><h1>Super Insane Workout Lifting Tracker</h1></header>
+<div id="form">
+  <label>Exercise: <input type="text" id="exercise" placeholder="e.g., Bench Press"></label><br>
+  <label>Weight (kg): <input type="number" id="weight" min="0" step="0.5"></label><br>
+  <label>Reps: <input type="number" id="reps" min="1"></label><br>
+  <label>Sets: <input type="number" id="sets" min="1"></label><br>
+  <button onclick="addEntry()">Add Entry</button>
+</div>
+<div id="log">
+  <h2>Log</h2>
+  <table id="logTable">
+    <thead><tr><th>Date</th><th>Exercise</th><th>Weight (kg)</th><th>Reps</th><th>Sets</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+<div id="chartContainer">
+  <canvas id="progressChart"></canvas>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let entries=[];
+function load(){
+  const saved=localStorage.getItem('workoutEntries');
+  if(saved)entries=JSON.parse(saved);
+  renderTable();
+  renderChart();
+}
+function save(){localStorage.setItem('workoutEntries',JSON.stringify(entries));}
+function addEntry(){
+  const exercise=document.getElementById('exercise').value.trim();
+  const weight=parseFloat(document.getElementById('weight').value);
+  const reps=parseInt(document.getElementById('reps').value);
+  const sets=parseInt(document.getElementById('sets').value);
+  if(!exercise||isNaN(weight)||isNaN(reps)||isNaN(sets))return alert('Fill all fields');
+  const entry={date:new Date().toLocaleString(),exercise,weight,reps,sets};
+  entries.unshift(entry);
+  save();
+  renderTable();
+  renderChart();
+  document.getElementById('exercise').value='';
+  document.getElementById('weight').value='';
+  document.getElementById('reps').value='';
+  document.getElementById('sets').value='';
+}
+function renderTable(){
+  const tbody=document.querySelector('#logTable tbody');
+  tbody.innerHTML='';
+  entries.forEach(e=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${e.date}</td><td>${e.exercise}</td><td>${e.weight}</td><td>${e.reps}</td><td>${e.sets}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+function renderChart(){
+  const ctx=document.getElementById('progressChart').getContext('2d');
+  // Group by exercise, get max weight per date
+  const dataMap={};
+  entries.forEach(e=>{
+    if(!dataMap[e.exercise])dataMap[e.exercise]=[];
+    dataMap[e.exercise].push({x:e.date,y:e.weight});
+  });
+  const datasets=Object.keys(dataMap).map((ex,i)=>({
+    label:ex,
+    data:dataMap[ex],
+    borderColor:`hsl(${i*60},80%,60%)`,
+    fill:false,
+    tension:0.1
+  }));
+  if(window.myChart)window.myChart.destroy();
+  window.myChart=new Chart(ctx,{
+    type:'line',
+    data:{datasets},
+    options:{
+      scales:{
+        x:{type:'time',time:{parser:'MM/DD/YYYY HH:mm',tooltipFormat:'ll HH:mm',unit:'day'}},
+        y:{title:{display:true,text:'Weight (kg)'}}
+      }
+    }
+  });
+}
+load();
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'instruction_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'research_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'rules_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'job_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_client.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tool_store.php';
@@ -254,6 +255,9 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'delete_instruction_file',
         'create_job_file',
         'delete_job_file',
+        'create_web_app',
+        'update_web_app',
+        'delete_web_app',
         'agent_cron_add',
         'agent_cron_remove',
         'agent_cron_set_enabled',
@@ -855,21 +859,97 @@ function parseInlineToolCall(?string $content): ?array {
     ];
 }
 
+/** PHP fatal / parse messages often arrive HTML-wrapped; extract plain text for the model. */
+function mg_extract_php_tool_error(string $raw): ?string {
+    if ($raw === '') {
+        return null;
+    }
+    $plain = preg_replace('/\s+/', ' ', strip_tags($raw));
+    $plain = trim((string) $plain);
+    if ($plain === '') {
+        return null;
+    }
+    if (preg_match('/\bFatal error:\s*(.+)$/i', $plain, $m)) {
+        return trim($m[1]);
+    }
+    if (preg_match('/\bParse error:\s*(.+)$/i', $plain, $m)) {
+        return trim($m[1]);
+    }
+    if (preg_match('/Cannot redeclare\s+\S+\s*\([^)]*\).*/i', $plain, $m)) {
+        return trim($m[0]);
+    }
+    if (stripos($plain, 'fatal error') !== false) {
+        return $plain;
+    }
+    return null;
+}
+
+/**
+ * Valid PHP function name for a tool file (hyphens from filename become underscores).
+ */
+function mg_tool_php_callable_name(string $safeFileBase): string {
+    return str_replace('-', '_', $safeFileBase);
+}
+
 function executePhpTool(string $toolName, array $arguments): array {
     $safeName = preg_replace('/[^a-zA-Z0-9_\-]/', '', $toolName);
     $toolPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tools' . DIRECTORY_SEPARATOR . $safeName . '.php';
     if ($safeName === '' || !file_exists($toolPath)) {
         return ['error' => 'Tool file not found'];
     }
+    $pathKey = realpath($toolPath);
+    if (!is_string($pathKey) || $pathKey === '') {
+        $pathKey = $toolPath;
+    }
+    $callableName = mg_tool_php_callable_name($safeName);
 
     $previousMethod = $_SERVER['REQUEST_METHOD'] ?? null;
     try {
         $GLOBALS['MEMORY_GRAPH_TOOL_INPUT'] = $arguments;
         $_SERVER['REQUEST_METHOD'] = 'POST';
 
+        if (!isset($GLOBALS['__mg_tool_file_loaded'])) {
+            $GLOBALS['__mg_tool_file_loaded'] = [];
+        }
+        $loadedMap = &$GLOBALS['__mg_tool_file_loaded'];
+
         ob_start();
-        include $toolPath;
+        $firstLoad = empty($loadedMap[$pathKey]);
+        if ($firstLoad) {
+            require_once $toolPath;
+            $loadedMap[$pathKey] = true;
+        } elseif (!function_exists($callableName)) {
+            // Procedural tools (echo json) must run on every invocation; functions were loaded on first require_once.
+            include $toolPath;
+        }
         $rawOutput = trim((string) ob_get_clean());
+
+        // Function-only tools: first load defines the function but may produce no output.
+        if (trim($rawOutput) === '' && function_exists($callableName)) {
+            ob_start();
+            try {
+                $fnResult = call_user_func($callableName, $arguments);
+            } catch (Throwable $toolFnEx) {
+                ob_end_clean();
+                throw $toolFnEx;
+            }
+            $extraOb = trim((string) ob_get_clean());
+            if ($extraOb !== '') {
+                $rawOutput = $extraOb;
+            } elseif (is_array($fnResult)) {
+                unset($GLOBALS['MEMORY_GRAPH_TOOL_INPUT']);
+                if ($previousMethod === null) {
+                    unset($_SERVER['REQUEST_METHOD']);
+                } else {
+                    $_SERVER['REQUEST_METHOD'] = $previousMethod;
+                }
+                return $fnResult;
+            } elseif (is_string($fnResult) && $fnResult !== '') {
+                $rawOutput = $fnResult;
+            } elseif ($fnResult !== null) {
+                $rawOutput = json_encode($fnResult, JSON_UNESCAPED_UNICODE) ?: '';
+            }
+        }
 
         unset($GLOBALS['MEMORY_GRAPH_TOOL_INPUT']);
         if ($previousMethod === null) {
@@ -882,17 +962,26 @@ function executePhpTool(string $toolName, array $arguments): array {
         if (is_array($decoded)) {
             return $decoded;
         }
-        // If output looks like PHP error, convert to error format so AI gets fix directive
+        $extracted = mg_extract_php_tool_error($rawOutput);
+        if ($extracted !== null) {
+            return [
+                'error' => 'Tool PHP error: ' . $extracted,
+                'raw_output' => $rawOutput,
+                'file' => $safeName . '.php',
+            ];
+        }
         if (preg_match('/^(Fatal error|Parse error|Warning|Notice|Deprecated):\s*(.+)$/im', $rawOutput, $m)) {
             return [
                 'error' => 'Tool output PHP error: ' . trim($m[2]),
                 'raw_output' => $rawOutput,
+                'file' => $safeName . '.php',
             ];
         }
         if (stripos($rawOutput, 'Fatal error') !== false || stripos($rawOutput, 'Parse error') !== false) {
             return [
-                'error' => 'Tool produced PHP error. Check and fix the tool code.',
+                'error' => 'Tool produced PHP error. Use edit_tool_file to fix the code, then call the tool again.',
                 'raw_output' => $rawOutput,
+                'file' => $safeName . '.php',
             ];
         }
         return ['result' => $rawOutput];
@@ -1060,6 +1149,39 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     if ($toolName === 'delete_job_file') {
         return delete_job_file_by_name((string) ($arguments['name'] ?? ''));
     }
+    if ($toolName === 'list_web_apps') {
+        return ['apps' => list_web_apps_meta()];
+    }
+    if ($toolName === 'read_web_app') {
+        $r = get_web_app((string) ($arguments['name'] ?? ''));
+        if (isset($r['error'])) {
+            return $r;
+        }
+        $content = (string) ($r['content'] ?? '');
+        $max = 200000;
+        if (strlen($content) > $max) {
+            $r['content'] = substr($content, 0, $max) . "\n\n…[truncated " . (strlen($content) - $max) . " chars]";
+            $r['truncated'] = true;
+        }
+        return $r;
+    }
+    if ($toolName === 'create_web_app') {
+        return create_web_app(
+            (string) ($arguments['name'] ?? ''),
+            (string) ($arguments['title'] ?? ''),
+            (string) ($arguments['html'] ?? '')
+        );
+    }
+    if ($toolName === 'update_web_app') {
+        return update_web_app(
+            (string) ($arguments['name'] ?? ''),
+            array_key_exists('title', $arguments) ? (string) $arguments['title'] : null,
+            array_key_exists('html', $arguments) ? (string) $arguments['html'] : null
+        );
+    }
+    if ($toolName === 'delete_web_app') {
+        return delete_web_app((string) ($arguments['name'] ?? ''));
+    }
     if ($toolName === 'create_mcp_server') {
         return upsert_mcp_server_artifact($arguments);
     }
@@ -1206,7 +1328,11 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
 
 function executeToolCall(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     try {
-        return executeToolCallInner($toolName, $arguments, $activeTools, $mcpResultOverride);
+        $result = executeToolCallInner($toolName, $arguments, $activeTools, $mcpResultOverride);
+        if (is_array($result) && !empty($result['display_web_app']) && empty($result['error'])) {
+            $GLOBALS['MEMORY_GRAPH_WEB_APP_OPEN'] = $result;
+        }
+        return $result;
     } catch (Throwable $e) {
         $msg = $e->getMessage();
         $class = get_class($e);
@@ -1431,6 +1557,7 @@ function buildToolUsageInstruction(array $activeTools): string {
 
     return trim(
         "You have access to tools, including tools for reading/writing memory when they are active.\n" .
+        "MEMORYGRAPH — CUSTOM PHP TOOLS ARE REAL: This app runs on the user's server. create_or_update_tool and edit_tool_file register real files under tools/. You CAN and MUST use them when the user asks for a new tool or capability and nothing in list_available_tools already fits. It is incorrect to say you \"cannot create a custom PHP tool\", \"don't have access to the filesystem\", or to answer only with markdown/HTML snippets (e.g. iframe examples) instead of calling create_or_update_tool. After a quick list_available_tools (+ MCP discovery if relevant), implement the tool: php_code must use \$GLOBALS['MEMORY_GRAPH_TOOL_INPUT'] and echo json_encode([...]) like get_temperature.php. For \"show website\" / iframe tools, put the iframe HTML (or url + suggested iframe attrs) inside the JSON payload (e.g. html, url) so callers can render it — still create the tool, do not refuse.\n" .
         "If the model/provider supports native function calling, use it.\n" .
         "If native function calling is unavailable or not used, you must call a tool by replying with ONLY valid JSON in this exact shape and nothing else:\n" .
         "{\"tool\":\"tool_name\",\"arguments\":{\"arg\":\"value\"}}\n" .
@@ -1449,6 +1576,7 @@ function buildToolUsageInstruction(array $activeTools): string {
         "When any tool returns an error (result contains an 'error' field), you MUST fix the tool and retry: use edit_tool_file to change the tool's PHP code, or edit_tool_registry_entry to change its description/parameters. Then call the tool again. Keep editing and retrying until the tool succeeds; do not give up or report the error to the user until you have retried by fixing the tool.\n" .
         "CRITICAL — Tabular output: If display_table is active, use it for any row/column data you want the user to see clearly (SQL/ETL, research comparisons, release lists, benchmarks—not only databases). Pass headers and rows (string cells). Do not use markdown pipe tables for that data; call display_table first, then short prose.\n" .
         "CRITICAL — Charts: If render_chart is active, use it for bar/line/pie (etc.) visuals: pass chart_config as a QuickChart/Chart.js config object, or chart_url as an https image URL. Prefer render_chart over embedding huge QuickChart URLs in markdown.\n" .
+        "INTERACTIVE WEB APPS: Dashboard mini-apps live under apps/<slug>/index.html. Use list_web_apps, read_web_app, create_web_app, update_web_app, delete_web_app. To show an app fullscreen for the user, call display_web_app with the app slug (name).\n" .
         ($toolList !== '' ? "Currently active tools include: " . $toolList . "\n" : '') .
         "When you are not calling a tool, answer normally.\n" .
         "CRITICAL - Do not stop prematurely: Use as many tool calls as needed to complete the task. Never respond with 'no tool calls', 'I have no tools to use', or similar - keep using tools until the task is complete, then give your final answer."
@@ -1562,6 +1690,22 @@ function normalizeAssistantFormatting(string $content): string {
     return str_replace(array_keys($repl), array_values($repl), $content);
 }
 
+/** Append non-empty tool summaries when the model returns no final prose (UI + digest). */
+function memory_graph_append_tool_fallback_summary(string &$bucket, string $chunk): void {
+    $chunk = trim($chunk);
+    if ($chunk === '') {
+        return;
+    }
+    if ($bucket === '') {
+        $bucket = $chunk;
+    } else {
+        $bucket .= "\n\n— Tool result —\n" . $chunk;
+    }
+    if (strlen($bucket) > 14000) {
+        $bucket = substr($bucket, 0, 14000) . "\n…[truncated]";
+    }
+}
+
 /**
  * Safe string for lastToolResultText fallback (avoids Array to string when result is rows).
  */
@@ -1574,6 +1718,14 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
         $e = $toolResult['error'];
         return is_scalar($e) ? (string) $e : (string) json_encode($e, JSON_UNESCAPED_UNICODE);
     }
+    if (($toolName === 'execute_job_file' || $toolName === 'read_job_file') && !isset($toolResult['error'])) {
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        $clen = isset($toolResult['content']) && is_string($toolResult['content']) ? strlen($toolResult['content']) : 0;
+        if ($n !== '') {
+            $verb = $toolName === 'execute_job_file' ? 'Loaded job for execution' : 'Read job file';
+            return $verb . ': **' . $n . '**' . ($clen > 0 ? ' (' . $clen . ' characters).' : '.');
+        }
+    }
     // Cron/UI fallback: successful research writes often carry huge `content`; json_encode can fail on bad UTF-8 and return ''.
     $researchWriteTools = ['add_research_file', 'create_research_file', 'update_research_file'];
     if (in_array($toolName, $researchWriteTools, true)) {
@@ -1584,6 +1736,14 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
     }
     if ($toolName === 'delete_research_file' && isset($toolResult['deleted']) && is_string($toolResult['deleted']) && $toolResult['deleted'] !== '') {
         return 'Deleted research file: ' . $toolResult['deleted'];
+    }
+    if ($toolName === 'display_web_app' && !empty($toolResult['display_web_app']) && empty($toolResult['error'])) {
+        $t = isset($toolResult['title']) ? (string) $toolResult['title'] : '';
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        return 'Opened web app **' . ($t !== '' ? $t : $n) . '** in the maximized viewer.';
+    }
+    if (isset($toolResult['response']) && is_string($toolResult['response']) && trim($toolResult['response']) !== '') {
+        return trim($toolResult['response']);
     }
     $r = $toolResult['result'] ?? null;
     if (is_array($r)) {
@@ -1604,7 +1764,7 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
     }
     $enc = json_encode($summary, JSON_UNESCAPED_UNICODE);
     if (!is_string($enc) || $enc === '' || $enc === '[]') {
-        return '';
+        return 'Tool `' . $toolName . '` finished (result could not be summarized as JSON; the model still receives the full tool payload in the conversation).';
     }
     $max = 4500;
     if (strlen($enc) > $max) {
@@ -1903,8 +2063,45 @@ function requestGemini(array $provider, string $model, array $conversation, floa
     return ['data' => $decoded, 'httpCode' => $httpCode];
 }
 
+/**
+ * When the LLM upstream returns 4xx/5xx, echo JSON cron/UI can parse instead of raw HTML or opaque blobs.
+ */
+function mg_emit_upstream_llm_error_body(int $httpCode, string $rawBody): void {
+    $trim = ltrim($rawBody);
+    if ($trim !== '' && ($trim[0] === '{' || $trim[0] === '[')) {
+        $j = json_decode($rawBody, true);
+        if (is_array($j) && isset($j['error']) && isset($j['response']) && is_string($j['response'])) {
+            $prev = is_string($j['error'])
+                ? $j['error']
+                : (is_scalar($j['error']) ? (string) $j['error'] : json_encode($j['error'], JSON_UNESCAPED_UNICODE));
+            $preview = mb_substr(preg_replace('/\s+/', ' ', strip_tags($j['response'])), 0, 500);
+            $hint = 'AI provider request failed (HTTP ' . $httpCode . '). ';
+            if (stripos($j['response'], 'www.google.com') !== false || stripos($preview, 'Error 404') !== false) {
+                $hint .= 'Upstream body looks like Google\'s HTML 404 — wrong Gemini URL/API version, model id, or API key. MemoryGraph chat uses generativelanguage.googleapis.com/v1beta/models. ';
+            }
+            echo json_encode([
+                'error' => $hint . $prev,
+                'provider_http_code' => $httpCode,
+                'upstream_preview' => $preview,
+            ], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+    }
+    if ($rawBody !== '' && (stripos($rawBody, '<html') !== false || stripos($rawBody, '<!DOCTYPE') !== false)) {
+        $preview = mb_substr(preg_replace('/\s+/', ' ', strip_tags($rawBody)), 0, 500);
+        echo json_encode([
+            'error' => 'AI provider returned HTML (HTTP ' . $httpCode . ') instead of JSON — usually a wrong endpoint or model. Check provider URL, model id, and API key.',
+            'provider_http_code' => $httpCode,
+            'upstream_preview' => $preview,
+        ], JSON_UNESCAPED_UNICODE);
+        return;
+    }
+    echo $rawBody;
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 $input = is_array($input) ? $input : [];
+$GLOBALS['MEMORY_GRAPH_WEB_APP_OPEN'] = null;
 $GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS'] = [];
 $GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'] = '';
 $skipCronPendingDelivery = !empty($input['skipCronPendingDelivery']);
@@ -2050,7 +2247,7 @@ while (true) {
         writeStatus($requestId, $status);
         http_response_code($result['httpCode'] ?? 502);
         if (isset($result['raw'])) {
-            echo $result['raw'];
+            mg_emit_upstream_llm_error_body((int) ($result['httpCode'] ?? 502), (string) $result['raw']);
         } else {
             $err = $result['error'];
             if (is_array($err) || is_object($err)) {
@@ -2069,15 +2266,20 @@ while (true) {
     if ($provider['type'] === 'openai') {
         $message = $data['choices'][0]['message'] ?? null;
         if (!is_array($message)) {
-            clearStatusFlags($status);
-            writeStatus($requestId, $status);
-            http_response_code(502);
-            echo json_encode(['error' => 'Invalid provider response']);
-            exit;
+            if (isset($data['response']) && is_string($data['response']) && trim($data['response']) !== '') {
+                $assistantContent = trim($data['response']);
+                $toolCalls = [];
+            } else {
+                clearStatusFlags($status);
+                writeStatus($requestId, $status);
+                http_response_code(502);
+                echo json_encode(['error' => 'Invalid provider response']);
+                exit;
+            }
+        } else {
+            $assistantContent = openai_extract_assistant_message_text($message);
+            $toolCalls = $message['tool_calls'] ?? [];
         }
-
-        $assistantContent = openai_extract_assistant_message_text($message);
-        $toolCalls = $message['tool_calls'] ?? [];
 
         if (!empty($toolCalls) && is_array($toolCalls)) {
             $conversation[] = [
@@ -2183,9 +2385,7 @@ while (true) {
                     break 2;
                 }
                 $t = lastToolResultDisplayText($normalizedFunctionName, $toolResult);
-                if ($t !== '') {
-                    $lastToolResultText = $t;
-                }
+                memory_graph_append_tool_fallback_summary($lastToolResultText, $t);
                 $toolResultArr = is_array($toolResult) ? $toolResult : ['result' => $toolResult];
                 $conversation[] = [
                     'role' => 'tool',
@@ -2272,9 +2472,7 @@ while (true) {
                 break;
             }
             $t = lastToolResultDisplayText($normalizedInlineName, $toolResult);
-            if ($t !== '') {
-                $lastToolResultText = $t;
-            }
+            memory_graph_append_tool_fallback_summary($lastToolResultText, $t);
             $conversation[] = ['role' => 'assistant', 'content' => $assistantContent];
             $toolResultArr = is_array($toolResult) ? $toolResult : ['result' => $toolResult];
             $conversation[] = [
@@ -2372,9 +2570,7 @@ while (true) {
             break;
         }
         $t = lastToolResultDisplayText($normalizedInlineName, $toolResult);
-        if ($t !== '') {
-            $lastToolResultText = $t;
-        }
+        memory_graph_append_tool_fallback_summary($lastToolResultText, $t);
         $conversation[] = ['role' => 'assistant', 'content' => $assistantContent];
         $toolResultArr = is_array($toolResult) ? $toolResult : ['result' => $toolResult];
         $conversation[] = [
@@ -2425,7 +2621,12 @@ clearStatusFlags($status);
 clearCurrentExecutionStatus($status, $requestId);
 writeStatus($requestId, $status);
 
-$finalContent = normalizeAssistantFormatting($finalContent);
+$finalContent = normalizeAssistantFormatting((string) $finalContent);
+if (trim($finalContent) === '') {
+    $finalContent = 'No assistant text was produced after tools and fallbacks. Request ID: ' . $requestId;
+    $memoryGraphMeta['empty_assistant'] = true;
+    $memoryGraphMeta['hint'] = $finalContent;
+}
 
 if ($initialUserContent !== '' && trim($finalContent) !== '' && empty($memoryGraphMeta['empty_assistant'])) {
     append_chat_exchange($requestId, $initialUserContent, $finalContent, $chatSessionIdInput);
@@ -2436,7 +2637,7 @@ $response = [
         [
             'message' => [
                 'role' => 'assistant',
-                'content' => $finalContent,
+                'content' => (string) $finalContent,
             ],
         ],
     ],
@@ -2448,6 +2649,14 @@ if (!empty($memoryGraphMeta)) {
 if (!empty($jobsToRun)) {
     $response['jobToRun'] = $jobsToRun;
 }
+$waOpen = $GLOBALS['MEMORY_GRAPH_WEB_APP_OPEN'] ?? null;
+if (is_array($waOpen) && !empty($waOpen['display_web_app']) && empty($waOpen['error'])) {
+    $response['web_app'] = [
+        'name' => (string) ($waOpen['name'] ?? ''),
+        'title' => (string) ($waOpen['title'] ?? ''),
+        'url' => (string) ($waOpen['url'] ?? ''),
+    ];
+}
 if (!empty($status['graphRefreshNeeded'])) {
     $response['graphRefreshNeeded'] = true;
 }
@@ -2455,4 +2664,13 @@ if (!empty($GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS']) && !$skipCronPendingDeli
     mg_cron_pending_delete_paths($GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS']);
     $GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS'] = [];
 }
-echo json_encode($response, JSON_UNESCAPED_UNICODE);
+$jsonFlags = JSON_UNESCAPED_UNICODE;
+if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+    $jsonFlags |= JSON_INVALID_UTF8_SUBSTITUTE;
+}
+$jsonOut = json_encode($response, $jsonFlags);
+if ($jsonOut === false) {
+    $response['choices'][0]['message']['content'] = '[Server: could not encode response as JSON — possible invalid UTF-8 in assistant text. Request ID: ' . $requestId . ']';
+    $jsonOut = json_encode($response, $jsonFlags);
+}
+echo ($jsonOut !== false) ? $jsonOut : '{"error":"json_encode failed"}';

@@ -39,6 +39,7 @@
         rules: { label: 'Rules', listUrl: 'api_rules.php?action=list', listKey: 'rules', getUrl: function (name) { return 'api_rules.php?action=get&name=' + encodeURIComponent(name); } },
         mcps: { label: 'MCP servers', listUrl: 'api_mcps.php?action=list', listKey: 'servers', getUrl: function (name) { return 'api_mcps.php?action=get&name=' + encodeURIComponent(name); } },
         jobs: { label: 'Jobs', listUrl: 'api_jobs.php?action=list', listKey: 'jobs', getUrl: function (name) { return 'api_jobs.php?action=get&name=' + encodeURIComponent(name); } },
+        apps: { label: 'Web apps', listUrl: 'api/web_apps.php?action=list', listKey: 'apps', getUrl: function (name) { return 'api/web_apps.php?action=get&name=' + encodeURIComponent(name); } },
         scheduled: { label: 'Scheduled', listUrl: 'api/cron.php?action=list', listKey: 'jobs', getUrl: null }
     };
 
@@ -214,7 +215,7 @@
         }
         var ul = $('<ul class="simple-item-list font-serif">');
         items.forEach(function (item) {
-            var name = item.name || item.title || '(unnamed)';
+            var name = item.title || item.name || '(unnamed)';
             var active = item.active !== false;
             var li = $('<li class="simple-item-row">');
             var btn = $('<button type="button" class="simple-item-btn">').text(name);
@@ -382,6 +383,55 @@
                 }).finally(function () { btn.prop('disabled', false); });
             }));
             $detailCol.append(row);
+            return;
+        }
+
+        if (section === 'apps') {
+            var slug = item.name;
+            var appTitle = item.title || slug || 'App';
+            title.text(appTitle);
+            var parts = [];
+            if (slug) parts.push('Slug: ' + slug);
+            if (item.size != null && item.size >= 0) {
+                parts.push(Math.round(item.size / 1024 * 10) / 10 + ' KB');
+            }
+            if (item.updated) {
+                try {
+                    parts.push('Updated ' + new Date(item.updated * 1000).toLocaleString());
+                } catch (e) {}
+            }
+            if (parts.length) {
+                meta.append($('<p>').text(parts.join(' · ')));
+            }
+            var openUrl = 'api/serve_app.php?app=' + encodeURIComponent(slug || '');
+            var row = $('<div class="panel-action-btn-row" style="margin-top:12px;flex-wrap:wrap;gap:8px;">');
+            row.append($('<button type="button" class="panel-action-btn">').text('Open fullscreen').on('click', function () {
+                if (typeof window.MemoryGraphOpenWebApp === 'function') {
+                    window.MemoryGraphOpenWebApp({ name: slug, title: appTitle, url: openUrl });
+                } else {
+                    window.open(openUrl, '_blank', 'noopener,noreferrer');
+                }
+            }));
+            $detailCol.append(row);
+            if (slug) {
+                $.getJSON('api/web_apps.php?action=get&name=' + encodeURIComponent(slug))
+                    .done(function (data) {
+                        if (data && data.error) {
+                            $detailCol.append($('<p class="simple-warn">').text(data.error));
+                            return;
+                        }
+                        var c = data && data.content;
+                        if (typeof c === 'string' && c.length) {
+                            var max = 6000;
+                            var snippet = c.length > max ? c.slice(0, max) + '\n\n… (' + c.length + ' characters total)' : c;
+                            $detailCol.append($('<p class="simple-detail-meta font-serif" style="margin-top:14px;opacity:0.85;">').text('Source preview'));
+                            $detailCol.append($('<pre class="simple-detail-pre">').text(snippet));
+                        }
+                    })
+                    .fail(function () {
+                        $detailCol.append($('<p class="simple-warn">').text('Could not load source.'));
+                    });
+            }
             return;
         }
 

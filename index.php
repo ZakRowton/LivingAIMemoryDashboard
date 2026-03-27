@@ -523,6 +523,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             padding: 18px;
         }
         #response-modal .btn-close { filter: invert(1); opacity: 0.8; }
+        /* Above bottom-dock (110) / notifications (105); backdrop stays Bootstrap default (~1050) so it stays BELOW this modal */
+        #response-modal.modal {
+            z-index: 10000;
+        }
         .response-modal-section-title {
             margin: 0 0 10px;
             color: var(--gold);
@@ -860,6 +864,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             z-index: 1;
             width: 100%;
             max-width: 240px;
+            min-width: 0;
+            overflow-x: hidden;
             background: var(--panel-bg);
             backdrop-filter: blur(16px);
             border: 1px solid rgba(214, 219, 226, 0.24);
@@ -887,13 +893,26 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             flex-direction: column;
             gap: 6px;
             max-height: 160px;
+            min-width: 0;
+            overflow-x: hidden;
             overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(212, 175, 55, 0.45) rgba(0, 0, 0, 0.25);
+        }
+        .running-jobs-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .running-jobs-list::-webkit-scrollbar-thumb {
+            background: rgba(212, 175, 55, 0.5);
+            border-radius: 4px;
         }
         .running-job-item {
             border: 1px solid rgba(214, 219, 226, 0.14);
             border-radius: 8px;
             padding: 8px 9px;
             background: rgba(255,255,255,0.03);
+            min-width: 0;
+            max-width: 100%;
         }
         .running-job-head {
             display: flex;
@@ -901,11 +920,16 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             justify-content: space-between;
             gap: 6px;
             margin-bottom: 5px;
+            min-width: 0;
         }
         .running-job-name {
             color: var(--gold-light);
             font-size: 0.78rem;
             line-height: 1.25;
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
         .running-job-spinner {
             width: 13px;
@@ -1040,11 +1064,195 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             border-color: rgba(214, 219, 226, 0.55);
             color: var(--gold-light);
         }
+        /* Web apps FAB + left drawer + fullscreen viewer */
+        .apps-fab {
+            position: fixed;
+            right: max(78px, env(safe-area-inset-right, 0px) + 70px);
+            bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+            z-index: 125;
+            min-width: 52px;
+            height: 48px;
+            padding: 0 12px;
+            border-radius: 24px;
+            border: 1px solid rgba(212, 175, 55, 0.38);
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            color: #d4af37;
+            font-size: 0.72rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            cursor: pointer;
+            box-shadow: 0 4px 22px rgba(0,0,0,0.4), 0 0 18px rgba(212, 175, 55, 0.12);
+            transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+        .apps-fab:hover {
+            transform: scale(1.05);
+            border-color: rgba(212, 175, 55, 0.55);
+            color: #f9f1d8;
+        }
         @media (max-width: 900px) {
             .settings-fab {
                 right: max(12px, env(safe-area-inset-right, 0px) + 8px);
                 bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
             }
+            .apps-fab {
+                right: max(72px, env(safe-area-inset-right, 0px) + 64px);
+                bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+            }
+        }
+        .apps-drawer-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 116;
+            background: rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.25s ease, visibility 0.25s ease;
+        }
+        .apps-drawer-backdrop.is-open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .apps-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: min(320px, 92vw);
+            height: 100%;
+            z-index: 118;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(212, 175, 55, 0.18);
+            box-shadow: 8px 0 40px rgba(0, 0, 0, 0.45);
+            transform: translateX(-100%);
+            transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+        }
+        .apps-drawer.is-open {
+            transform: translateX(0);
+        }
+        .apps-drawer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.15);
+            font-size: 1.05rem;
+            color: #d4af37;
+        }
+        .apps-drawer-close {
+            background: none;
+            border: none;
+            color: var(--gold-dim);
+            font-size: 1.5rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 4px 8px;
+        }
+        .apps-drawer-body {
+            padding: 12px 14px 18px;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+        .apps-drawer-hint {
+            font-size: 0.78rem;
+            color: var(--gold-dim);
+            margin: 0 0 12px;
+            line-height: 1.45;
+        }
+        .apps-drawer-hint code {
+            font-family: "Courier New", monospace;
+            font-size: 0.72rem;
+        }
+        .apps-drawer-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .apps-drawer-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(212, 175, 55, 0.15);
+            background: rgba(0, 0, 0, 0.2);
+        }
+        [data-theme="light"] .apps-drawer-row {
+            background: rgba(255, 255, 255, 0.35);
+        }
+        .apps-drawer-row-title {
+            font-size: 0.88rem;
+            color: var(--gold-light);
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .apps-drawer-open-btn {
+            flex-shrink: 0;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(212, 175, 55, 0.4);
+            background: rgba(212, 175, 55, 0.12);
+            color: #f9f1d8;
+            font-family: 'Cinzel', serif;
+            font-size: 0.65rem;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+        }
+        .apps-drawer-open-btn:hover {
+            background: rgba(212, 175, 55, 0.22);
+        }
+        .apps-drawer-empty {
+            font-size: 0.85rem;
+            color: var(--gold-dim);
+            padding: 8px 0;
+        }
+        /* Fullscreen app viewer above chat/dock; do NOT raise all .modal-backdrop globally — that traps #response-modal behind the dimmer */
+        #web-app-modal.modal {
+            z-index: 10050;
+        }
+        body.mg-web-app-modal-open .modal-backdrop {
+            z-index: 10040;
+        }
+        .web-app-modal-content {
+            background: #0a0a0a;
+            border: none;
+            border-radius: 0;
+            height: 100vh;
+            max-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .web-app-modal-header {
+            flex-shrink: 0;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.2);
+            background: rgba(10, 10, 10, 0.95);
+        }
+        .web-app-modal-header .modal-title {
+            color: #d4af37;
+            font-size: 1rem;
+        }
+        .web-app-modal-header .btn-close {
+            filter: invert(0.85) sepia(0.3);
+        }
+        .web-app-modal-body {
+            flex: 1;
+            min-height: 0;
+            background: #000;
+        }
+        .web-app-modal-frame {
+            width: 100%;
+            height: 100%;
+            min-height: 320px;
+            border: 0;
+            display: block;
         }
         .settings-backdrop {
             position: fixed;
@@ -1156,11 +1364,11 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             z-index: 45;
             display: none;
             flex-direction: row;
-            padding-top: 56px;
+            padding-top: 58px;
             padding-bottom: 100px;
             box-sizing: border-box;
             background: var(--black);
-            background-image: radial-gradient(circle at top center, #11161d 0%, #040507 48%, #000000 100%);
+            background-image: radial-gradient(circle at top center, #1a1510 0%, #040507 52%, #000000 100%);
         }
         html.mg-simple-ui .simple-ui-root {
             display: flex !important;
@@ -1170,50 +1378,103 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             background-image: radial-gradient(circle at top center, #ebe5d9 0%, #e8e0d2 100%);
         }
         .simple-side-nav {
-            width: min(200px, 28vw);
+            width: min(228px, 32vw);
             flex-shrink: 0;
-            border-right: 1px solid rgba(214, 219, 226, 0.15);
-            background: var(--panel-bg);
-            backdrop-filter: blur(10px);
-            padding: 10px 0;
+            border-right: 1px solid rgba(212, 175, 55, 0.18);
+            background: rgba(10, 10, 10, 0.75);
+            backdrop-filter: blur(14px);
+            padding: 14px 0 18px;
             overflow-y: auto;
+            box-shadow: inset -1px 0 0 rgba(212, 175, 55, 0.06);
+        }
+        [data-theme="light"] .simple-side-nav {
+            background: rgba(252, 248, 240, 0.92);
+            border-right-color: rgba(184, 150, 46, 0.28);
+            box-shadow: inset -1px 0 0 rgba(184, 150, 46, 0.12);
+        }
+        .simple-nav-label {
+            padding: 6px 16px 10px;
+            font-family: 'Cinzel', serif;
+            font-size: 0.62rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: rgba(212, 175, 55, 0.45);
+        }
+        [data-theme="light"] .simple-nav-label {
+            color: rgba(107, 90, 42, 0.65);
+        }
+        .simple-nav-label--spaced {
+            margin-top: 10px;
         }
         .simple-nav-btn {
             display: block;
             width: 100%;
             text-align: left;
-            padding: 10px 14px;
+            padding: 11px 16px;
+            margin: 0 8px;
+            width: calc(100% - 16px);
             border: none;
+            border-radius: 10px;
             background: transparent;
-            color: var(--gold-dim);
-            font-size: 0.72rem;
-            letter-spacing: 0.04em;
+            color: rgba(249, 241, 216, 0.55);
+            font-family: 'Cinzel', serif;
+            font-size: 0.74rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
             cursor: pointer;
-            transition: background 0.15s ease, color 0.15s ease;
+            transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+        }
+        [data-theme="light"] .simple-nav-btn {
+            color: rgba(92, 35, 41, 0.72);
         }
         .simple-nav-btn:hover {
-            background: rgba(214, 219, 226, 0.08);
-            color: var(--gold-light);
+            background: rgba(212, 175, 55, 0.08);
+            color: #f9f1d8;
+        }
+        [data-theme="light"] .simple-nav-btn:hover {
+            background: rgba(184, 150, 46, 0.12);
+            color: #5c2329;
         }
         .simple-nav-btn.is-active {
-            color: var(--gold);
-            background: rgba(214, 219, 226, 0.1);
-            border-right: 2px solid var(--gold);
+            color: #d4af37;
+            background: rgba(212, 175, 55, 0.12);
+            box-shadow: inset 3px 0 0 #d4af37, 0 0 20px rgba(212, 175, 55, 0.08);
+        }
+        [data-theme="light"] .simple-nav-btn.is-active {
+            color: #6b5a2a;
+            background: rgba(184, 150, 46, 0.15);
+            box-shadow: inset 3px 0 0 #b8962e, 0 0 16px rgba(184, 150, 46, 0.12);
         }
         .simple-main {
             flex: 1;
             min-width: 0;
             display: flex;
             flex-direction: column;
+            background: rgba(0, 0, 0, 0.15);
+        }
+        [data-theme="light"] .simple-main {
+            background: rgba(255, 255, 255, 0.2);
         }
         .simple-toolbar {
-            padding: 10px 16px;
-            border-bottom: 1px solid rgba(214, 219, 226, 0.12);
+            padding: 14px 20px 16px;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.14);
+            background: linear-gradient(180deg, rgba(212, 175, 55, 0.06) 0%, transparent 100%);
+        }
+        [data-theme="light"] .simple-toolbar {
+            border-bottom-color: rgba(184, 150, 46, 0.22);
+            background: linear-gradient(180deg, rgba(184, 150, 46, 0.08) 0%, transparent 100%);
         }
         .simple-toolbar h2 {
             margin: 0;
-            font-size: 1rem;
-            color: var(--gold);
+            font-size: clamp(1.05rem, 2.5vw, 1.35rem);
+            font-weight: 700;
+            color: #d4af37;
+            text-shadow: 0 0 24px rgba(212, 175, 55, 0.15);
+            letter-spacing: 0.04em;
+        }
+        [data-theme="light"] .simple-toolbar h2 {
+            color: #6b5a2a;
+            text-shadow: none;
         }
         .simple-toolbar-pulses {
             display: none;
@@ -1250,30 +1511,51 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         .simple-split {
             flex: 1;
             display: grid;
-            grid-template-columns: minmax(180px, 36%) 1fr;
-            gap: 0;
+            grid-template-columns: minmax(200px, 34%) 1fr;
+            gap: 12px;
             min-height: 0;
+            padding: 12px 14px 14px;
+            box-sizing: border-box;
         }
         @media (max-width: 768px) {
             .simple-split {
                 grid-template-columns: 1fr;
                 grid-template-rows: minmax(120px, 32%) 1fr;
+                padding: 10px;
+                gap: 10px;
             }
         }
         .simple-list-col {
-            border-right: 1px solid rgba(214, 219, 226, 0.1);
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            border-radius: 14px;
             overflow-y: auto;
-            padding: 10px 12px;
+            padding: 12px 14px;
+            background: rgba(10, 10, 10, 0.5);
+            backdrop-filter: blur(12px);
+            box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.06);
+        }
+        [data-theme="light"] .simple-list-col {
+            background: rgba(255, 255, 255, 0.55);
+            border-color: rgba(184, 150, 46, 0.25);
         }
         @media (max-width: 768px) {
             .simple-list-col {
                 border-right: none;
-                border-bottom: 1px solid rgba(214, 219, 226, 0.1);
+                border-bottom: none;
             }
         }
         .simple-detail-col {
             overflow-y: auto;
-            padding: 12px 16px;
+            padding: 14px 18px;
+            border: 1px solid rgba(212, 175, 55, 0.12);
+            border-radius: 14px;
+            background: rgba(8, 8, 8, 0.42);
+            backdrop-filter: blur(12px);
+            box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.05);
+        }
+        [data-theme="light"] .simple-detail-col {
+            background: rgba(255, 255, 255, 0.65);
+            border-color: rgba(184, 150, 46, 0.2);
         }
         .simple-item-list {
             list-style: none;
@@ -1283,23 +1565,30 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         .simple-item-btn {
             width: 100%;
             text-align: left;
-            padding: 8px 10px;
-            margin-bottom: 4px;
-            border-radius: 8px;
-            border: 1px solid rgba(214, 219, 226, 0.12);
-            background: rgba(0, 0, 0, 0.2);
-            color: var(--gold-light);
-            font-size: 0.88rem;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            border-radius: 10px;
+            border: 1px solid rgba(212, 175, 55, 0.16);
+            background: rgba(0, 0, 0, 0.25);
+            color: #f9f1d8;
+            font-size: 0.9rem;
             cursor: pointer;
-            transition: border-color 0.15s ease, background 0.15s ease;
+            transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+        [data-theme="light"] .simple-item-btn {
+            color: #4a4238;
+            background: rgba(255, 255, 255, 0.5);
+            border-color: rgba(184, 150, 46, 0.22);
         }
         .simple-item-btn:hover {
-            border-color: rgba(214, 219, 226, 0.28);
-            background: rgba(214, 219, 226, 0.06);
+            border-color: rgba(212, 175, 55, 0.35);
+            background: rgba(212, 175, 55, 0.07);
+            box-shadow: 0 0 16px rgba(212, 175, 55, 0.06);
         }
         .simple-item-btn.is-selected {
-            border-color: rgba(214, 219, 226, 0.45);
-            background: rgba(214, 219, 226, 0.1);
+            border-color: rgba(212, 175, 55, 0.45);
+            background: rgba(212, 175, 55, 0.1);
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.1);
         }
         .simple-item-off {
             font-size: 0.75rem;
@@ -1318,7 +1607,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             white-space: pre-wrap;
             word-break: break-word;
             background: rgba(0, 0, 0, 0.35);
-            border: 1px solid rgba(214, 219, 226, 0.15);
+            border: 1px solid rgba(212, 175, 55, 0.14);
             border-radius: 10px;
             padding: 12px;
             max-height: min(52vh, 420px);
@@ -1328,6 +1617,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         [data-theme="light"] .simple-detail-pre {
             background: rgba(255, 255, 255, 0.65);
             color: #1d2228;
+            border-color: rgba(184, 150, 46, 0.22);
         }
         .simple-open-panel-btn {
             margin-top: 12px;
@@ -1349,13 +1639,18 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
         .simple-warn { color: #c9a227; }
         .simple-activity-col {
-            width: min(220px, 30vw);
+            width: min(232px, 30vw);
             flex-shrink: 0;
-            border-left: 1px solid rgba(214, 219, 226, 0.12);
-            background: rgba(0, 0, 0, 0.18);
+            border-left: 1px solid rgba(212, 175, 55, 0.14);
+            background: rgba(10, 10, 10, 0.55);
+            backdrop-filter: blur(12px);
             display: flex;
             flex-direction: column;
             min-height: 0;
+        }
+        [data-theme="light"] .simple-activity-col {
+            background: rgba(252, 248, 240, 0.88);
+            border-left-color: rgba(184, 150, 46, 0.22);
         }
         @media (max-width: 768px) {
             .simple-activity-col {
@@ -1363,11 +1658,15 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             }
         }
         .simple-activity-title {
-            font-size: 0.75rem;
-            letter-spacing: 0.08em;
-            color: var(--gold);
-            padding: 10px 12px;
-            border-bottom: 1px solid rgba(214, 219, 226, 0.1);
+            font-size: 0.72rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #d4af37;
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.12);
+        }
+        [data-theme="light"] .simple-activity-title {
+            color: #6b5a2a;
         }
         .simple-activity-pulses {
             display: flex;
@@ -1423,6 +1722,20 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     </script>
     <div id="graph-container"></div>
 
+    <button type="button" id="apps-fab" class="apps-fab font-display" aria-label="Web apps" title="HTML / JS apps">Apps</button>
+    <div id="apps-drawer-backdrop" class="apps-drawer-backdrop" hidden></div>
+    <aside id="apps-drawer" class="apps-drawer font-display" aria-hidden="true">
+        <div class="apps-drawer-header">
+            <span>Web apps</span>
+            <button type="button" class="apps-drawer-close" id="apps-drawer-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="apps-drawer-body">
+            <p class="apps-drawer-hint font-serif">Mini-apps in <code>apps/&lt;slug&gt;/index.html</code>. The AI can use <strong>display_web_app</strong>, <strong>create_web_app</strong>, etc.</p>
+            <div id="apps-drawer-list" class="apps-drawer-list"></div>
+            <button type="button" id="apps-drawer-refresh" class="panel-action-btn">Refresh list</button>
+        </div>
+    </aside>
+
     <button type="button" id="settings-fab" class="settings-fab font-display" aria-label="Open settings" title="Settings">&#9881;</button>
     <div id="settings-backdrop" class="settings-backdrop" hidden></div>
     <aside id="settings-panel" class="settings-panel font-display" aria-hidden="true">
@@ -1446,6 +1759,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
 
     <div id="simple-ui-root" class="simple-ui-root">
         <nav class="simple-side-nav font-display" aria-label="Resource sections">
+            <div class="simple-nav-label">Library</div>
             <button type="button" class="simple-nav-btn" data-section="memory">Memory</button>
             <button type="button" class="simple-nav-btn" data-section="tools">Tools</button>
             <button type="button" class="simple-nav-btn" data-section="instructions">Instructions</button>
@@ -1453,6 +1767,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             <button type="button" class="simple-nav-btn" data-section="rules">Rules</button>
             <button type="button" class="simple-nav-btn" data-section="mcps">MCPs</button>
             <button type="button" class="simple-nav-btn" data-section="jobs">Jobs</button>
+            <button type="button" class="simple-nav-btn" data-section="apps">Apps</button>
+            <div class="simple-nav-label simple-nav-label--spaced">Automation</div>
             <button type="button" class="simple-nav-btn" data-section="scheduled">Scheduled</button>
         </nav>
         <main class="simple-main">
@@ -1695,6 +2011,20 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         </div>
     </div>
 
+    <div class="modal fade" id="web-app-modal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content web-app-modal-content">
+                <div class="modal-header web-app-modal-header">
+                    <h5 class="modal-title font-display" id="web-app-modal-title">Web app</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body web-app-modal-body">
+                    <iframe id="web-app-modal-frame" class="web-app-modal-frame" title="Web app" sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="vendor/jquery-3.7.1.min.js"></script>
     <script src="vendor/gsap.min.js"></script>
     <script>
@@ -1777,7 +2107,6 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     };
     </script>
     <script src="js/graph.js"></script>
-    <script src="js/ui_settings_simple.js"></script>
     <script>
     window.MEMORY_GRAPH_PROVIDERS = {
         mercury: { name: 'Mercury (Inception Labs)', models: ['mercury-2'] },
@@ -1947,6 +2276,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
     <script src="js/chat.js"></script>
+    <script src="js/apps_panel.js"></script>
+    <script src="js/ui_settings_simple.js"></script>
     <script src="js/jobs.js"></script>
     <script>
     (function () {

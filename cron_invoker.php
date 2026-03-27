@@ -188,6 +188,136 @@ function mg_cron_run_result_save(string $requestId, array $payload): void {
     mg_cron_run_result_prune_old();
 }
 
+/**
+ * Extract visible assistant string from chat.php JSON (string, array parts, null).
+ */
+function mg_cron_extract_assistant_content_from_chat_response(array $decoded): string {
+    $msg = $decoded['choices'][0]['message'] ?? null;
+    if (is_array($msg)) {
+        foreach (['reasoning', 'reasoning_content'] as $rk) {
+            if (!empty($msg[$rk]) && is_string($msg[$rk]) && trim($msg[$rk]) !== '') {
+                return trim($msg[$rk]);
+            }
+        }
+        $raw = $msg['content'] ?? null;
+        if (is_string($raw)) {
+            return trim($raw);
+        }
+        if (is_array($raw)) {
+            $s = '';
+            foreach ($raw as $part) {
+                if (!is_array($part)) {
+                    continue;
+                }
+                if (isset($part['text']) && is_string($part['text'])) {
+                    $s .= $part['text'];
+                } elseif (isset($part['text']) && is_array($part['text']) && isset($part['text']['value']) && is_string($part['text']['value'])) {
+                    $s .= $part['text']['value'];
+                } elseif (isset($part['content']) && is_string($part['content'])) {
+                    $s .= $part['content'];
+                }
+            }
+            return trim($s);
+        }
+        if ($raw !== null && $raw !== false) {
+            return trim((string) $raw);
+        }
+    }
+    $c0 = $decoded['choices'][0] ?? null;
+    if (is_array($c0)) {
+        foreach (['text', 'message_text'] as $k) {
+            if (!empty($c0[$k]) && is_string($c0[$k]) && trim($c0[$k]) !== '') {
+                return trim($c0[$k]);
+            }
+        }
+    }
+    // Tool-style JSON echoed alone (e.g. get_gemini_response success) or odd provider shapes.
+    if (isset($decoded['response']) && is_string($decoded['response']) && trim($decoded['response']) !== '') {
+        return trim($decoded['response']);
+    }
+    return '';
+}
+
+/**
+ * JSON is an error object, not an OpenAI-style completion (no assistant message to show).
+ */
+function mg_cron_chat_response_is_error_payload(array $d): bool {
+    $choices = $d['choices'] ?? null;
+    if (is_array($choices) && isset($choices[0]) && is_array($choices[0])) {
+        if (isset($choices[0]['message']) && is_array($choices[0]['message'])) {
+            return false;
+        }
+        foreach (['text', 'message_text'] as $k) {
+            if (isset($choices[0][$k]) && is_string($choices[0][$k]) && trim($choices[0][$k]) !== '') {
+                return false;
+            }
+        }
+    }
+    if (array_key_exists('error', $d) && $d['error'] !== null && $d['error'] !== '' && $d['error'] !== []) {
+        return true;
+    }
+    if (isset($d['errors']) && $d['errors'] !== null && $d['errors'] !== '' && $d['errors'] !== []) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @param array<string,mixed> $d
+ */
+function mg_cron_format_chat_error_payload_for_ui(array $d, int $httpCode, string $cronRequestId): string {
+    $err = $d['error'] ?? null;
+    if (is_array($err)) {
+        $err = isset($err['message']) ? (string) $err['message'] : json_encode($err, JSON_UNESCAPED_UNICODE);
+    } elseif ($err !== null && !is_string($err)) {
+        $err = is_scalar($err) ? (string) $err : json_encode($err, JSON_UNESCAPED_UNICODE);
+    } else {
+        $err = (string) $err;
+    }
+    $lines = [];
+    $lines[] = 'The chat API returned an error payload instead of a model completion (HTTP ' . $httpCode . '). This is not an "empty model reply".';
+    if ($err !== '') {
+        $lines[] = 'Detail: ' . $err;
+    }
+    if (isset($d['upstream_preview']) && is_string($d['upstream_preview']) && trim($d['upstream_preview']) !== '') {
+        $lines[] = 'Upstream preview: ' . trim($d['upstream_preview']);
+    } elseif (isset($d['response']) && is_string($d['response']) && $d['response'] !== '') {
+        $plain = trim(mb_substr(preg_replace('/\s+/', ' ', strip_tags($d['response'])), 0, 600));
+        if ($plain !== '') {
+            $lines[] = 'Upstream body (stripped): ' . $plain;
+        }
+        if (stripos($d['response'], 'www.google.com') !== false || stripos($plain, 'Error 404') !== false) {
+            $lines[] = 'That HTML is almost always a bad Gemini URL, API version, model id, or key. If you use the get_gemini_response tool, it must call the same API family as the dashboard provider. Fix GEMINI_API_KEY and the model in Settings.';
+        }
+    }
+    $lines[] = 'Cron invoke id: ' . $cronRequestId . '. POST target: ' . mg_cron_public_base_url() . '/api/chat.php — set MEMORYGRAPH_PUBLIC_BASE_URL in .env if this URL is wrong.';
+    return implode("\n\n", $lines);
+}
+
+/**
+ * Build a one-line summary when chat.php queued dashboard job(s) but returned no prose.
+ *
+ * @param mixed $jobToRun
+ */
+function mg_cron_summarize_job_to_run($jobToRun): string {
+    if ($jobToRun === null || $jobToRun === []) {
+        return '';
+    }
+    $list = [];
+    if (is_array($jobToRun) && isset($jobToRun['name']) && is_string($jobToRun['name']) && $jobToRun['name'] !== '') {
+        $list = [$jobToRun];
+    } elseif (is_array($jobToRun)) {
+        $list = array_values($jobToRun);
+    }
+    $lines = [];
+    foreach ($list as $j) {
+        if (is_array($j) && !empty($j['name'])) {
+            $lines[] = 'Queued dashboard job **' . (string) $j['name'] . '** — open the Jobs panel to run it (multi-step markdown job).';
+        }
+    }
+    return implode("\n", $lines);
+}
+
 function mg_cron_run_result_prune_old(): void {
     $files = glob(mg_cron_run_result_dir() . DIRECTORY_SEPARATOR . '*.json') ?: [];
     $cut = time() - 86400 * 5;
@@ -262,6 +392,9 @@ function mg_cron_invoke_agent_job(array $job): array {
         $http = mg_cron_http_post_json($url, $json);
         if (!$http['ok']) {
             $resultForUi['error'] = $http['error'] !== '' ? $http['error'] : 'HTTP request failed';
+            $hc = (int) ($http['httpCode'] ?? 0);
+            $resultForUi['assistantContent'] = 'Cron could not reach chat API' . ($hc > 0 ? ' (HTTP ' . $hc . ')' : '') . ': ' . $resultForUi['error'];
+            $resultForUi['summary'] = mb_substr($resultForUi['assistantContent'], 0, 2000);
             return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $http['httpCode'], 'requestId' => $requestId];
         }
         $raw = $http['raw'];
@@ -270,50 +403,75 @@ function mg_cron_invoke_agent_job(array $job): array {
         $decoded = json_decode((string) $raw, true);
         if (!is_array($decoded)) {
             $resultForUi['error'] = 'invalid JSON from chat';
-            $resultForUi['summary'] = mb_substr((string) $raw, 0, 400);
+            $resultForUi['assistantContent'] = 'invalid JSON from chat (HTTP ' . $code . '). First 400 chars of body: ' . mb_substr((string) $raw, 0, 400);
+            $resultForUi['summary'] = mb_substr($resultForUi['assistantContent'], 0, 2000);
             return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $code, 'summary' => $resultForUi['summary'], 'requestId' => $requestId];
         }
         if ($code >= 400) {
             $err = $decoded['error'] ?? $raw;
             if (is_array($err)) {
-                $err = json_encode($err);
+                if (isset($err['message']) && is_string($err['message'])) {
+                    $err = $err['message'];
+                } else {
+                    $err = json_encode($err, JSON_UNESCAPED_UNICODE);
+                }
             }
             $resultForUi['error'] = (string) $err;
-            return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $code, 'requestId' => $requestId];
+            $resultForUi['assistantContent'] = 'HTTP ' . $code . ': ' . $resultForUi['error'];
+            if (isset($decoded['upstream_preview']) && is_string($decoded['upstream_preview']) && $decoded['upstream_preview'] !== '') {
+                $resultForUi['assistantContent'] .= "\n\n" . trim($decoded['upstream_preview']);
+            } elseif (isset($decoded['response']) && is_string($decoded['response'])) {
+                $plain = trim(mb_substr(preg_replace('/\s+/', ' ', strip_tags($decoded['response'])), 0, 500));
+                if ($plain !== '') {
+                    $resultForUi['assistantContent'] .= "\n\nUpstream (stripped): " . $plain;
+                }
+            }
+            $resultForUi['summary'] = mb_substr($resultForUi['assistantContent'], 0, 2000);
+            return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $code, 'requestId' => $requestId, 'summary' => $resultForUi['summary']];
+        }
+        if (mg_cron_chat_response_is_error_payload($decoded)) {
+            $msg = mg_cron_format_chat_error_payload_for_ui($decoded, $code, $requestId);
+            $resultForUi['ok'] = false;
+            $resultForUi['error'] = 'Chat API returned an error JSON body (not a model completion). Fix provider key/model/URL or MEMORYGRAPH_PUBLIC_BASE_URL.';
+            $resultForUi['assistantContent'] = $msg;
+            $resultForUi['summary'] = mb_substr($msg, 0, 2000);
+            return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $code, 'requestId' => $requestId, 'summary' => $resultForUi['summary']];
         }
         $mg = isset($decoded['memory_graph']) && is_array($decoded['memory_graph']) ? $decoded['memory_graph'] : [];
-        if (!empty($mg['empty_assistant'])) {
-            $hint = isset($mg['hint']) && is_string($mg['hint']) ? trim($mg['hint']) : '';
-            $errText = $hint !== '' ? $hint : 'Empty assistant response from chat API (model returned no visible text). Check provider, tools, and logs; the job was not marked successful.';
-            $resultForUi['ok'] = false;
-            $resultForUi['error'] = $errText;
-            $resultForUi['assistantContent'] = $errText;
-            $resultForUi['summary'] = mb_substr($errText, 0, 2000);
-            return ['ok' => false, 'error' => $errText, 'httpCode' => $code, 'requestId' => $requestId, 'summary' => $resultForUi['summary']];
+        $content = mg_cron_extract_assistant_content_from_chat_response($decoded);
+        if ($content === '' && !empty($mg['hint']) && is_string($mg['hint'])) {
+            $content = trim($mg['hint']);
         }
-        $msg = $decoded['choices'][0]['message'] ?? null;
-        $content = '';
-        if (is_array($msg)) {
-            $raw = $msg['content'] ?? null;
-            if (is_string($raw)) {
-                $content = $raw;
-            } elseif (is_array($raw)) {
-                foreach ($raw as $part) {
-                    if (is_array($part) && isset($part['text']) && (is_string($part['text']) || is_numeric($part['text']))) {
-                        $content .= (string) $part['text'];
-                    }
-                }
-            } elseif ($raw !== null && $raw !== false) {
-                $content = (string) $raw;
-            }
+        $jobSummary = mg_cron_summarize_job_to_run($decoded['jobToRun'] ?? null);
+        if ($content === '' && $jobSummary !== '') {
+            $content = $jobSummary;
+        } elseif ($content !== '' && $jobSummary !== '' && stripos($content, 'Queued dashboard job') === false) {
+            $content .= "\n\n" . $jobSummary;
         }
+
         $content = trim($content);
         if ($content === '') {
+            $apiRid = isset($decoded['request_id']) ? (string) $decoded['request_id'] : '';
+            $diag = 'Empty assistant response from chat API (could not read message content from JSON). '
+                . 'Check provider, tools, and logs; the scheduled run was not marked successful. '
+                . 'Cron invoke id: ' . $requestId
+                . ($apiRid !== '' ? ' · chat request_id: ' . $apiRid : '')
+                . "\n\nIf the model only queued a dashboard job, ensure api/chat.php is updated (jobToRun + non-empty content fallbacks). "
+                . 'Raw response length: ' . strlen((string) $raw) . ' bytes.';
+            $snippet = preg_replace('/\s+/', ' ', strip_tags(substr((string) $raw, 0, 600)));
+            if ($snippet !== '') {
+                $diag .= "\nSnippet: " . $snippet;
+            }
             $resultForUi['ok'] = false;
             $resultForUi['error'] = 'Empty assistant response from chat API (model returned no visible text). Check provider, tools, and logs; the job was not marked successful.';
-            $resultForUi['assistantContent'] = '';
-            $resultForUi['summary'] = $resultForUi['error'];
-            return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $code, 'requestId' => $requestId];
+            $resultForUi['assistantContent'] = $diag;
+            $resultForUi['summary'] = mb_substr($diag, 0, 2000);
+            return ['ok' => false, 'error' => $resultForUi['error'], 'httpCode' => $code, 'requestId' => $requestId, 'summary' => $resultForUi['summary']];
+        }
+
+        // Model-only failure flag: still show hint text in UI; cron run counts as completed if we have usable text (tool digest, job queue, etc.).
+        if (!empty($mg['empty_assistant'])) {
+            $resultForUi['modelEmptyAssistant'] = true;
         }
         $summary = mb_substr($content, 0, 2000);
         $resultForUi['ok'] = true;

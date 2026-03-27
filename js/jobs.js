@@ -440,8 +440,11 @@
 
         request.done(function (res) {
             var contentText = '';
-            if (res && res.choices && res.choices[0] && res.choices[0].message) {
-                contentText = res.choices[0].message.content || '';
+            if (typeof window.MemoryGraphExtractAssistantFromChatResponse === 'function') {
+                contentText = window.MemoryGraphExtractAssistantFromChatResponse(res);
+            } else if (res && res.choices && res.choices[0] && res.choices[0].message) {
+                var mc = res.choices[0].message.content;
+                contentText = typeof mc === 'string' ? mc : '';
             }
             var results = job.results || [];
             results.push({

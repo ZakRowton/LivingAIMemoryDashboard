@@ -2,7 +2,7 @@
     "tools": [
         {
             "name": "display_table",
-            "description": "REQUIRED for showing structured tabular data in the UI: SQL/ETL results, research comparisons, model release lists, timelines, or any row/column data. Call with headers (column names) and rows (each row = array of string cells). Renders a styled HTML table. Do NOT use markdown pipe tables for that data\u2014call display_table first, then optional short prose. Use render_chart for graphs. Optional caption and style.",
+            "description": "REQUIRED for showing structured tabular data in the UI: SQL\/ETL results, research comparisons, model release lists, timelines, or any row\/column data. Call with headers (column names) and rows (each row = array of string cells). Renders a styled HTML table. Do NOT use markdown pipe tables for that data\u2014call display_table first, then optional short prose. Use render_chart for graphs. Optional caption and style.",
             "active": true,
             "parameters": {
                 "properties": {
@@ -58,6 +58,23 @@
             }
         },
         {
+            "name": "display_web_app",
+            "description": "Show a saved HTML/JS mini-app from the apps/ folder in a fullscreen modal in the dashboard. Pass the app slug (folder name), e.g. demo-counter. Create or edit apps with create_web_app / update_web_app.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "App slug (apps/<slug>/index.html)"
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            }
+        },
+        {
             "name": "brave_search",
             "description": "Search the web using Brave Search API. Returns raw JSON response.",
             "active": true,
@@ -93,7 +110,7 @@
         },
         {
             "name": "get_gemini_response",
-            "description": "Fetches a response from Google's Gemini 2.5 Flash model using the provided prompt and API key.",
+            "description": "Calls Gemini REST API with GEMINI_API_KEY (separate from the chat provider). Prefer answering or summarizing with the main chat model when possible; use this only when you need an extra Gemini-only pass (different key or side experiment).",
             "active": true,
             "parameters": {
                 "type": "object",
@@ -163,7 +180,7 @@
         },
         {
             "name": "cron_job_manager",
-            "description": "Legacy helper: creates a scheduled agent job (cron) plus a human-readable line in memory/cron_jobs.md. The command text is passed to the agent as context at run time; it is NOT executed as a shell command. Prefer agent_cron_add for full control (at/every/cron, timezone, one-shot delete).",
+            "description": "Legacy helper: creates a scheduled agent job (cron) plus a human-readable line in memory\/cron_jobs.md. The command text is passed to the agent as context at run time; it is NOT executed as a shell command. Prefer agent_cron_add for full control (at\/every\/cron, timezone, one-shot delete).",
             "active": true,
             "parameters": {
                 "type": "object",
@@ -190,7 +207,7 @@
         },
         {
             "name": "agent_cron_add",
-            "description": "Schedule an autonomous agent turn (OpenClaw-style). Persists to runtime/cron/jobs.json. schedule_kind: \"at\" (one-shot ISO 8601 in at), \"every\" (every_ms interval in milliseconds, min 5000), or \"cron\" (5-field cron in cron + optional timezone IANA). message is the user prompt sent to the model when the job fires. Optional provider, model, temperature override defaults from agent config. delete_after_run: for at-jobs only, remove the job from the store after a successful run (default false; set true for one-shot auto-cleanup).",
+            "description": "Schedule an autonomous agent turn (OpenClaw-style). Persists to runtime\/cron\/jobs.json. schedule_kind: \"at\" (one-shot ISO 8601 in at), \"every\" (every_ms interval in milliseconds, min 5000), or \"cron\" (5-field cron in cron + optional timezone IANA). message is the user prompt sent to the model when the job fires. Optional provider, model, temperature override defaults from agent config. delete_after_run: for at-jobs only, remove the job from the store after a successful run (default false; set true for one-shot auto-cleanup).",
             "active": true,
             "parameters": {
                 "type": "object",
@@ -226,7 +243,7 @@
                     },
                     "timezone": {
                         "type": "string",
-                        "description": "IANA timezone for cron schedules, e.g. America/Chicago. Defaults to PHP default timezone."
+                        "description": "IANA timezone for cron schedules, e.g. America\/Chicago. Defaults to PHP default timezone."
                     },
                     "delete_after_run": {
                         "type": "boolean",
@@ -423,6 +440,75 @@
                     "api",
                     "path",
                     "method"
+                ]
+            }
+        },
+        {
+            "name": "generate_image",
+            "description": "Generate an image using the Gemini API based on a textual description. Reads Gemini API key and endpoint from memory file gemini_api.md.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Textual description of the image to generate."
+                    }
+                },
+                "required": [
+                    "description"
+                ]
+            }
+        },
+        {
+            "name": "show_website",
+            "description": "Display an iframe for a given URL. Returns HTML snippet with iframe.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to embed in the iframe."
+                    },
+                    "width": {
+                        "type": "string",
+                        "description": "CSS width for the iframe (e.g., '100%' or '800px').",
+                        "default": "100%"
+                    },
+                    "height": {
+                        "type": "string",
+                        "description": "CSS height for the iframe (e.g., '480px').",
+                        "default": "480px"
+                    }
+                },
+                "required": [
+                    "url"
+                ]
+            }
+        },
+        {
+            "name": "create_and_display_web_app",
+            "description": "Creates an iframe that displays a given HTML\/JS web app using srcdoc.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "html_content": {
+                        "type": "string",
+                        "description": "The full HTML content (including <script>, <style>, etc.) of the web app to display."
+                    },
+                    "width": {
+                        "type": "string",
+                        "description": "Width of the iframe (default '100%')."
+                    },
+                    "height": {
+                        "type": "string",
+                        "description": "Height of the iframe (default '600px')."
+                    }
+                },
+                "required": [
+                    "html_content"
                 ]
             }
         }

@@ -1,5 +1,10 @@
 <?php
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'env.php';
+if (function_exists('memory_graph_load_env')) {
+    memory_graph_load_env();
+}
+
 function tool_dir_path(): string {
     $path = __DIR__ . DIRECTORY_SEPARATOR . 'tools';
     if (!is_dir($path)) {
@@ -17,6 +22,183 @@ function sanitize_tool_name(string $name): string {
     $name = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $name);
     $name = trim((string) $name, '_-');
     return strtolower((string) $name);
+}
+
+/**
+ * Resolve CLI php.exe for `php -l` (Apache/mod_php often has no PATH + empty PHP_BINARY).
+ */
+function memory_graph_resolve_php_cli_binary(): ?string {
+    if (function_exists('memory_graph_env')) {
+        $env = trim((string) memory_graph_env('MEMORYGRAPH_PHP_CLI', ''));
+        if ($env !== '' && is_file($env)) {
+            return $env;
+        }
+    } else {
+        $env = trim((string) (getenv('MEMORYGRAPH_PHP_CLI') ?: ''));
+        if ($env !== '' && is_file($env)) {
+            return $env;
+        }
+    }
+    $candidates = [];
+    if (defined('PHP_BINARY') && PHP_BINARY !== '') {
+        $base = basename(PHP_BINARY);
+        $bl = strtolower($base);
+        // mod_php / Apache: PHP_BINARY is often httpd.exe — never use it for `php -l`.
+        $isApacheBinary = (strpos($bl, 'httpd') !== false || strpos($bl, 'apache') !== false);
+        $looksLikePhpCli = (bool) preg_match('/^php\\d*(\\.exe)?$/', $bl)
+            || strpos($bl, 'php-') === 0;
+        if (!$isApacheBinary && $looksLikePhpCli) {
+            $candidates[] = PHP_BINARY;
+        }
+        $dir = dirname(PHP_BINARY);
+        if (stripos($base, 'php-cgi') !== false || stripos($base, 'php-fpm') !== false) {
+            $candidates[] = $dir . DIRECTORY_SEPARATOR . (DIRECTORY_SEPARATOR === '\\' ? 'php.exe' : 'php');
+        }
+        // XAMPP: apache\bin\httpd.exe → ..\..\php\php.exe
+        if (PHP_VERSION_ID >= 70000) {
+            $xamppPhp = dirname(PHP_BINARY, 2) . DIRECTORY_SEPARATOR . 'php' . DIRECTORY_SEPARATOR . (DIRECTORY_SEPARATOR === '\\' ? 'php.exe' : 'php');
+            if ($xamppPhp !== '' && @is_file($xamppPhp)) {
+                $candidates[] = $xamppPhp;
+            }
+        }
+    }
+    if (defined('PHP_BINDIR') && PHP_BINDIR !== '') {
+        $candidates[] = rtrim(PHP_BINDIR, '/\\') . DIRECTORY_SEPARATOR . (DIRECTORY_SEPARATOR === '\\' ? 'php.exe' : 'php');
+    }
+    if (DIRECTORY_SEPARATOR === '\\') {
+        $candidates[] = 'C:\\xampp\\php\\php.exe';
+        $candidates[] = 'C:\\wamp64\\bin\\php\\php8.2.0\\php.exe';
+    }
+    $candidates[] = 'php';
+    foreach ($candidates as $c) {
+        if ($c === 'php') {
+            return 'php';
+        }
+        if ($c !== '' && @is_file($c)) {
+            return $c;
+        }
+    }
+    return null;
+}
+
+/**
+ * Strip markdown fences / BOM and ensure <?php so tokenizer and php -l match a real tool file.
+ */
+function sanitize_tool_php_code_from_llm(string $code): string {
+    $code = (string) $code;
+    if (strncmp($code, "\xEF\xBB\xBF", 3) === 0) {
+        $code = substr($code, 3);
+    }
+    $code = trim($code);
+    if (preg_match('/^```[a-zA-Z0-9_-]*\s*\R/', $code)) {
+        $code = preg_replace('/^```[a-zA-Z0-9_-]*\s*\R/', '', $code, 1);
+        $code = preg_replace('/\R```\s*$/', '', $code, 1);
+    }
+    $code = trim($code);
+    if ($code !== '' && !preg_match('/^<\?php\b/i', $code) && !preg_match('/^<\?=\s*/', $code) && !preg_match('/^<\?\s+\S/', $code)) {
+        $code = "<?php\n" . $code;
+    }
+    return $code;
+}
+
+function memory_graph_exec_disabled(): bool {
+    $df = ini_get('disable_functions');
+    if (!is_string($df) || $df === '') {
+        return false;
+    }
+    foreach (array_map('trim', explode(',', $df)) as $fn) {
+        if (strtolower($fn) === 'exec') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Parse-check PHP source without CLI (PHP 8+). Catches many syntax errors; not a full duplicate of `php -l`.
+ */
+function validate_tool_php_token_parse(string $phpCode): ?string {
+    if (!defined('TOKEN_PARSE')) {
+        return null;
+    }
+    $prev = @ini_set('display_errors', '0');
+    try {
+        token_get_all($phpCode, TOKEN_PARSE);
+    } catch (ParseError $e) {
+        if ($prev !== false) {
+            @ini_set('display_errors', $prev);
+        }
+        return 'PHP parse error: ' . $e->getMessage() . ' (line ' . $e->getLine() . ')';
+    } catch (Throwable $e) {
+        if ($prev !== false) {
+            @ini_set('display_errors', $prev);
+        }
+        return 'PHP validation error: ' . $e->getMessage();
+    }
+    if ($prev !== false) {
+        @ini_set('display_errors', $prev);
+    }
+    return null;
+}
+
+/**
+ * Run php -l on tool source before writing. Catches duplicate functions, parse errors, etc.
+ *
+ * @return string|null Error message, or null if OK
+ */
+function validate_tool_php_before_save(string $phpCode): ?string {
+    $phpCode = (string) $phpCode;
+    if (trim($phpCode) === '') {
+        return 'php_code is empty';
+    }
+    $tmp = @tempnam(sys_get_temp_dir(), 'mgt');
+    if ($tmp === false) {
+        return 'Could not create temp file for PHP validation';
+    }
+    $path = $tmp . '.php';
+    if (!@rename($tmp, $path)) {
+        @unlink($tmp);
+        return 'Could not prepare temp file for PHP validation';
+    }
+    if (@file_put_contents($path, $phpCode) === false) {
+        @unlink($path);
+        return 'Could not write temp file for PHP validation';
+    }
+
+    $cliFail = null;
+    if (!memory_graph_exec_disabled() && function_exists('exec')) {
+        $bin = memory_graph_resolve_php_cli_binary();
+        if ($bin !== null) {
+            $cmd = escapeshellarg($bin) . ' -l ' . escapeshellarg($path) . ' 2>&1';
+            $out = [];
+            $code = 0;
+            @exec($cmd, $out, $code);
+            if ($code === 0) {
+                @unlink($path);
+                return null;
+            }
+            $cliFail = trim(implode("\n", $out));
+            if ($cliFail === '' && $bin === 'php') {
+                $cliFail = 'php CLI missing from PATH. Set MEMORYGRAPH_PHP_CLI in .env to your php.exe (e.g. C:\\xampp\\php\\php.exe).';
+            }
+        }
+    }
+
+    @unlink($path);
+
+    // PHP 8+: tokenizer proves syntax; ignore php -l failure when PATH has no `php` (typical XAMPP/Apache).
+    if (defined('TOKEN_PARSE')) {
+        $tok = validate_tool_php_token_parse($phpCode);
+        if ($tok !== null) {
+            return $tok;
+        }
+        return null;
+    }
+
+    if ($cliFail !== null && $cliFail !== '') {
+        return 'PHP syntax check failed: ' . $cliFail;
+    }
+    return null;
 }
 
 function normalize_tool_parameters($parameters): array {
@@ -354,6 +536,84 @@ function get_builtin_tools(): array {
             'required' => ['name'],
         ],
         'code' => "// Built-in tool\n// Loads a markdown job file for execution.",
+    ], [
+        'name' => 'list_web_apps',
+        'description' => 'List HTML/JS mini-apps in the apps/ folder (name, title, updated, size). Use with create_web_app, display_web_app, etc.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in tool\n// Lists apps under apps/<slug>/index.html.",
+    ], [
+        'name' => 'read_web_app',
+        'description' => 'Read one web app by slug/name: title and full index.html source (for editing).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'App folder slug (e.g. demo-counter)',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Returns app HTML source.",
+    ], [
+        'name' => 'create_web_app',
+        'description' => 'Create a new mini-app: apps/<slug>/index.html. Pass html as a full document or a body fragment (wrapped automatically). Slug is derived from name (letters, numbers, hyphens).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => [
+                    'type' => 'string',
+                    'description' => 'Folder slug or human name (normalized to slug)',
+                ],
+                'title' => [
+                    'type' => 'string',
+                    'description' => 'Short display title for the UI',
+                ],
+                'html' => [
+                    'type' => 'string',
+                    'description' => 'HTML document or fragment (JS/CSS inline or in same file)',
+                ],
+            ],
+            'required' => ['name', 'html'],
+        ],
+        'code' => "// Built-in tool\n// Writes apps/<slug>/index.html.",
+    ], [
+        'name' => 'update_web_app',
+        'description' => 'Update an existing app: replace index.html and/or title. At least one of html or title must be non-empty.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'App slug'],
+                'title' => ['type' => 'string', 'description' => 'Optional new title'],
+                'html' => ['type' => 'string', 'description' => 'Optional new HTML body or document'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Patches apps/<slug>/.",
+    ], [
+        'name' => 'delete_web_app',
+        'description' => 'Delete a mini-app folder from apps/ by slug.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'App slug to remove'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Removes apps/<slug>/ recursively.",
     ], [
         'name' => 'list_research_files',
         'description' => 'List all markdown research files available in the research folder.',
@@ -754,7 +1014,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Deletes a configured MCP server definition.",
     ], [
         'name' => 'create_or_update_tool',
-        'description' => 'Create a PHP tool file in the tools folder and create or update its entry in tool_calls.json. Do NOT use until you have called list_available_tools (all active tools including mcp__* proxies) AND list_mcp_servers + list_mcp_server_tools for servers that might already provide this capability. Only create a new tool if no existing or MCP tool fits. After creating, you MUST immediately call the new tool to test it. If it fails, use edit_tool_file to fix the code and test again. Never respond to the user until the tool works successfully.',
+        'description' => 'PRIMARY way to add new capabilities in MemoryGraph: writes tools/<name>.php and updates tool_calls.json on the user\'s server. You are expected to use this when the user asks for a new tool — do not claim you cannot create PHP tools here. First call list_available_tools (and list_mcp_servers + list_mcp_server_tools if MCP might cover it). Only skip creation if an existing or MCP tool already does the job. After saving, you MUST immediately call the new tool to test it; on failure use edit_tool_file and retry until success. Never tell the user the tool exists until a test call succeeds.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -774,7 +1034,7 @@ function get_builtin_tools(): array {
                 ],
                 'php_code' => [
                     'type' => 'string',
-                    'description' => 'Complete PHP source code for the tool file.',
+                    'description' => 'Complete PHP source for tools/<name>.php. The server strips leading/trailing ``` fences and prepends <?php if missing (so syntax check passes). REQUIRED PATTERN (same as get_temperature.php): read $args = $GLOBALS[\'MEMORY_GRAPH_TOOL_INPUT\'] ?? []; then echo json_encode([...]); If you use a function named like the tool, wrap it in if (!function_exists(\'tool_name\')) { ... }. After saving, call the tool to verify.',
                 ],
                 'active' => [
                     'type' => 'boolean',
@@ -798,7 +1058,7 @@ function get_builtin_tools(): array {
                 ],
                 'php_code' => [
                     'type' => 'string',
-                    'description' => 'Complete replacement PHP source code for the tool file.',
+                    'description' => 'Full replacement PHP source. Use procedural MEMORY_GRAPH_TOOL_INPUT + echo json_encode, or function wrapped in if (!function_exists(...)). See create_or_update_tool.',
                 ],
             ],
             'required' => ['name', 'php_code'],
@@ -1043,6 +1303,11 @@ function create_or_update_tool_artifact(string $name, string $description, $para
     if (is_builtin_tool_name($safeName)) {
         return ['error' => 'Built-in tools cannot be modified'];
     }
+    $phpCode = sanitize_tool_php_code_from_llm($phpCode);
+    $syntaxErr = validate_tool_php_before_save($phpCode);
+    if ($syntaxErr !== null) {
+        return ['error' => $syntaxErr];
+    }
     file_put_contents(tool_file_path($safeName), $phpCode);
     $entry = upsert_tool_registry_entry($safeName, [
         'description' => $description,
@@ -1081,6 +1346,11 @@ function edit_tool_file_artifact(string $name, string $phpCode): array {
     }
     if (!$existsInRegistry) {
         return ['error' => 'Tool not found in tool_calls.json'];
+    }
+    $phpCode = sanitize_tool_php_code_from_llm($phpCode);
+    $syntaxErr = validate_tool_php_before_save($phpCode);
+    if ($syntaxErr !== null) {
+        return ['error' => $syntaxErr];
     }
     file_put_contents(tool_file_path($safeName), $phpCode);
     return [
