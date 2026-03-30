@@ -1,7 +1,3 @@
-<div align="center">
-  <img src="LivingMemory.PNG" alt="Open Jarvis Dashboard" width="480" />
-</div>
-
 # Open Jarvis Dashboard
 
 MemoryGraph is a lightweight all-in-one interface for connecting AI providers and models to a live execution framework with visual graph-based introspection.
