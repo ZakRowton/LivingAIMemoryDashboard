@@ -108,15 +108,36 @@
         var prevRefresh = window.MemoryGraphRefresh;
         window.MemoryGraphRefresh = function () {
             var out;
-            if (typeof prevRefresh === 'function') out = prevRefresh.apply(this, arguments);
-            loadAppsList();
+            try {
+                if (typeof prevRefresh === 'function') out = prevRefresh.apply(this, arguments);
+            } finally {
+                loadAppsList();
+            }
             return out;
         };
 
         loadAppsList();
 
+        function notifyWebAppFrameResize() {
+            var f = document.getElementById('web-app-modal-frame');
+            if (!f || !f.contentWindow) return;
+            try {
+                f.contentWindow.dispatchEvent(new Event('resize'));
+            } catch (e) {}
+        }
+
         $('#web-app-modal').on('show.bs.modal', function () {
             document.body.classList.add('mg-web-app-modal-open');
+        });
+        $('#web-app-modal').on('shown.bs.modal', function () {
+            notifyWebAppFrameResize();
+            setTimeout(notifyWebAppFrameResize, 80);
+            setTimeout(notifyWebAppFrameResize, 350);
+        });
+        $('#web-app-modal-frame').on('load', function () {
+            notifyWebAppFrameResize();
+            setTimeout(notifyWebAppFrameResize, 50);
+            setTimeout(notifyWebAppFrameResize, 250);
         });
         $('#web-app-modal').on('hidden.bs.modal', function () {
             document.body.classList.remove('mg-web-app-modal-open');

@@ -77,10 +77,16 @@ function append_chat_exchange(string $requestId, string $userContent, string $as
 
 /**
  * List recent exchanges (previews only). limit/offset for pagination.
+ * When $sessionId is non-null and non-empty, only exchanges with that sessionId are returned.
  */
-function list_chat_history(int $limit = 20, int $offset = 0): array {
+function list_chat_history(int $limit = 20, int $offset = 0, ?string $sessionId = null): array {
     $data = read_chat_history_data();
     $exchanges = array_reverse($data['exchanges'] ?? []);
+    if ($sessionId !== null && $sessionId !== '') {
+        $exchanges = array_values(array_filter($exchanges, function ($e) use ($sessionId) {
+            return (string) ($e['sessionId'] ?? '') === $sessionId;
+        }));
+    }
     $total = count($exchanges);
     $slice = array_slice($exchanges, $offset, $limit);
     $previewLen = 200;

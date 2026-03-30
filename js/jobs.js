@@ -439,6 +439,14 @@
         startJobPolling(name, requestId);
 
         request.done(function (res) {
+            if (res && res.reloadWebAppsList) {
+                if (typeof window.MemoryGraphReloadAppsList === 'function') {
+                    window.MemoryGraphReloadAppsList();
+                }
+                if (typeof window.MemoryGraphReloadSimpleAppsSection === 'function') {
+                    window.MemoryGraphReloadSimpleAppsSection();
+                }
+            }
             var contentText = '';
             if (typeof window.MemoryGraphExtractAssistantFromChatResponse === 'function') {
                 contentText = window.MemoryGraphExtractAssistantFromChatResponse(res);

@@ -83,16 +83,85 @@ function web_app_write_meta(string $slug, string $title): void {
     @file_put_contents(web_app_meta_path($slug), json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 }
 
+/**
+ * Inline hook so WebGL/Three apps get correct dimensions inside the dashboard iframe:
+ * init often runs while the modal is still animating or display:none → innerWidth/height 0 → black canvas.
+ */
+function web_app_viewport_snippet(): string {
+    return '<style id="mg-web-app-viewport">html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}</style>'
+        . '<script id="mg-web-app-resize-hook">'
+        . '(function(){function n(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}'
+        . 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",n);else n();'
+        . 'window.addEventListener("load",function(){setTimeout(n,0);setTimeout(n,50);setTimeout(n,200);setTimeout(n,600);});'
+        . 'if(typeof ResizeObserver!=="undefined"){try{new ResizeObserver(function(){n();}).observe(document.documentElement);}catch(e){}}'
+        . '})();'
+        . '</script>';
+}
+
+function web_app_ensure_viewport_hooks(string $html): string {
+    $html = (string) $html;
+    if ($html === '') {
+        return $html;
+    }
+    if (stripos($html, 'mg-web-app-viewport') !== false) {
+        return $html;
+    }
+    $snip = web_app_viewport_snippet();
+    if (preg_match('/<head\b[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE)) {
+        $pos = $m[0][1] + strlen($m[0][0]);
+        return substr($html, 0, $pos) . $snip . substr($html, $pos);
+    }
+    if (preg_match('/<html\b[^>]*>/i', $html, $m, PREG_OFFSET_CAPTURE)) {
+        $pos = $m[0][1] + strlen($m[0][0]);
+        return substr($html, 0, $pos) . '<head>' . $snip . '</head>' . substr($html, $pos);
+    }
+    return $html;
+}
+
+/** Strip BOM / whitespace / leading HTML comments so <!DOCTYPE or <html> detection is reliable. */
+function web_app_trim_for_doc_detect(string $html): string {
+    $s = ltrim($html, "\xEF\xBB\xBF \t\n\r");
+    while ($s !== '' && strncmp($s, '<!--', 4) === 0) {
+        $end = strpos($s, '-->');
+        if ($end === false) {
+            break;
+        }
+        $s = ltrim(substr($s, $end + 3));
+    }
+    return $s;
+}
+
+/**
+ * True only when the payload begins as a full HTML document.
+ * Do not use stripos('<html') — game scripts often contain "<html>" strings; treating those as documents
+ * skipped wrapping and injected hooks into the middle of JS (corrupt index.html / failed writes).
+ */
+function web_app_is_probably_full_html_document(string $html): bool {
+    $t = web_app_trim_for_doc_detect($html);
+    if ($t === '') {
+        return false;
+    }
+    if (preg_match('/^<!DOCTYPE\s+html\b/i', $t)) {
+        return true;
+    }
+    if (preg_match('/^<html\b(?:\s[^>]*)?>/i', $t)) {
+        return true;
+    }
+    return false;
+}
+
 /** Wrap fragment in a minimal document if needed. */
 function web_app_wrap_html(string $html): string {
     $html = (string) $html;
-    if (stripos($html, '<html') !== false) {
-        return $html;
+    if (web_app_is_probably_full_html_document($html)) {
+        return web_app_ensure_viewport_hooks($html);
     }
     return '<!DOCTYPE html>' . "\n"
         . '<html lang="en"><head><meta charset="UTF-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        . '<title>App</title></head><body>' . $html . '</body></html>';
+        . '<title>App</title>'
+        . web_app_viewport_snippet()
+        . '</head><body>' . $html . '</body></html>';
 }
 
 function web_app_exists(string $slug): bool {
@@ -154,6 +223,9 @@ function create_web_app(string $name, string $title, string $html): array {
     }
     if (web_app_exists($slug)) {
         return ['error' => 'Web app already exists: ' . $slug];
+    }
+    if (trim($html) === '') {
+        return ['error' => 'html is required and cannot be empty'];
     }
     $wrapped = web_app_wrap_html($html);
     $dir = web_app_dir($slug);

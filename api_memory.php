@@ -6,6 +6,12 @@ $action = $_GET['action'] ?? '';
 
 if ($action === 'list') {
     $memories = list_memory_files_meta(false);
+    $includeAll = isset($_GET['all']) && $_GET['all'] === '1';
+    if (!$includeAll) {
+        $memories = array_values(array_filter($memories, function ($m) {
+            return empty($m['hidden']);
+        }));
+    }
     echo json_encode(['memories' => array_values($memories)]);
     exit;
 }

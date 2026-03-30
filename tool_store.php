@@ -256,14 +256,19 @@ function get_builtin_tools(): array {
         'code' => "// Built-in alias\n// Same behavior as list_available_tools.",
     ], [
         'name' => 'list_memory_files',
-        'description' => 'List all markdown memory files available, including active status and node ids.',
+        'description' => 'List markdown memory files: by default only active, non-hidden files (normal memories). Hidden archives include per-session chat transcripts memory/_chat_session_*.md — set include_hidden true to list those too.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
             'type' => 'object',
-            'properties' => new stdClass(),
+            'properties' => [
+                'include_hidden' => [
+                    'type' => 'boolean',
+                    'description' => 'If true, include hidden transcript archives (_chat_*) and other hidden memories in the list.',
+                ],
+            ],
         ],
-        'code' => "// Built-in tool\n// Lists all markdown memory files and active state.",
+        'code' => "// Built-in tool\n// Lists markdown memory files; optional include_hidden for transcript archives.",
     ], [
         'name' => 'read_memory_file',
         'description' => 'Read a memory markdown file by name.',
@@ -564,7 +569,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Returns app HTML source.",
     ], [
         'name' => 'create_web_app',
-        'description' => 'Create a new mini-app: apps/<slug>/index.html. Pass html as a full document or a body fragment (wrapped automatically). Slug is derived from name (letters, numbers, hyphens).',
+        'description' => 'Create a new mini-app: apps/<slug>/index.html. Pass html as a full document or a body fragment (wrapped automatically). Slug is derived from name (letters, numbers, hyphens). Three.js/WebGL: prefer UMD three@0.128.0 only — script src https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js then examples/js/controls/OrbitControls.js or PointerLockControls.js (same version). Do NOT use three@0.159+ with /examples/js/ (that folder was removed — 404, black screen). ES modules: importmap + three@0.128.0/build/three.module.js + examples/jsm/.... Always renderer.setPixelRatio(Math.min(devicePixelRatio,2)), append renderer.domElement, window resize → setSize(innerWidth,innerHeight) + camera.aspect. Host injects iframe resize hooks; wrong CDN paths still fail.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -1205,7 +1210,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Adds a new provider.",
     ], [
         'name' => 'add_model_to_provider',
-        'description' => 'Add a model id to a provider\'s model list so it appears in the UI and can be selected. Use for both built-in and custom providers.',
+        'description' => 'Add a model id to a provider\'s model list so it appears in the UI and can be selected. If that id was previously hidden with remove_model_from_provider (built-in exclusion), this clears the exclusion and adds it to the custom list.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -1217,6 +1222,20 @@ function get_builtin_tools(): array {
             'required' => ['providerKey', 'modelId'],
         ],
         'code' => "// Built-in tool\n// Adds a model to a provider.",
+    ], [
+        'name' => 'remove_model_from_provider',
+        'description' => 'Remove a model id from the provider selector. If it was added with add_model_to_provider, it is deleted from that list. If it is (or remains) a built-in default, it is hidden via config (excludedBuiltinModels) so it no longer appears—use add_model_to_provider with the same id to show it again. Cannot remove the last remaining model for a provider.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'providerKey' => ['type' => 'string', 'description' => 'Provider key (e.g. alibaba, gemini).'],
+                'modelId' => ['type' => 'string', 'description' => 'Model id to remove from the selector (custom entry and/or hidden built-in).'],
+            ],
+            'required' => ['providerKey', 'modelId'],
+        ],
+        'code' => "// Built-in tool\n// Removes a custom-added model from a provider.",
     ]];
 }
 

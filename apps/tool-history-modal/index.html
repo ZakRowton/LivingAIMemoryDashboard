@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool Call History</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+        .modal-header {
+            background-color: #2196F3;
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .close-btn:hover {
+            background-color: rgba(255,255,255,0.2);
+        }
+        .modal-body {
+            padding: 20px;
+            max-height: calc(80vh - 120px);
+            overflow-y: auto;
+        }
+        .history-item {
+            border-bottom: 1px solid #eee;
+            padding: 16px 0;
+        }
+        .history-item:last-child {
+            border-bottom: none;
+        }
+        .tool-name {
+            font-weight: 600;
+            color: #2196F3;
+            margin-bottom: 8px;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .arguments {
+            background-color: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .result {
+            background-color: #f0f8ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        .no-history {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+        .refresh-btn {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+        .refresh-btn:hover {
+            background-color: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Tool Call History</div>
+                <button class="close-btn" id="closeModal">×</button>
+            </div>
+            <div class="modal-body" id="historyContent">
+                <div class="no-history">No tool calls recorded yet.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simulate loading tool call history
+        document.addEventListener('DOMContentLoaded', function() {
+            const closeBtn = document.getElementById('closeModal');
+            const modal = document.querySelector('.modal');
+            
+            // Close modal when clicking X
+            closeBtn.addEventListener('click', function() {
+                modal.style.display = 'none';
+            });
+            
+            // Close modal when clicking outside content
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+            
+            // Load sample history
+            loadHistory();
+        });
+        
+        function loadHistory() {
+            const historyContent = document.getElementById('historyContent');
+            
+            // Sample history data
+            const historyData = [
+                {
+                    tool: 'list_available_tools',
+                    timestamp: '2026-03-27 03:53:33',
+                    arguments: '{}',
+                    result: '{"tools":[{"name":"list_available_tools","description":"List all available tools..."}]}'
+                },
+                {
+                    tool: 'show_tool_call_history',
+                    timestamp: '2026-03-27 03:54:12',
+                    arguments: '{}',
+                    result: 'Successfully displayed tool call history panel'
+                }
+            ];
+            
+            if (historyData.length === 0) {
+                historyContent.innerHTML = '<div class="no-history">No tool calls recorded yet.</div>';
+                return;
+            }
+            
+            let html = '';
+            historyData.forEach(item => {
+                html += `
+                    <div class="history-item">
+                        <div class="tool-name">${item.tool}</div>
+                        <div class="timestamp">${item.timestamp}</div>
+                        <div class="arguments">Arguments: ${item.arguments}</div>
+                        <div class="result">Result: ${item.result}</div>
+                    </div>
+                `;
+            });
+            
+            historyContent.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

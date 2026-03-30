@@ -13,7 +13,15 @@ if (!function_exists('memory_graph_load_env')) {
             return;
         }
 
-        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $rawFile = @file_get_contents($envPath);
+        if ($rawFile === false) {
+            $loaded = true;
+            return;
+        }
+        if (strncmp($rawFile, "\xEF\xBB\xBF", 3) === 0) {
+            $rawFile = substr($rawFile, 3);
+        }
+        $lines = preg_split('/\r\n|\r|\n/', $rawFile);
         if (!is_array($lines)) {
             $loaded = true;
             return;
@@ -30,8 +38,8 @@ if (!function_exists('memory_graph_load_env')) {
                 continue;
             }
 
-            $key = trim($parts[0]);
-            $value = trim($parts[1]);
+            $key = trim($parts[0], " \t\n\r\0\x0B\"'");
+            $value = trim($parts[1], " \t\n\r\0\x0B");
             if ($key === '') {
                 continue;
             }
@@ -61,18 +69,28 @@ if (!function_exists('memory_graph_env_int')) {
 }
 
 if (!function_exists('memory_graph_env')) {
+    /**
+     * Resolve env after .env is loaded. Prefer any non-empty value: empty getenv() / $_SERVER from the
+     * OS or Apache must not hide a real key set in .env (PHP returns "" not false for empty vars).
+     */
     function memory_graph_env(string $key, ?string $default = null): ?string {
         memory_graph_load_env();
 
-        $value = getenv($key);
-        if ($value !== false) {
-            return (string) $value;
+        $candidates = [];
+        if (array_key_exists($key, $_ENV)) {
+            $candidates[] = (string) $_ENV[$key];
         }
-        if (isset($_ENV[$key])) {
-            return (string) $_ENV[$key];
+        if (array_key_exists($key, $_SERVER)) {
+            $candidates[] = (string) $_SERVER[$key];
         }
-        if (isset($_SERVER[$key])) {
-            return (string) $_SERVER[$key];
+        $g = getenv($key);
+        if ($g !== false) {
+            $candidates[] = (string) $g;
+        }
+        foreach ($candidates as $v) {
+            if ($v !== '') {
+                return $v;
+            }
         }
         return $default;
     }

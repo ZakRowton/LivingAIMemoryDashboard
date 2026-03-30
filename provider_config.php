@@ -19,7 +19,7 @@ function get_builtin_provider_ui(): array {
     return [
         'mercury'   => ['name' => 'Mercury (Inception Labs)', 'models' => ['mercury-2']],
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
-        'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus']],
+        'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
         'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
     ];
 }
@@ -31,6 +31,7 @@ function get_agent_provider_config(): array {
         'currentModel'    => 'mercury-2',
         'customProviders' => [],
         'customModels'    => [],
+        'excludedBuiltinModels' => [],
         'systemPromptsByModel' => [],
     ];
     if (!file_exists($path)) {
@@ -51,6 +52,7 @@ function save_agent_provider_config(array $config): bool {
     $path = agent_provider_config_path();
     $config['customProviders'] = isset($config['customProviders']) && is_array($config['customProviders']) ? $config['customProviders'] : [];
     $config['customModels']    = isset($config['customModels']) && is_array($config['customModels']) ? $config['customModels'] : [];
+    $config['excludedBuiltinModels'] = isset($config['excludedBuiltinModels']) && is_array($config['excludedBuiltinModels']) ? $config['excludedBuiltinModels'] : [];
     if (!isset($config['systemPromptsByModel']) || !is_array($config['systemPromptsByModel'])) {
         $config['systemPromptsByModel'] = [];
     }
@@ -82,6 +84,36 @@ function set_system_prompt_for_provider_model(string $provider, string $model, s
     return ['ok' => true, 'key' => $key];
 }
 
+/**
+ * Merge built-in + custom provider defaults + customModels, then apply excludedBuiltinModels for that key.
+ */
+function get_merged_models_for_provider(string $providerKey, array $config): array {
+    $providerKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', $providerKey);
+    $builtin = get_builtin_provider_ui();
+    $models = [];
+    if (isset($builtin[$providerKey]['models']) && is_array($builtin[$providerKey]['models'])) {
+        $models = $builtin[$providerKey]['models'];
+    }
+    $custom = isset($config['customProviders']) && is_array($config['customProviders']) ? $config['customProviders'] : [];
+    if (isset($custom[$providerKey]) && is_array($custom[$providerKey])) {
+        $def = $custom[$providerKey];
+        $models = [isset($def['defaultModel']) ? (string) $def['defaultModel'] : 'default'];
+    }
+    $customModels = isset($config['customModels'][$providerKey]) && is_array($config['customModels'][$providerKey])
+        ? $config['customModels'][$providerKey]
+        : [];
+    $models = array_values(array_unique(array_merge($models, $customModels)));
+    $excluded = isset($config['excludedBuiltinModels'][$providerKey]) && is_array($config['excludedBuiltinModels'][$providerKey])
+        ? $config['excludedBuiltinModels'][$providerKey]
+        : [];
+    if ($excluded !== []) {
+        $models = array_values(array_filter($models, function ($m) use ($excluded) {
+            return !in_array($m, $excluded, true);
+        }));
+    }
+    return $models;
+}
+
 function get_current_provider_model(): array {
     $config = get_agent_provider_config();
     return [
@@ -105,24 +137,14 @@ function get_providers_for_ui(): array {
     $config = get_agent_provider_config();
     $builtin = get_builtin_provider_ui();
     $custom  = isset($config['customProviders']) && is_array($config['customProviders']) ? $config['customProviders'] : [];
-    $customModels = isset($config['customModels']) && is_array($config['customModels']) ? $config['customModels'] : [];
 
     $providers = $builtin;
     foreach ($custom as $key => $def) {
         $name = isset($def['name']) ? (string) $def['name'] : $key;
-        $models = [isset($def['defaultModel']) ? (string) $def['defaultModel'] : 'default'];
-        if (isset($customModels[$key]) && is_array($customModels[$key])) {
-            $models = array_values(array_unique(array_merge($models, $customModels[$key])));
-        }
-        $providers[$key] = ['name' => $name, 'models' => $models];
+        $providers[$key] = ['name' => $name, 'models' => []];
     }
-    foreach ($customModels as $key => $list) {
-        if (!isset($providers[$key])) {
-            continue;
-        }
-        if (is_array($list)) {
-            $providers[$key]['models'] = array_values(array_unique(array_merge($providers[$key]['models'] ?? [], $list)));
-        }
+    foreach (array_keys($providers) as $key) {
+        $providers[$key]['models'] = get_merged_models_for_provider($key, $config);
     }
 
     return [
@@ -138,6 +160,9 @@ function list_providers_models_for_tool(): array {
     $ui = get_providers_for_ui();
     $config = get_agent_provider_config();
     $ui['customProviderDefinitions'] = isset($config['customProviders']) ? $config['customProviders'] : [];
+    $ui['excludedBuiltinModels'] = isset($config['excludedBuiltinModels']) && is_array($config['excludedBuiltinModels'])
+        ? $config['excludedBuiltinModels']
+        : [];
     return $ui;
 }
 
@@ -220,10 +245,88 @@ function add_model_to_provider(string $providerKey, string $modelId): array {
         $customModels[$providerKey][] = $modelId;
     }
     $config['customModels'] = $customModels;
+    $excluded = isset($config['excludedBuiltinModels']) && is_array($config['excludedBuiltinModels']) ? $config['excludedBuiltinModels'] : [];
+    if (isset($excluded[$providerKey]) && is_array($excluded[$providerKey])) {
+        $excluded[$providerKey] = array_values(array_filter($excluded[$providerKey], function ($m) use ($modelId) {
+            return $m !== $modelId;
+        }));
+        if ($excluded[$providerKey] === []) {
+            unset($excluded[$providerKey]);
+        }
+        $config['excludedBuiltinModels'] = $excluded;
+    }
     if (!save_agent_provider_config($config)) {
         return ['error' => 'Failed to save config'];
     }
     return ['ok' => true, 'provider' => $providerKey, 'model' => $modelId];
+}
+
+/**
+ * Remove a model from the selector: drops it from customModels if present; otherwise hides a built-in id via excludedBuiltinModels.
+ */
+function remove_model_from_provider(string $providerKey, string $modelId): array {
+    $providerKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', $providerKey);
+    $modelId = trim($modelId);
+    if ($providerKey === '' || $modelId === '') {
+        return ['error' => 'Provider key and model id are required'];
+    }
+    $config = get_agent_provider_config();
+    $before = get_merged_models_for_provider($providerKey, $config);
+    if (!in_array($modelId, $before, true)) {
+        return ['error' => 'That model id is not in the effective list for this provider (check spelling and provider key).'];
+    }
+    if (count($before) <= 1) {
+        return ['error' => 'Cannot remove the last remaining model for this provider. Add another model first.'];
+    }
+
+    $customModels = isset($config['customModels']) && is_array($config['customModels']) ? $config['customModels'] : [];
+    $removedFromCustom = false;
+    if (isset($customModels[$providerKey]) && is_array($customModels[$providerKey])) {
+        $idx = array_search($modelId, $customModels[$providerKey], true);
+        if ($idx !== false) {
+            array_splice($customModels[$providerKey], (int) $idx, 1);
+            $removedFromCustom = true;
+            if ($customModels[$providerKey] === []) {
+                unset($customModels[$providerKey]);
+            }
+            $config['customModels'] = $customModels;
+        }
+    }
+
+    $hiddenBuiltin = false;
+    if (in_array($modelId, get_merged_models_for_provider($providerKey, $config), true)) {
+        $excluded = isset($config['excludedBuiltinModels']) && is_array($config['excludedBuiltinModels']) ? $config['excludedBuiltinModels'] : [];
+        if (!isset($excluded[$providerKey]) || !is_array($excluded[$providerKey])) {
+            $excluded[$providerKey] = [];
+        }
+        if (!in_array($modelId, $excluded[$providerKey], true)) {
+            $excluded[$providerKey][] = $modelId;
+        }
+        $excluded[$providerKey] = array_values(array_unique($excluded[$providerKey]));
+        $config['excludedBuiltinModels'] = $excluded;
+        $hiddenBuiltin = true;
+    }
+
+    $after = get_merged_models_for_provider($providerKey, $config);
+    if ($after === []) {
+        return ['error' => 'Cannot remove the last remaining model for this provider.'];
+    }
+
+    if (($config['currentProvider'] ?? '') === $providerKey && ($config['currentModel'] ?? '') === $modelId) {
+        $config['currentModel'] = (string) ($after[0] ?? 'mercury-2');
+    }
+
+    if (!save_agent_provider_config($config)) {
+        return ['error' => 'Failed to save config'];
+    }
+    return [
+        'ok' => true,
+        'provider' => $providerKey,
+        'model' => $modelId,
+        'removed' => true,
+        'removed_from_custom_list' => $removedFromCustom,
+        'hidden_builtin' => $hiddenBuiltin,
+    ];
 }
 
 /** Return custom provider definitions for chat.php to merge (with apiKey resolved via env). */

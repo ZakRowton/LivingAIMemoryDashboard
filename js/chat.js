@@ -60,6 +60,50 @@
 
     var chatTurns = loadChatTurns();
 
+    function focusChatInputSoon() {
+        setTimeout(function () {
+            var el = document.getElementById('chat-input');
+            if (!el || typeof el.focus !== 'function') return;
+            try {
+                el.focus({ preventScroll: true });
+            } catch (e) {
+                el.focus();
+            }
+        }, 180);
+    }
+
+    function renderSimpleChatThread() {
+        var $thread = $('#simple-chat-thread');
+        if (!$thread.length) return;
+        $thread.empty();
+        if (!chatTurns.length) {
+            $thread.append($('<p class="simple-chat-empty font-serif">').text('Message the assistant below. Your conversation is kept for this browser session.'));
+            return;
+        }
+        chatTurns.forEach(function (t) {
+            if (!t || (t.role !== 'user' && t.role !== 'assistant') || typeof t.content !== 'string') return;
+            var $row = $('<div class="simple-chat-row simple-chat-row--' + t.role + '">');
+            var $bubble = $('<div class="simple-chat-bubble">');
+            if (t.role === 'assistant' && /^error:\s/i.test(t.content.trim())) {
+                $bubble.addClass('simple-chat-bubble--error');
+            }
+            if (t.role === 'user') {
+                $('<div class="simple-chat-text font-serif">').text(t.content).appendTo($bubble);
+            } else {
+                renderResponseContent($bubble, t.content);
+            }
+            $row.append($bubble);
+            $thread.append($row);
+        });
+        var el = $thread[0];
+        if (el && el.parentElement) {
+            el.parentElement.scrollTop = el.parentElement.scrollHeight;
+        }
+    }
+
+    window.MemoryGraphRefreshSimpleChatThread = renderSimpleChatThread;
+    window.MemoryGraphFocusChatInput = focusChatInputSoon;
+
     function setRequestUi(active) {
         $send.prop('disabled', active);
         if ($stop.length) $stop.prop('disabled', !active).toggle(active);
@@ -449,7 +493,7 @@
             var previewId = 'preview-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
             ensurePreviewResizeListener();
             $('<div class="response-modal-preview-label">').text('Preview').appendTo($block);
-            $('<iframe class="response-modal-preview-frame" sandbox="allow-scripts allow-modals"></iframe>')
+            $('<iframe class="response-modal-preview-frame" sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock" allow="pointer-lock; fullscreen; autoplay; gamepad"></iframe>')
                 .attr('data-preview-id', previewId)
                 .attr('scrolling', 'no')
                 .attr('srcdoc', buildPreviewDocument(language, code, previewId))
@@ -541,23 +585,34 @@
      * jQuery used (content || '') which kept non-strings and broke previews/modal (blank "Response").
      */
     function extractAssistantTextFromChatResponse(res) {
+        var mg = res && res.memory_graph;
+        if (mg && typeof mg.assistant_body === 'string' && mg.assistant_body.trim() !== '') {
+            return mg.assistant_body.trim();
+        }
         if (!res || !res.choices || !res.choices[0] || !res.choices[0].message) {
             if (res && typeof res.response === 'string' && res.response.trim()) {
                 return res.response.trim();
             }
-            if (res && res.memory_graph && typeof res.memory_graph.hint === 'string' && res.memory_graph.hint.trim()) {
-                return res.memory_graph.hint.trim();
+            if (mg && typeof mg.hint === 'string' && mg.hint.trim()) {
+                return mg.hint.trim();
             }
             return '';
         }
         var msg = res.choices[0].message;
         var c = msg.content;
         if (typeof c === 'string') {
-            return c;
+            var st = c.trim();
+            if (st !== '') return c;
+            if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) return msg.reasoning_content.trim();
+            if (typeof msg.thinking === 'string' && msg.thinking.trim()) return msg.thinking.trim();
+            if (mg && typeof mg.hint === 'string' && mg.hint.trim()) return mg.hint.trim();
+            return '';
         }
         if (c === null || c === undefined) {
-            if (res.memory_graph && typeof res.memory_graph.hint === 'string' && res.memory_graph.hint.trim()) {
-                return res.memory_graph.hint.trim();
+            if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.trim()) return msg.reasoning_content.trim();
+            if (typeof msg.thinking === 'string' && msg.thinking.trim()) return msg.thinking.trim();
+            if (mg && typeof mg.hint === 'string' && mg.hint.trim()) {
+                return mg.hint.trim();
             }
             return '';
         }
@@ -634,16 +689,38 @@
         })
             .done(function (res) {
                 if (wasStopped) return;
+                if (typeof res === 'string') {
+                    try {
+                        res = JSON.parse(res);
+                    } catch (e) {
+                        res = {};
+                    }
+                }
                 if (res && res.graphRefreshNeeded && typeof window.MemoryGraphRefresh === 'function') {
                     window.MemoryGraphRefresh();
+                }
+                if (res && res.reloadWebAppsList) {
+                    if (typeof window.MemoryGraphReloadAppsList === 'function') {
+                        window.MemoryGraphReloadAppsList();
+                    }
+                    if (typeof window.MemoryGraphReloadSimpleAppsSection === 'function') {
+                        window.MemoryGraphReloadSimpleAppsSection();
+                    }
                 }
                 if (res && res.web_app && typeof window.MemoryGraphOpenWebApp === 'function') {
                     window.MemoryGraphOpenWebApp(res.web_app);
                 }
                 var content = extractAssistantTextFromChatResponse(res);
                 if (!content && typeof res === 'string') content = res;
+                if (!content && res && res.choices && res.choices[0] && res.choices[0].message) {
+                    try {
+                        content = JSON.stringify(res.choices[0].message);
+                        if (content.length > 8000) content = content.slice(0, 8000) + '…';
+                    } catch (e2) {}
+                }
+                if (!content) content = 'No text in response.';
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
-                showNotification(preview || 'No text in response.', text, content);
+                showNotification(preview, text, content);
                 chatTurns.push({ role: 'user', content: text });
                 chatTurns.push({ role: 'assistant', content: content });
                 saveChatTurns(chatTurns);
@@ -674,7 +751,12 @@
                     msg = (msg.message !== undefined && typeof msg.message === 'string') ? msg.message : JSON.stringify(msg);
                 }
                 var displayMsg = (msg && String(msg).trim()) || 'Request failed';
-                showNotification(displayMsg, text, 'Error: ' + displayMsg);
+                var errBody = 'Error: ' + displayMsg;
+                showNotification(displayMsg, text, errBody);
+                chatTurns.push({ role: 'user', content: text });
+                chatTurns.push({ role: 'assistant', content: errBody });
+                saveChatTurns(chatTurns);
+                renderSimpleChatThread();
             })
             .always(function () {
                 currentRequest = null;
@@ -689,9 +771,14 @@
                 }
                 if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
                 processNextInQueue();
-                $input.focus();
+                focusChatInputSoon();
             });
     }
+
+    $(function () {
+        renderSimpleChatThread();
+        focusChatInputSoon();
+    });
 
     $send.on('click', sendMessage);
     if ($queueHeader.length) {

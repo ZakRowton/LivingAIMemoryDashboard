@@ -37,6 +37,143 @@ if (function_exists('set_time_limit')) {
     @set_time_limit(600);
 }
 
+const MEMORY_GRAPH_DASHSCOPE_CN = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+const MEMORY_GRAPH_DASHSCOPE_INTL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions';
+
+/**
+ * Append /chat/completions when env uses OpenAI-SDK-style base only (e.g. .../compatible-mode/v1).
+ */
+function memory_graph_dashscope_chat_completions_url(string $baseOrFull): string {
+    $u = rtrim(trim($baseOrFull), '/');
+    if ($u === '') {
+        return $u;
+    }
+    if (preg_match('#/chat/completions$#', $u) === 1) {
+        return $u;
+    }
+    return $u . '/chat/completions';
+}
+
+/**
+ * DashScope OpenAI-compatible URL.
+ * Default matches Alibaba Model Studio intl sample: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+ * China (Beijing): set ALIBABA_DASHSCOPE_REGION=cn — keys differ by region per Alibaba docs.
+ * Override full URL: DASHSCOPE_COMPATIBLE_ENDPOINT or ALIBABA_COMPATIBLE_ENDPOINT (may be base .../v1 or full .../chat/completions).
+ */
+function memory_graph_alibaba_dashscope_endpoint(): string {
+    $custom = trim((string) memory_graph_env('DASHSCOPE_COMPATIBLE_ENDPOINT', ''));
+    if ($custom !== '') {
+        return memory_graph_dashscope_chat_completions_url($custom);
+    }
+    $custom = trim((string) memory_graph_env('ALIBABA_COMPATIBLE_ENDPOINT', ''));
+    if ($custom !== '') {
+        return memory_graph_dashscope_chat_completions_url($custom);
+    }
+    $region = strtolower(trim((string) memory_graph_env('ALIBABA_DASHSCOPE_REGION', 'intl')));
+    if ($region === 'cn' || $region === 'china' || $region === 'beijing' || $region === 'cn-shanghai') {
+        return MEMORY_GRAPH_DASHSCOPE_CN;
+    }
+    return MEMORY_GRAPH_DASHSCOPE_INTL;
+}
+
+/** Normalize DashScope / Alibaba API key from .env (BOM, quotes, accidental Bearer prefix). */
+function memory_graph_alibaba_sanitize_api_key(string $k): string {
+    $k = preg_replace('/^\xEF\xBB\xBF/', '', $k);
+    $k = trim($k, " \t\n\r\0\x0B\"'");
+    if ($k !== '' && stripos($k, 'bearer ') === 0) {
+        $k = trim(substr($k, 7));
+    }
+    return $k;
+}
+
+/**
+ * Resolve API key from env. DashScope console often documents DASHSCOPE_API_KEY; older docs use ALIBABA_API_KEY.
+ */
+function memory_graph_alibaba_api_key(): string {
+    foreach (['DASHSCOPE_API_KEY', 'ALIBABA_API_KEY', 'ALIBABA_CLOUD_API_KEY', 'ALIYUN_API_KEY'] as $envKey) {
+        $v = memory_graph_env($envKey, '');
+        if ($v === null || $v === '') {
+            continue;
+        }
+        $v = memory_graph_alibaba_sanitize_api_key((string) $v);
+        if ($v !== '') {
+            return $v;
+        }
+    }
+    return '';
+}
+
+function memory_graph_alibaba_toggle_endpoint(string $current): string {
+    return (strpos($current, 'dashscope-intl') !== false) ? MEMORY_GRAPH_DASHSCOPE_CN : MEMORY_GRAPH_DASHSCOPE_INTL;
+}
+
+/** Re-read DashScope key + URL each request (avoids stale $providers snapshot; matches Python/Java SDK env usage). */
+function memory_graph_alibaba_provider_runtime(array $base): array {
+    $base['apiKey'] = memory_graph_alibaba_api_key();
+    $base['endpoint'] = memory_graph_alibaba_dashscope_endpoint();
+    return $base;
+}
+
+/** Alibaba often returns "Incorrect API key" when the key is valid for the other region (cn vs Singapore). */
+function memory_graph_alibaba_should_retry_alternate_region(int $httpCode, string $rawBody): bool {
+    if ($httpCode === 401 || $httpCode === 403) {
+        return true;
+    }
+    if ($httpCode < 400) {
+        return false;
+    }
+    $l = strtolower($rawBody);
+    if (strpos($l, 'incorrect') !== false && strpos($l, 'api') !== false && strpos($l, 'key') !== false) {
+        return true;
+    }
+    if (strpos($l, 'invalidapikey') !== false || strpos($l, 'invalid_api_key') !== false) {
+        return true;
+    }
+    if (strpos($l, 'accesskeyid') !== false && (strpos($l, 'invalid') !== false || strpos($l, 'notfound') !== false)) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Single POST to OpenAI-compatible endpoint; returns same shape as requestOpenAiCompatible.
+ */
+function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, array $payload): array {
+    $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($body === false) {
+        return ['error' => 'Failed to encode request JSON', 'httpCode' => 500];
+    }
+    $ch = curl_init($endpoint);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 600,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($err) {
+        return ['error' => 'Gateway error: ' . $err, 'httpCode' => 502];
+    }
+    if ($httpCode >= 400) {
+        return ['error' => $response ?: 'Provider request failed', 'httpCode' => $httpCode, 'raw' => (string) $response];
+    }
+
+    $decoded = json_decode((string) $response, true);
+    if (!is_array($decoded)) {
+        return ['error' => 'Invalid provider response', 'httpCode' => 502];
+    }
+    return ['data' => $decoded, 'httpCode' => $httpCode];
+}
+
 $providers = [
     'mercury' => [
         'endpoint' => 'https://api.inceptionlabs.ai/v1/chat/completions',
@@ -51,8 +188,8 @@ $providers = [
         'defaultModel' => 'glm47-flash',
     ],
     'alibaba' => [
-        'endpoint' => 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
-        'apiKey' => memory_graph_env('ALIBABA_API_KEY', ''),
+        'endpoint' => memory_graph_alibaba_dashscope_endpoint(),
+        'apiKey' => memory_graph_alibaba_api_key(),
         'type' => 'openai',
         'defaultModel' => 'qwen-plus',
     ],
@@ -422,7 +559,8 @@ function memory_rules_prompt_cache_signature(): string {
     foreach (glob($memDir . DIRECTORY_SEPARATOR . '*.md') ?: [] as $f) {
         $bn = basename($f);
         $active = array_key_exists($bn, $state) ? !empty($state[$bn]['active']) : true;
-        $parts[] = 'm:' . strtolower($bn) . ':' . ($active ? '1' : '0') . ':' . filemtime($f) . ':' . filesize($f);
+        $hid = memory_meta_hidden($bn, $state);
+        $parts[] = 'm:' . strtolower($bn) . ':' . ($active ? '1' : '0') . ':' . ($hid ? '1' : '0') . ':' . filemtime($f) . ':' . filesize($f);
     }
     sort($parts);
     return hash('sha256', implode("\0", $parts));
@@ -1030,7 +1168,11 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     }
     if ($toolName === 'list_memory_files') {
         $all = list_memory_files_meta(false);
-        $memories = array_values(array_filter($all, function ($m) {
+        $includeHidden = !empty($arguments['include_hidden']);
+        $memories = array_values(array_filter($all, function ($m) use ($includeHidden) {
+            if (!empty($m['hidden'])) {
+                return $includeHidden;
+            }
             return !empty($m['active']);
         }));
         return ['memories' => $memories];
@@ -1323,12 +1465,30 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         }
         return add_model_to_provider($providerKey, $modelId);
     }
+    if ($toolName === 'remove_model_from_provider') {
+        $providerKey = (string) ($arguments['providerKey'] ?? $arguments['provider'] ?? '');
+        $modelId = (string) ($arguments['modelId'] ?? $arguments['model'] ?? '');
+        if ($providerKey === '' || $modelId === '') {
+            return ['error' => 'providerKey and modelId are required'];
+        }
+        return remove_model_from_provider($providerKey, $modelId);
+    }
     return ['error' => 'Unknown built-in tool: ' . $toolName . '. Use list_available_tools to see valid tool names.'];
 }
 
 function executeToolCall(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     try {
         $result = executeToolCallInner($toolName, $arguments, $activeTools, $mcpResultOverride);
+        if (is_array($result) && empty($result['error'])) {
+            $n = normalizeToolName($toolName);
+            if ($n === 'create_web_app' && !empty($result['ok'])) {
+                $GLOBALS['MEMORY_GRAPH_WEB_APPS_LIST_DIRTY'] = true;
+            } elseif ($n === 'update_web_app' && !empty($result['ok'])) {
+                $GLOBALS['MEMORY_GRAPH_WEB_APPS_LIST_DIRTY'] = true;
+            } elseif ($n === 'delete_web_app' && !empty($result['ok'])) {
+                $GLOBALS['MEMORY_GRAPH_WEB_APPS_LIST_DIRTY'] = true;
+            }
+        }
         if (is_array($result) && !empty($result['display_web_app']) && empty($result['error'])) {
             $GLOBALS['MEMORY_GRAPH_WEB_APP_OPEN'] = $result;
         }
@@ -1382,13 +1542,14 @@ function executeToolCallInner(string $toolName, array $arguments, array $activeT
         if ($memory === null) {
             return ['error' => 'Memory file not found'];
         }
-        if (empty($memory['active'])) {
+        if (empty($memory['active']) && empty($memory['hidden'])) {
             return ['error' => 'That memory file has been disabled for me, please enable it if you want me to use that memory.', '__disabled_memory' => true];
         }
         return [
             'name' => $memory['name'],
             'title' => $memory['title'],
             'active' => $memory['active'],
+            'hidden' => !empty($memory['hidden']),
             'nodeId' => $memory['nodeId'],
             'content' => $memory['content'],
         ];
@@ -1438,12 +1599,10 @@ function buildMemoryAndRulesSystemPromptSection(int $maxTotalChars = 120000): st
         $sections[] = "## Merged rules (all files under rules/)\n\n" . implode("\n\n---\n\n", $rulesParts);
     }
     $memParts = [];
+    $memState = load_memory_state();
     foreach (list_memory_files_meta(false) as $m) {
-        if (empty($m['active'])) {
-            continue;
-        }
         $name = (string) ($m['name'] ?? '');
-        if ($name === '') {
+        if ($name === '' || !memory_should_merge_into_prompt($name, $memState)) {
             continue;
         }
         $path = memory_dir_path() . DIRECTORY_SEPARATOR . $name;
@@ -1457,7 +1616,7 @@ function buildMemoryAndRulesSystemPromptSection(int $maxTotalChars = 120000): st
         $memParts[] = '### Memory file: ' . $name . "\n\n" . $content;
     }
     if ($memParts !== []) {
-        $sections[] = "## Merged memory (active files under memory/)\n\n" . implode("\n\n---\n\n", $memParts);
+        $sections[] = "## Merged memory (active, non-hidden files under memory/)\n\n" . implode("\n\n---\n\n", $memParts);
     }
     $out = trim(implode("\n\n", $sections));
     if ($out === '') {
@@ -1482,12 +1641,17 @@ function buildListGetReadToolsQuickReference(array $activeTools): string {
     $listNames = [];
     $getNames = [];
     $readNames = [];
+    $readWebAppActive = false;
     foreach ($activeTools as $tool) {
         if (empty($tool['active']) || !is_array($tool)) {
             continue;
         }
         $name = (string) ($tool['name'] ?? '');
         if ($name === '') {
+            continue;
+        }
+        if ($name === 'read_web_app') {
+            $readWebAppActive = true;
             continue;
         }
         if ($name === 'agent_cron_list') {
@@ -1523,6 +1687,9 @@ function buildListGetReadToolsQuickReference(array $activeTools): string {
     if ($read !== []) {
         $lines[] = '- Read / load by name: ' . implode(', ', $read);
     }
+    if ($readWebAppActive) {
+        $lines[] = '- read_web_app: ONLY local dashboard mini-apps (apps/<slug>/index.html). Never substitute for web search—use brave_search for the public web.';
+    }
     return implode("\n", $lines) . "\n";
 }
 
@@ -1556,6 +1723,7 @@ function buildToolUsageInstruction(array $activeTools): string {
     $listGetReadRef = buildListGetReadToolsQuickReference($activeList);
 
     return trim(
+        "You are MemoryGraph's server-side agent: real PHP tools, MCP, memory, rules, research files, jobs/cron, and dashboard web apps under apps/. Operate like a senior engineer—discover (list/read), act with tools, verify outputs, then answer. Ground claims in tool results and merged prompt content; name memory/research files when you rely on them.\n" .
         "You have access to tools, including tools for reading/writing memory when they are active.\n" .
         "MEMORYGRAPH — CUSTOM PHP TOOLS ARE REAL: This app runs on the user's server. create_or_update_tool and edit_tool_file register real files under tools/. You CAN and MUST use them when the user asks for a new tool or capability and nothing in list_available_tools already fits. It is incorrect to say you \"cannot create a custom PHP tool\", \"don't have access to the filesystem\", or to answer only with markdown/HTML snippets (e.g. iframe examples) instead of calling create_or_update_tool. After a quick list_available_tools (+ MCP discovery if relevant), implement the tool: php_code must use \$GLOBALS['MEMORY_GRAPH_TOOL_INPUT'] and echo json_encode([...]) like get_temperature.php. For \"show website\" / iframe tools, put the iframe HTML (or url + suggested iframe attrs) inside the JSON payload (e.g. html, url) so callers can render it — still create the tool, do not refuse.\n" .
         "If the model/provider supports native function calling, use it.\n" .
@@ -1567,16 +1735,19 @@ function buildToolUsageInstruction(array $activeTools): string {
         "To discover what tools are currently available, call list_available_tools.\n" .
         ($listGetReadRef !== '' ? $listGetReadRef : '') .
         "CRITICAL — Before create_or_update_tool (or writing a new PHP tool): You MUST first exhaust existing capabilities. (1) Call list_available_tools and read every active tool name and description — custom tools, builtins, and MCP-proxied tools (names often look like mcp__ServerSlug__tool_slug) are all listed there. (2) Call list_mcp_servers, then for each relevant active server call list_mcp_server_tools to see remote MCP tools and parameters. Only if nothing fits should you create a new PHP tool. Prefer calling an existing tool or an MCP-exposed tool over building new code.\n" .
-        "To work with memory, use the memory tools such as list_memory_files and read_memory_file when available. If the user asks for facts that may already appear in the merged memory section of this system prompt, answer from that text first—do not call list_memory_files unless you need a file name or content not shown above.\n" .
+        "RESEARCH: Use list_research_files / read_research_file / add_research_file / update_research_file when the task needs durable notes, literature, or scraped findings. Cite the research filename when you use it. Prefer updating research over only chatting ephemeral conclusions.\n" .
+        "To work with memory, use list_memory_files and read_memory_file. Merged memory in this prompt excludes **hidden** files (including rolling chat transcripts). Each browser chat session appends turns to memory/_chat_session_<id>.md (hidden, not on the graph). To load that archive use read_memory_file with the exact filename, or list_memory_files with include_hidden true. If the user asks for facts already in merged memory above, answer from that text first.\n" .
         "CRITICAL — MCP setup in MemoryGraph: When the user asks to add, connect, configure, or set up an MCP server in this app, you MUST register it with create_mcp_server (new) or configure_mcp_server / update_mcp_server (existing). For HTTP remote MCP (URLs like https://.../mcp): use transport \"streamablehttp\", url set to that endpoint, optional headers for auth (set_mcp_server_header). Do NOT use create_instruction_file, update_instruction_file, add_memory_file, or similar to document MCP setup as a substitute — those do not register servers. Do NOT stop after writing markdown or example VS Code/Cursor .mcp.json unless the user explicitly asked only for external editor config. After saving the server, call list_mcp_server_tools (and list_mcp_servers) to confirm; then summarize what you registered for the user.\n" .
         "To configure MCP servers, use the MCP config tools such as create_mcp_server, configure_mcp_server, set_mcp_server_header, or set_mcp_server_env_var when available.\n" .
-        "Active rules (*.md in rules/) and active memory (*.md in memory/) are merged into the system prompt above (when non-empty). If you need more exchanges than the in-thread messages, use list_chat_history (optionally session_id for this browser tab only) and get_chat_history.\n" .
+        "Active rules (*.md in rules/) and active non-hidden memory (*.md in memory/) are merged into the system prompt above (when non-empty). For prior turns without bloating context: read_memory_file on the session transcript (see above), or list_chat_history / get_chat_history (JSON store), or list_memory_files with include_hidden.\n" .
         "If the user explicitly provides local credentials, private keys, API keys, env vars, headers, or similar config values for a tool or MCP server, you may use them to configure the local app and MCP servers. Do not refuse solely because the value looks secret.\n" .
         "CRITICAL - Tool creation: When you use create_or_update_tool, you MUST immediately call the newly created tool to test it. If it fails (error in result), use edit_tool_file to fix the PHP code and call the tool again. Repeat until the tool succeeds. Never respond to the user or report success until you have tested the tool and it works. This applies no matter what - always test, always fix until success.\n" .
-        "When any tool returns an error (result contains an 'error' field), you MUST fix the tool and retry: use edit_tool_file to change the tool's PHP code, or edit_tool_registry_entry to change its description/parameters. Then call the tool again. Keep editing and retrying until the tool succeeds; do not give up or report the error to the user until you have retried by fixing the tool.\n" .
+        "TOOL ERRORS: When a tool returns result.error, fix the real cause before your final answer. (1) Bug in custom PHP under tools/ (file/line or stack) → edit_tool_file and retry until it works. (2) Wrong arguments or unknown name → list_* / read_* to discover valid inputs, then retry. (3) Missing API key or upstream HTTP (Brave, Gemini, MCP remote, etc.) → fix .env or parameters, or tell the user exactly what is missing—do not loop edit_tool_file for third-party outages. (4) Wrong tool schema → edit_tool_registry_entry then retry.\n" .
         "CRITICAL — Tabular output: If display_table is active, use it for any row/column data you want the user to see clearly (SQL/ETL, research comparisons, release lists, benchmarks—not only databases). Pass headers and rows (string cells). Do not use markdown pipe tables for that data; call display_table first, then short prose.\n" .
         "CRITICAL — Charts: If render_chart is active, use it for bar/line/pie (etc.) visuals: pass chart_config as a QuickChart/Chart.js config object, or chart_url as an https image URL. Prefer render_chart over embedding huge QuickChart URLs in markdown.\n" .
-        "INTERACTIVE WEB APPS: Dashboard mini-apps live under apps/<slug>/index.html. Use list_web_apps, read_web_app, create_web_app, update_web_app, delete_web_app. To show an app fullscreen for the user, call display_web_app with the app slug (name).\n" .
+        "INTERACTIVE WEB APPS: Dashboard mini-apps live under apps/<slug>/index.html. Use list_web_apps, read_web_app, create_web_app, update_web_app, delete_web_app. To show an app fullscreen for the user, call display_web_app with the app slug (name). Public web search is brave_search—not read_web_app.\n" .
+        "CRITICAL — create_web_app / update_web_app: You MUST actually invoke the tool with the full html string. Never tell the user an app slug exists or that you \"opened\" it until the tool result returns {\"ok\":true,...}. If the result has \"error\", read it, fix (e.g. new slug if already exists, non-empty html), and call the tool again. After a successful create, call display_web_app with that slug so the user sees it. Prefer passing a complete <!DOCTYPE html> document starting at the first character (or after optional BOM/comments); if you send only a body fragment, omit any fake <html> substring at the start of scripts.\n" .
+        "JOBS & AUTOMATION: Use job markdown tools and agent_cron / cron-related tools when the user wants repeatable work or schedules; persist intent in jobs/ or cron configuration instead of only describing steps in chat.\n" .
         ($toolList !== '' ? "Currently active tools include: " . $toolList . "\n" : '') .
         "When you are not calling a tool, answer normally.\n" .
         "CRITICAL - Do not stop prematurely: Use as many tool calls as needed to complete the task. Never respond with 'no tool calls', 'I have no tools to use', or similar - keep using tools until the task is complete, then give your final answer."
@@ -1690,6 +1861,138 @@ function normalizeAssistantFormatting(string $content): string {
     return str_replace(array_keys($repl), array_values($repl), $content);
 }
 
+function memory_graph_json_encode_tool_safe($data): string {
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    if (!is_array($data) && !is_object($data)) {
+        $data = ['value' => $data];
+    }
+    $j = json_encode($data, $flags);
+
+    return is_string($j) && $j !== '' ? $j : '{"error":"json_encode_failed"}';
+}
+
+/**
+ * Flatten Brave Search JSON (shape varies by tier/type): web, news, videos, discussions, etc.
+ *
+ * @return list<array{title:string,url:string,desc:string}>
+ */
+function memory_graph_brave_collect_result_items(array $data): array {
+    $out = [];
+    $lists = [];
+    foreach (['web', 'news', 'videos', 'discussions', 'faq'] as $key) {
+        if (isset($data[$key]['results']) && is_array($data[$key]['results'])) {
+            $lists[] = $data[$key]['results'];
+        }
+    }
+    foreach ($lists as $list) {
+        foreach ($list as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $title = (string) ($item['title'] ?? $item['name'] ?? '');
+            $url = (string) ($item['url'] ?? $item['link'] ?? '');
+            $desc = (string) ($item['description'] ?? $item['snippet'] ?? '');
+            if (isset($item['meta_url']) && is_array($item['meta_url']) && $desc === '') {
+                $desc = (string) ($item['meta_url']['snippet'] ?? '');
+            }
+            if ($title === '' && $url === '' && $desc === '') {
+                continue;
+            }
+            if ($title === '') {
+                $title = '(no title)';
+            }
+            $out[] = ['title' => $title, 'url' => $url, 'desc' => $desc];
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * Brave web search returns a large nested JSON blob; sending the raw JSON to the model often exceeds
+ * tool-message truncation (1800 chars) mid-string, which breaks the next LLM call. Compress to titles/URLs/snippets.
+ */
+function memory_graph_format_brave_search_for_model(array $data): string {
+    if (isset($data['error'])) {
+        return memory_graph_json_encode_tool_safe($data);
+    }
+    $lines = [];
+    $q = '';
+    if (isset($data['query']) && is_array($data['query'])) {
+        $q = (string) ($data['query']['original'] ?? $data['query']['altered'] ?? $data['query']['spellchecked'] ?? '');
+    }
+    if ($q !== '') {
+        $lines[] = 'Query: ' . $q;
+    }
+    $flat = memory_graph_brave_collect_result_items($data);
+    $maxItems = 30;
+    $maxDesc = 450;
+    $n = 0;
+    foreach ($flat as $item) {
+        if ($n >= $maxItems) {
+            break;
+        }
+        $title = $item['title'];
+        $url = $item['url'];
+        $desc = $item['desc'];
+        if (function_exists('mb_strlen') && function_exists('mb_substr') && mb_strlen($desc, 'UTF-8') > $maxDesc) {
+            $desc = mb_substr($desc, 0, $maxDesc, 'UTF-8') . '…';
+        } elseif (strlen($desc) > $maxDesc) {
+            $desc = substr($desc, 0, $maxDesc) . '…';
+        }
+        $lines[] = ($n + 1) . '. ' . $title . "\n   " . $url . "\n   " . $desc;
+        $n++;
+    }
+    if ($n === 0) {
+        $fallback = memory_graph_json_encode_tool_safe($data);
+        $lim = 14000;
+
+        return strlen($fallback) > $lim ? substr($fallback, 0, $lim) . "\n…[truncated]" : $fallback;
+    }
+    $lines[] = 'Answer the user using these results; include relevant URLs.';
+
+    $out = implode("\n\n", $lines);
+    $lim = 20000;
+    if (strlen($out) > $lim) {
+        $out = substr($out, 0, $lim) . "\n…[truncated]";
+    }
+
+    return $out;
+}
+
+/**
+ * When the upstream model returns an empty final message after tools, still show tool output in the UI.
+ */
+function memory_graph_forced_reply_from_tool_messages(array $conversation, string $requestId): string {
+    $blocks = [];
+    foreach ($conversation as $m) {
+        if (!is_array($m) || ($m['role'] ?? '') !== 'tool') {
+            continue;
+        }
+        $name = normalizeToolName((string) ($m['name'] ?? ''));
+        $c = isset($m['content']) && is_string($m['content']) ? trim($m['content']) : '';
+        if ($c === '') {
+            continue;
+        }
+        $cap = 16000;
+        if (strlen($c) > $cap) {
+            $c = substr($c, 0, $cap) . "\n…[truncated]";
+        }
+        $label = $name !== '' ? $name : 'tool';
+        $blocks[] = '**' . $label . "**\n\n" . $c;
+    }
+    if ($blocks === []) {
+        return '';
+    }
+
+    return "The model did not return a final assistant message. Here is the tool output from this request:\n\n"
+        . implode("\n\n---\n\n", $blocks)
+        . "\n\n_(Request ID: " . $requestId . ")_";
+}
+
 /** Append non-empty tool summaries when the model returns no final prose (UI + digest). */
 function memory_graph_append_tool_fallback_summary(string &$bucket, string $chunk): void {
     $chunk = trim($chunk);
@@ -1718,6 +2021,20 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
         $e = $toolResult['error'];
         return is_scalar($e) ? (string) $e : (string) json_encode($e, JSON_UNESCAPED_UNICODE);
     }
+    if ($toolName === 'brave_search') {
+        $flat = memory_graph_brave_collect_result_items($toolResult);
+        $cnt = count($flat);
+        $t0 = $cnt > 0 ? (string) ($flat[0]['title'] ?? '') : '';
+        if ($t0 !== '' && function_exists('mb_substr') && mb_strlen($t0, 'UTF-8') > 100) {
+            $t0 = mb_substr($t0, 0, 97, 'UTF-8') . '…';
+        } elseif (strlen($t0) > 100) {
+            $t0 = substr($t0, 0, 97) . '…';
+        }
+
+        return $cnt > 0
+            ? 'Brave search: ' . $cnt . ' hit(s)' . ($t0 !== '' ? ' — e.g. ' . $t0 : '')
+            : 'Brave search completed (no indexed hits in web/news/etc. — see formatted tool body or API JSON).';
+    }
     if (($toolName === 'execute_job_file' || $toolName === 'read_job_file') && !isset($toolResult['error'])) {
         $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
         $clen = isset($toolResult['content']) && is_string($toolResult['content']) ? strlen($toolResult['content']) : 0;
@@ -1741,6 +2058,24 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
         $t = isset($toolResult['title']) ? (string) $toolResult['title'] : '';
         $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
         return 'Opened web app **' . ($t !== '' ? $t : $n) . '** in the maximized viewer.';
+    }
+    if ($toolName === 'create_web_app' && !empty($toolResult['ok']) && empty($toolResult['error'])) {
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        if ($n !== '') {
+            return 'Created web app **' . $n . '** (saved as apps/' . $n . '/index.html). It should appear in the Apps list now.';
+        }
+    }
+    if ($toolName === 'update_web_app' && !empty($toolResult['ok']) && empty($toolResult['error'])) {
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        if ($n !== '') {
+            return 'Updated web app **' . $n . '**. Apps list refreshed on the client after chat completes.';
+        }
+    }
+    if ($toolName === 'delete_web_app' && !empty($toolResult['ok']) && empty($toolResult['error'])) {
+        $d = isset($toolResult['deleted']) ? (string) $toolResult['deleted'] : '';
+        if ($d !== '') {
+            return 'Deleted web app **' . $d . '** from apps/.';
+        }
     }
     if (isset($toolResult['response']) && is_string($toolResult['response']) && trim($toolResult['response']) !== '') {
         return trim($toolResult['response']);
@@ -1773,14 +2108,27 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
     return $enc;
 }
 
+/**
+ * Guidance after tool errors: avoid telling the model to edit PHP for env/API failures.
+ */
+function memory_graph_tool_error_followup_directive(string $toolName, array $toolResult): string {
+    if (isset($toolResult['file']) && is_string($toolResult['file']) && $toolResult['file'] !== '' && isset($toolResult['line'])) {
+        return ' Fix the PHP in tools/' . $toolResult['file'] . ' at line ' . (int) $toolResult['line'] . ' via edit_tool_file, then retry until the call succeeds.';
+    }
+    $tn = normalizeToolName($toolName);
+    $envSensitive = ['brave_search', 'brave_image_search', 'get_gemini_response'];
+    if (in_array($tn, $envSensitive, true)) {
+        return ' Likely missing/invalid API key, rate limit, or request parameters—check .env and arguments; retry with corrections or tell the user what blocks progress. Use edit_tool_file only if the PHP wrapper is clearly wrong.';
+    }
+    if ($tn === 'call_mcp_tool' || str_starts_with($tn, 'mcp_')) {
+        return ' Verify MCP server config (e.g. list_mcp_servers), tool name, and JSON arguments; retry after fixes. edit_tool_file only if a local PHP bridge is broken.';
+    }
+    return ' Follow TOOL ERRORS in the system prompt: bugs in tools/*.php → edit_tool_file or edit_tool_registry_entry; wrong names/args → list_* / read_* then retry; external API or env → configure or explain to the user.';
+}
+
 /** Build the user/tool message content for a tool result; when result has 'error', append fix-and-retry directive. */
 function formatToolResultForModel(string $toolName, array $toolResult, bool $inlineFormat = false): string {
-    $fixDirective = ' You MUST fix the tool using edit_tool_file (to change the PHP code) or edit_tool_registry_entry (to change parameters), then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
-    if (isset($toolResult['error']) && isset($toolResult['file']) && isset($toolResult['line'])) {
-        $fixDirective = ' Fix the error in tools/' . $toolResult['file'] . ' at line ' . $toolResult['line'] . ' using edit_tool_file, then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
-    } elseif (isset($toolResult['error'])) {
-        $fixDirective = ' You MUST fix the tool using edit_tool_file (to change the PHP code) or edit_tool_registry_entry (to change parameters), then call the tool again. Keep retrying until the tool succeeds; do not report the error to the user until you have retried.';
-    }
+    $fixDirective = isset($toolResult['error']) ? memory_graph_tool_error_followup_directive($toolName, $toolResult) : '';
     if ($toolName === 'etl_payroll_tool' && !isset($toolResult['error'])) {
         $s = formatEtlPayrollToolResultForModel($toolResult);
         if ($inlineFormat) {
@@ -1788,7 +2136,19 @@ function formatToolResultForModel(string $toolName, array $toolResult, bool $inl
         }
         return $s;
     }
-    $json = json_encode($toolResult);
+    if (normalizeToolName($toolName) === 'brave_search') {
+        $body = memory_graph_format_brave_search_for_model($toolResult);
+        if ($inlineFormat) {
+            if (isset($toolResult['error'])) {
+                return 'Tool "brave_search" returned: ' . $body . '.' . $fixDirective;
+            }
+
+            return "Tool \"brave_search\" returned (formatted results):\n" . $body . "\n\nYou MUST now write a clear answer for the user using these results (with URLs). Do not call brave_search again unless the query must change.";
+        }
+
+        return $body;
+    }
+    $json = memory_graph_json_encode_tool_safe($toolResult);
     if ($inlineFormat) {
         $base = 'Tool "' . $toolName . '" returned: ' . $json;
         if (isset($toolResult['error'])) {
@@ -1801,10 +2161,7 @@ function formatToolResultForModel(string $toolName, array $toolResult, bool $inl
         return $base . '. Continue and answer the original user request.';
     }
     if (isset($toolResult['error'])) {
-        $loc = (isset($toolResult['file']) && isset($toolResult['line']))
-            ? ' Fix tools/' . $toolResult['file'] . ' line ' . $toolResult['line'] . '.'
-            : '';
-        return 'Error - fix this tool with edit_tool_file or edit_tool_registry_entry and call it again.' . $loc . ' ' . $json;
+        return 'Tool error — resolve before final answer.' . $fixDirective . ' Payload: ' . $json;
     }
     if ($toolName === 'create_or_update_tool') {
         $name = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
@@ -1883,6 +2240,9 @@ function truncateConversationForContext(array $conversation): array {
         if ($role === 'tool' && (($msg['name'] ?? '') === 'etl_payroll_tool')) {
             $cap = min(56000, max($cap, 32000));
         }
+        if ($role === 'tool' && normalizeToolName((string) ($msg['name'] ?? '')) === 'brave_search') {
+            $cap = min(56000, max($cap, 24000));
+        }
         if (strlen($content) > $cap) {
             $msg = array_merge($msg, ['content' => substr($content, 0, $cap) . "\n\n[truncated]"]);
         }
@@ -1934,9 +2294,28 @@ function openai_extract_assistant_message_text(?array $message): string {
     if (isset($message['reasoning_content']) && is_string($message['reasoning_content']) && trim($message['reasoning_content']) !== '') {
         return trim($message['reasoning_content']);
     }
+    if (isset($message['thinking']) && is_string($message['thinking']) && trim($message['thinking']) !== '') {
+        return trim($message['thinking']);
+    }
+    if (isset($message['output_text']) && is_string($message['output_text']) && trim($message['output_text']) !== '') {
+        return trim($message['output_text']);
+    }
     $rawContent = $message['content'] ?? null;
     if (is_string($rawContent)) {
-        return $rawContent;
+        $t = trim($rawContent);
+        if ($t !== '') {
+            return $rawContent;
+        }
+        $rb = trim((string) ($message['reasoning_content'] ?? ''));
+        if ($rb !== '') {
+            return $rb;
+        }
+        $tk = trim((string) ($message['thinking'] ?? ''));
+        if ($tk !== '') {
+            return $tk;
+        }
+
+        return '';
     }
     if (is_array($rawContent)) {
         $assistantContent = '';
@@ -1962,7 +2341,7 @@ function openai_extract_assistant_message_text(?array $message): string {
                 $assistantContent .= is_scalar($part['text']) ? (string) $part['text'] : '';
             }
         }
-        return $assistantContent;
+        return trim($assistantContent);
     }
     if ($rawContent === null || $rawContent === false) {
         return '';
@@ -1970,7 +2349,7 @@ function openai_extract_assistant_message_text(?array $message): string {
     return (string) $rawContent;
 }
 
-function requestOpenAiCompatible(array $provider, string $model, array $conversation, float $temperature, array $tools): array {
+function requestOpenAiCompatible(array $provider, string $model, array $conversation, float $temperature, array $tools, string $providerKey = ''): array {
     $payload = [
         'model' => $model,
         'messages' => $conversation,
@@ -1980,36 +2359,30 @@ function requestOpenAiCompatible(array $provider, string $model, array $conversa
         $payload['tools'] = $tools;
         $payload['tool_choice'] = 'auto';
     }
-
-    $ch = curl_init($provider['endpoint']);
-    curl_setopt_array($ch, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($payload),
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $provider['apiKey'],
-        ],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 600,
-        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-    ]);
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err = curl_error($ch);
-    curl_close($ch);
-
-    if ($err) {
-        return ['error' => 'Gateway error: ' . $err, 'httpCode' => 502];
-    }
-    if ($httpCode >= 400) {
-        return ['error' => $response ?: 'Provider request failed', 'httpCode' => $httpCode, 'raw' => $response];
+    if ($providerKey === 'alibaba' && $model !== '' && preg_match('/^glm/i', $model) === 1) {
+        $payload['enable_thinking'] = true;
     }
 
-    $decoded = json_decode((string) $response, true);
-    if (!is_array($decoded)) {
-        return ['error' => 'Invalid provider response', 'httpCode' => 502];
+    $endpoint = (string) ($provider['endpoint'] ?? '');
+    $apiKey = (string) ($provider['apiKey'] ?? '');
+    if ($providerKey === 'alibaba') {
+        $apiKey = memory_graph_alibaba_sanitize_api_key($apiKey);
     }
-    return ['data' => $decoded, 'httpCode' => $httpCode];
+
+    $result = memory_graph_openai_compatible_post($endpoint, $apiKey, $payload);
+
+    if ($providerKey === 'alibaba' && isset($result['error'])) {
+        $raw = isset($result['raw']) ? (string) $result['raw'] : '';
+        $hc = (int) ($result['httpCode'] ?? 0);
+        if (memory_graph_alibaba_should_retry_alternate_region($hc, $raw)) {
+            $alt = memory_graph_alibaba_toggle_endpoint($endpoint);
+            if ($alt !== $endpoint) {
+                $result = memory_graph_openai_compatible_post($alt, $apiKey, $payload);
+            }
+        }
+    }
+
+    return $result;
 }
 
 function requestGemini(array $provider, string $model, array $conversation, float $temperature, string $systemPrompt): array {
@@ -2178,9 +2551,12 @@ if (!isset($providers[$providerKey])) {
 }
 
 $provider = $providers[$providerKey];
+if ($providerKey === 'alibaba') {
+    $provider = memory_graph_alibaba_provider_runtime($provider);
+}
 if (($provider['apiKey'] ?? '') === '') {
     http_response_code(500);
-    echo json_encode(['error' => 'Missing API key for provider "' . $providerKey . '". Set it in .env.']);
+    echo json_encode(['error' => 'Missing API key for provider "' . $providerKey . '". Set DASHSCOPE_API_KEY or ALIBABA_API_KEY in .env.']);
     exit;
 }
 // Resolve model: must be valid for this provider to avoid sending e.g. mercury-2 to Gemini API
@@ -2232,7 +2608,7 @@ while (true) {
     $conversationToSend = sanitizeConversationForApi(truncateConversationForContext($conversation));
     $result = $provider['type'] === 'gemini'
         ? requestGemini($provider, $modelId, $conversationToSend, $temperature, $effectiveSystemPrompt)
-        : requestOpenAiCompatible($provider, $modelId, $conversationToSend, $temperature, $openAiTools);
+        : requestOpenAiCompatible($provider, $modelId, $conversationToSend, $temperature, $openAiTools, $providerKey);
 
     if (isset($result['error'])) {
         $rawBody = isset($result['raw']) ? $result['raw'] : '';
@@ -2404,6 +2780,9 @@ while (true) {
                     $model = $cfg['model'];
                     if (isset($providers[$providerKey])) {
                         $provider = $providers[$providerKey];
+                        if ($providerKey === 'alibaba') {
+                            $provider = memory_graph_alibaba_provider_runtime($provider);
+                        }
                         $uiProviders = get_providers_for_ui();
                         $allowedModels = isset($uiProviders['providers'][$providerKey]['models']) && is_array($uiProviders['providers'][$providerKey]['models'])
                             ? $uiProviders['providers'][$providerKey]['models']
@@ -2490,6 +2869,9 @@ while (true) {
                 $model = $cfg['model'];
                 if (isset($providers[$providerKey])) {
                     $provider = $providers[$providerKey];
+                    if ($providerKey === 'alibaba') {
+                        $provider = memory_graph_alibaba_provider_runtime($provider);
+                    }
                     $uiProviders = get_providers_for_ui();
                     $allowedModels = isset($uiProviders['providers'][$providerKey]['models']) && is_array($uiProviders['providers'][$providerKey]['models'])
                         ? $uiProviders['providers'][$providerKey]['models']
@@ -2588,6 +2970,9 @@ while (true) {
             $model = $cfg['model'];
             if (isset($providers[$providerKey])) {
                 $provider = $providers[$providerKey];
+                if ($providerKey === 'alibaba') {
+                    $provider = memory_graph_alibaba_provider_runtime($provider);
+                }
                 $uiProviders = get_providers_for_ui();
                 $allowedModels = isset($uiProviders['providers'][$providerKey]['models']) && is_array($uiProviders['providers'][$providerKey]['models'])
                     ? $uiProviders['providers'][$providerKey]['models']
@@ -2610,7 +2995,19 @@ if (trim($finalContent) === '' && $lastToolResultText !== '') {
     $finalContent = $lastToolResultText;
 }
 
+$synthesizedFromTools = false;
+if (trim($finalContent) === '') {
+    $forced = memory_graph_forced_reply_from_tool_messages($conversation, $requestId);
+    if ($forced !== '') {
+        $finalContent = $forced;
+        $synthesizedFromTools = true;
+    }
+}
+
 $memoryGraphMeta = [];
+if ($synthesizedFromTools) {
+    $memoryGraphMeta['synthesized_from_tools'] = true;
+}
 if (trim($finalContent) === '') {
     $memoryGraphMeta['empty_assistant'] = true;
     $memoryGraphMeta['hint'] = 'The model returned no visible assistant text. Check provider, model ID, API key, and logs. If the job only used tools, ensure research/memory tools are enabled. Request ID: ' . $requestId;
@@ -2628,8 +3025,16 @@ if (trim($finalContent) === '') {
     $memoryGraphMeta['hint'] = $finalContent;
 }
 
+$memoryGraphMeta['assistant_body'] = (string) $finalContent;
+
+$wroteChatTranscriptMemory = false;
 if ($initialUserContent !== '' && trim($finalContent) !== '' && empty($memoryGraphMeta['empty_assistant'])) {
     append_chat_exchange($requestId, $initialUserContent, $finalContent, $chatSessionIdInput);
+    $trMeta = append_session_chat_transcript($chatSessionIdInput, $initialUserContent, $finalContent, $requestId);
+    if (!empty($trMeta['name'])) {
+        $memoryGraphMeta['chat_transcript_memory'] = (string) $trMeta['name'];
+        $wroteChatTranscriptMemory = true;
+    }
 }
 
 $response = [
@@ -2657,8 +3062,11 @@ if (is_array($waOpen) && !empty($waOpen['display_web_app']) && empty($waOpen['er
         'url' => (string) ($waOpen['url'] ?? ''),
     ];
 }
-if (!empty($status['graphRefreshNeeded'])) {
+if (!empty($status['graphRefreshNeeded']) || $wroteChatTranscriptMemory) {
     $response['graphRefreshNeeded'] = true;
+}
+if (!empty($GLOBALS['MEMORY_GRAPH_WEB_APPS_LIST_DIRTY'])) {
+    $response['reloadWebAppsList'] = true;
 }
 if (!empty($GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS']) && !$skipCronPendingDelivery) {
     mg_cron_pending_delete_paths($GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS']);

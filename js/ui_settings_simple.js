@@ -14,7 +14,8 @@
     var $logMobile;
     var $pulses;
     var $sectionTitle;
-    var currentSection = 'memory';
+    var $simpleMain;
+    var currentSection = 'chat';
     var listCache = {};
     var logLines = [];
     var MAX_LOG = 100;
@@ -42,6 +43,26 @@
         apps: { label: 'Web apps', listUrl: 'api/web_apps.php?action=list', listKey: 'apps', getUrl: function (name) { return 'api/web_apps.php?action=get&name=' + encodeURIComponent(name); } },
         scheduled: { label: 'Scheduled', listUrl: 'api/cron.php?action=list', listKey: 'jobs', getUrl: null }
     };
+
+    function postWebApp(action, body) {
+        return fetch('api/web_apps.php?action=' + encodeURIComponent(action), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            credentials: 'same-origin'
+        }).then(function (r) {
+            return r.text().then(function (t) {
+                var res = null;
+                try {
+                    res = t ? JSON.parse(t) : null;
+                } catch (e) {}
+                if (!r.ok) {
+                    throw new Error((res && res.error) ? res.error : (t || ('HTTP ' + r.status)));
+                }
+                return res || {};
+            });
+        });
+    }
 
     function getMode() {
         try {
@@ -75,8 +96,32 @@
             } catch (e) {}
         }
         if (simple) {
-            loadSectionList(currentSection);
+            showSection(currentSection);
+            if (typeof window.MemoryGraphFocusChatInput === 'function') {
+                window.MemoryGraphFocusChatInput();
+            }
         }
+    }
+
+    function showSection(section) {
+        currentSection = section || 'chat';
+        $('.simple-nav-btn').removeClass('is-active');
+        $('.simple-nav-btn[data-section="' + currentSection + '"]').addClass('is-active');
+        if (!$simpleMain || !$simpleMain.length) {
+            return;
+        }
+        if (currentSection === 'chat') {
+            $simpleMain.removeClass('simple-main-view-library').addClass('simple-main-view-chat');
+            if ($sectionTitle && $sectionTitle.length) {
+                $sectionTitle.text('Chat');
+            }
+            if (typeof window.MemoryGraphRefreshSimpleChatThread === 'function') {
+                window.MemoryGraphRefreshSimpleChatThread();
+            }
+            return;
+        }
+        $simpleMain.removeClass('simple-main-view-chat').addClass('simple-main-view-library');
+        loadSectionList(currentSection);
     }
 
     function openSettings() {
@@ -403,35 +448,137 @@
             if (parts.length) {
                 meta.append($('<p>').text(parts.join(' · ')));
             }
+
+            var $titleLabel = $('<label class="simple-app-form-label font-display">').attr('for', 'simple-app-title-' + slug).text('Display title');
+            var $titleInput = $('<input type="text" id="simple-app-title-' + slug + '" class="simple-app-title-input font-serif">').attr({ spellcheck: false, autocomplete: 'off' }).val(appTitle);
+            var $htmlLabel = $('<label class="simple-app-form-label font-display">').attr('for', 'simple-app-html-' + slug).text('index.html (edit and save)');
+            var $ta = $('<textarea id="simple-app-html-' + slug + '" class="simple-web-app-editor font-serif" spellcheck="false" wrap="off">');
+            $ta.attr('placeholder', 'Loading…');
+
             var openUrl = 'api/serve_app.php?app=' + encodeURIComponent(slug || '');
-            var row = $('<div class="panel-action-btn-row" style="margin-top:12px;flex-wrap:wrap;gap:8px;">');
-            row.append($('<button type="button" class="panel-action-btn">').text('Open fullscreen').on('click', function () {
+            var rowOpen = $('<div class="panel-action-btn-row" style="margin-top:12px;flex-wrap:wrap;gap:8px;">');
+            rowOpen.append($('<button type="button" class="panel-action-btn">').text('Open fullscreen').on('click', function () {
+                var t = ($titleInput.val() || '').trim() || appTitle;
                 if (typeof window.MemoryGraphOpenWebApp === 'function') {
-                    window.MemoryGraphOpenWebApp({ name: slug, title: appTitle, url: openUrl });
+                    window.MemoryGraphOpenWebApp({ name: slug, title: t, url: openUrl });
                 } else {
                     window.open(openUrl, '_blank', 'noopener,noreferrer');
                 }
             }));
-            $detailCol.append(row);
-            if (slug) {
-                $.getJSON('api/web_apps.php?action=get&name=' + encodeURIComponent(slug))
-                    .done(function (data) {
-                        if (data && data.error) {
-                            $detailCol.append($('<p class="simple-warn">').text(data.error));
-                            return;
-                        }
-                        var c = data && data.content;
-                        if (typeof c === 'string' && c.length) {
-                            var max = 6000;
-                            var snippet = c.length > max ? c.slice(0, max) + '\n\n… (' + c.length + ' characters total)' : c;
-                            $detailCol.append($('<p class="simple-detail-meta font-serif" style="margin-top:14px;opacity:0.85;">').text('Source preview'));
-                            $detailCol.append($('<pre class="simple-detail-pre">').text(snippet));
+            $detailCol.append(rowOpen);
+
+            var $status = $('<p class="simple-app-save-status font-serif" role="status">').hide();
+            $detailCol.append($status);
+
+            function setAppStatus(msg, isErr) {
+                if (!msg) {
+                    $status.hide().text('');
+                    return;
+                }
+                $status.text(msg).show().css('color', isErr ? '#f87171' : 'var(--gold-dim)');
+            }
+
+            $detailCol.append($titleLabel, $titleInput, $htmlLabel, $ta);
+
+            var rowEdit = $('<div class="panel-action-btn-row" style="margin-top:12px;flex-wrap:wrap;gap:8px;">');
+            var $btnSave = $('<button type="button" class="panel-action-btn">').text('Save changes');
+            var $btnDel = $('<button type="button" class="panel-action-btn btn-stop">').text('Delete app');
+            rowEdit.append($btnSave, $btnDel);
+            $detailCol.append(rowEdit);
+
+            if (!slug) {
+                setAppStatus('Invalid app slug.', true);
+                $ta.prop('disabled', true);
+                $btnSave.prop('disabled', true);
+                $btnDel.prop('disabled', true);
+                return;
+            }
+
+            $btnSave.on('click', function () {
+                var html = $ta.val();
+                if (!html || !String(html).trim()) {
+                    setAppStatus('HTML cannot be empty.', true);
+                    return;
+                }
+                var tit = ($titleInput.val() || '').trim();
+                var payload = { name: slug, html: html };
+                if (tit) {
+                    payload.title = tit;
+                }
+                $btnSave.prop('disabled', true);
+                setAppStatus('Saving…', false);
+                postWebApp('update', payload)
+                    .then(function (res) {
+                        if (res && res.ok) {
+                            setAppStatus('Saved.', false);
+                            delete listCache.apps;
+                            loadSectionList('apps');
+                            if (typeof window.MemoryGraphReloadAppsList === 'function') {
+                                window.MemoryGraphReloadAppsList();
+                            }
+                            if (typeof window.MemoryGraphRefresh === 'function') {
+                                window.MemoryGraphRefresh();
+                            }
+                        } else {
+                            setAppStatus((res && res.error) ? res.error : 'Save failed', true);
                         }
                     })
-                    .fail(function () {
-                        $detailCol.append($('<p class="simple-warn">').text('Could not load source.'));
+                    .catch(function (err) {
+                        setAppStatus(err && err.message ? err.message : 'Save failed', true);
+                    })
+                    .finally(function () {
+                        $btnSave.prop('disabled', false);
                     });
-            }
+            });
+
+            $btnDel.on('click', function () {
+                if (!confirm('Delete app "' + slug + '"? This removes the folder under apps/ and cannot be undone.')) {
+                    return;
+                }
+                $btnDel.prop('disabled', true);
+                $btnSave.prop('disabled', true);
+                postWebApp('delete', { name: slug })
+                    .then(function (res) {
+                        if (res && res.ok) {
+                            delete listCache.apps;
+                            $detailCol.empty();
+                            loadSectionList('apps');
+                            if (typeof window.MemoryGraphReloadAppsList === 'function') {
+                                window.MemoryGraphReloadAppsList();
+                            }
+                            if (typeof window.MemoryGraphRefresh === 'function') {
+                                window.MemoryGraphRefresh();
+                            }
+                        } else {
+                            setAppStatus((res && res.error) ? res.error : 'Delete failed', true);
+                        }
+                    })
+                    .catch(function (err) {
+                        setAppStatus(err && err.message ? err.message : 'Delete failed', true);
+                    })
+                    .finally(function () {
+                        $btnDel.prop('disabled', false);
+                        $btnSave.prop('disabled', false);
+                    });
+            });
+
+            $.getJSON('api/web_apps.php?action=get&name=' + encodeURIComponent(slug))
+                .done(function (data) {
+                    if (data && data.error) {
+                        setAppStatus(data.error, true);
+                        $ta.prop('disabled', true).attr('placeholder', '');
+                        return;
+                    }
+                    var c = data && data.content;
+                    $ta.val(typeof c === 'string' ? c : '').attr('placeholder', '');
+                    if (data && data.title) {
+                        $titleInput.val(data.title);
+                    }
+                })
+                .fail(function () {
+                    setAppStatus('Could not load source.', true);
+                    $ta.prop('disabled', true).attr('placeholder', '');
+                });
             return;
         }
 
@@ -462,12 +609,9 @@
     }
 
     function loadSectionList(section) {
-        currentSection = section;
         var def = SECTION_DEFS[section];
         if (!def || !$sectionTitle || !$sectionTitle.length) return;
         $sectionTitle.text(def.label);
-        $('.simple-nav-btn').removeClass('is-active');
-        $('.simple-nav-btn[data-section="' + section + '"]').addClass('is-active');
 
         if (section !== 'scheduled' && listCache[section]) {
             renderList(listCache[section], section);
@@ -500,6 +644,7 @@
         $log = $('#simple-activity-log');
         $pulses = $('#simple-activity-pulses');
         $sectionTitle = $('#simple-section-title');
+        $simpleMain = $('#simple-main');
         var $toolbarPulses = $('#simple-toolbar-pulses');
 
         function buildPulseStrip($container, compact) {
@@ -531,7 +676,7 @@
             var sec = $(this).data('section');
             if (sec) {
                 $detailCol.empty();
-                loadSectionList(sec);
+                showSection(sec);
             }
         });
 
@@ -545,13 +690,29 @@
         $switch.prop('checked', initial === 'simple');
         applyMode(initial);
 
+        window.MemoryGraphReloadSimpleAppsSection = function () {
+            if (!document.documentElement.classList.contains('mg-simple-ui')) {
+                return;
+            }
+            delete listCache.apps;
+            if (currentSection === 'apps' && $simpleMain && $simpleMain.length && $simpleMain.hasClass('simple-main-view-library')) {
+                loadSectionList('apps');
+            }
+        };
+
         var origRefresh = window.MemoryGraphRefresh;
         if (typeof origRefresh === 'function') {
             window.MemoryGraphRefresh = function () {
                 listCache = {};
                 origRefresh.apply(this, arguments);
                 if (document.documentElement.classList.contains('mg-simple-ui')) {
-                    loadSectionList(currentSection);
+                    if (currentSection === 'chat') {
+                        if (typeof window.MemoryGraphRefreshSimpleChatThread === 'function') {
+                            window.MemoryGraphRefreshSimpleChatThread();
+                        }
+                    } else {
+                        loadSectionList(currentSection);
+                    }
                 }
             };
         }

@@ -59,14 +59,14 @@
         },
         {
             "name": "display_web_app",
-            "description": "Show a saved HTML/JS mini-app from the apps/ folder in a fullscreen modal in the dashboard. Pass the app slug (folder name), e.g. demo-counter. Create or edit apps with create_web_app / update_web_app.",
+            "description": "Show a saved HTML\/JS mini-app from the apps\/ folder in a fullscreen modal in the dashboard. Pass the app slug (folder name), e.g. demo-counter. Create or edit apps with create_web_app \/ update_web_app.",
             "active": true,
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "App slug (apps/<slug>/index.html)"
+                        "description": "App slug (apps\/<slug>\/index.html)"
                     }
                 },
                 "required": [
@@ -93,19 +93,19 @@
         },
         {
             "name": "exec_terminal",
-            "description": "Execute a terminal command on the server and return its output.",
+            "description": "Execute a terminal command on the server and return its output. Modified to attempt admin\/elevated execution when needed.",
             "active": true,
             "parameters": {
-                "type": "object",
                 "properties": {
                     "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
+                        "description": "The shell command to execute.",
+                        "type": "string"
                     }
                 },
                 "required": [
                     "command"
-                ]
+                ],
+                "type": "object"
             }
         },
         {
@@ -510,6 +510,24 @@
                 "required": [
                     "html_content"
                 ]
+            }
+        },
+        {
+            "name": "show_tool_call_history",
+            "description": "Display a dropdown panel showing the complete history of all tool calls executed in the current session, with collapsible sections for each call showing the tool name, arguments, and result.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": []
+            }
+        },
+        {
+            "name": "inject_tool_history_js",
+            "description": "Generate JavaScript code that injects the tool call history dropdown panel into the AI response modal.",
+            "active": true,
+            "parameters": {
+                "type": "object",
+                "properties": {}
             }
         }
     ]

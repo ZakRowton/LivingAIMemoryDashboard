@@ -1358,13 +1358,61 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .graph-legend {
             display: none !important;
         }
+
+        /* Simple mode: slimmer hero, less visual competition with the chat workspace */
+        html.mg-simple-ui .jarvis-brand-fixed {
+            top: 6px;
+        }
+        html.mg-simple-ui .jarvis-brand {
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 6px 18px;
+            padding: 8px 20px 10px;
+        }
+        html.mg-simple-ui .jarvis-brand__halo {
+            opacity: 0.22;
+            filter: blur(22px);
+        }
+        html.mg-simple-ui .jarvis-brand__rule {
+            display: none;
+        }
+        html.mg-simple-ui .jarvis-brand__title {
+            margin: 0;
+        }
+        html.mg-simple-ui .jarvis-brand__title-main {
+            font-size: clamp(0.88rem, 2.1vw, 1.2rem);
+            letter-spacing: 0.1em;
+            animation: none;
+        }
+        html.mg-simple-ui .jarvis-brand__tagline {
+            margin: 0;
+            padding: 0 0 0 16px;
+            max-width: min(380px, 42vw);
+            font-size: clamp(0.62rem, 1.35vw, 0.78rem);
+            border-left: 1px solid rgba(212, 175, 55, 0.22);
+        }
+        @media (max-width: 640px) {
+            html.mg-simple-ui .jarvis-brand__tagline {
+                border-left: none;
+                padding-left: 0;
+                max-width: 90vw;
+            }
+        }
+        html[data-theme="light"].mg-simple-ui .jarvis-brand__tagline {
+            border-left-color: rgba(184, 150, 46, 0.32);
+        }
+
         .simple-ui-root {
             position: fixed;
             inset: 0;
             z-index: 45;
             display: none;
             flex-direction: row;
-            padding-top: 58px;
+            align-items: stretch;
+            gap: 0;
+            padding-top: 52px;
             padding-bottom: 100px;
             box-sizing: border-box;
             background: var(--black);
@@ -1373,24 +1421,128 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .simple-ui-root {
             display: flex !important;
         }
+        html.mg-simple-ui:not([data-theme="light"]) .simple-ui-root {
+            color-scheme: dark;
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-ui-root {
+            color-scheme: light;
+        }
         [data-theme="light"] .simple-ui-root {
             background: #f5f0e6;
             background-image: radial-gradient(circle at top center, #ebe5d9 0%, #e8e0d2 100%);
         }
-        .simple-side-nav {
+
+        /* Simple UI: custom scrollbars (WebKit + Firefox) — gold thumb, dark track */
+        html.mg-simple-ui .simple-chat-thread-wrap,
+        html.mg-simple-ui .simple-side-nav,
+        html.mg-simple-ui .simple-activity-log,
+        html.mg-simple-ui .simple-list-col,
+        html.mg-simple-ui .simple-detail-col,
+        html.mg-simple-ui .simple-detail-pre,
+        html.mg-simple-ui .simple-activity-log-mobile {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(212, 175, 55, 0.55) rgba(3, 3, 3, 0.45);
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-chat-thread-wrap,
+        html.mg-simple-ui[data-theme="light"] .simple-side-nav,
+        html.mg-simple-ui[data-theme="light"] .simple-activity-log,
+        html.mg-simple-ui[data-theme="light"] .simple-list-col,
+        html.mg-simple-ui[data-theme="light"] .simple-detail-col,
+        html.mg-simple-ui[data-theme="light"] .simple-detail-pre,
+        html.mg-simple-ui[data-theme="light"] .simple-activity-log-mobile {
+            scrollbar-color: rgba(184, 150, 46, 0.75) rgba(240, 235, 224, 0.85);
+        }
+        html.mg-simple-ui .simple-chat-thread-wrap::-webkit-scrollbar,
+        html.mg-simple-ui .simple-side-nav::-webkit-scrollbar,
+        html.mg-simple-ui .simple-activity-log::-webkit-scrollbar,
+        html.mg-simple-ui .simple-list-col::-webkit-scrollbar,
+        html.mg-simple-ui .simple-detail-col::-webkit-scrollbar,
+        html.mg-simple-ui .simple-detail-pre::-webkit-scrollbar,
+        html.mg-simple-ui .simple-activity-log-mobile::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        html.mg-simple-ui .simple-chat-thread-wrap::-webkit-scrollbar-track,
+        html.mg-simple-ui .simple-side-nav::-webkit-scrollbar-track,
+        html.mg-simple-ui .simple-activity-log::-webkit-scrollbar-track,
+        html.mg-simple-ui .simple-list-col::-webkit-scrollbar-track,
+        html.mg-simple-ui .simple-detail-col::-webkit-scrollbar-track,
+        html.mg-simple-ui .simple-detail-pre::-webkit-scrollbar-track,
+        html.mg-simple-ui .simple-activity-log-mobile::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 8px;
+            margin: 4px 0;
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-chat-thread-wrap::-webkit-scrollbar-track,
+        html.mg-simple-ui[data-theme="light"] .simple-side-nav::-webkit-scrollbar-track,
+        html.mg-simple-ui[data-theme="light"] .simple-activity-log::-webkit-scrollbar-track,
+        html.mg-simple-ui[data-theme="light"] .simple-list-col::-webkit-scrollbar-track,
+        html.mg-simple-ui[data-theme="light"] .simple-detail-col::-webkit-scrollbar-track,
+        html.mg-simple-ui[data-theme="light"] .simple-detail-pre::-webkit-scrollbar-track,
+        html.mg-simple-ui[data-theme="light"] .simple-activity-log-mobile::-webkit-scrollbar-track {
+            background: rgba(232, 224, 210, 0.9);
+        }
+        html.mg-simple-ui .simple-chat-thread-wrap::-webkit-scrollbar-thumb,
+        html.mg-simple-ui .simple-side-nav::-webkit-scrollbar-thumb,
+        html.mg-simple-ui .simple-activity-log::-webkit-scrollbar-thumb,
+        html.mg-simple-ui .simple-list-col::-webkit-scrollbar-thumb,
+        html.mg-simple-ui .simple-detail-col::-webkit-scrollbar-thumb,
+        html.mg-simple-ui .simple-detail-pre::-webkit-scrollbar-thumb,
+        html.mg-simple-ui .simple-activity-log-mobile::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(212, 175, 55, 0.55) 0%, rgba(138, 115, 38, 0.65) 100%);
+            border-radius: 8px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            box-shadow: 0 0 12px rgba(212, 175, 55, 0.15);
+        }
+        html.mg-simple-ui .simple-chat-thread-wrap::-webkit-scrollbar-thumb:hover,
+        html.mg-simple-ui .simple-side-nav::-webkit-scrollbar-thumb:hover,
+        html.mg-simple-ui .simple-activity-log::-webkit-scrollbar-thumb:hover,
+        html.mg-simple-ui .simple-list-col::-webkit-scrollbar-thumb:hover,
+        html.mg-simple-ui .simple-detail-col::-webkit-scrollbar-thumb:hover,
+        html.mg-simple-ui .simple-detail-pre::-webkit-scrollbar-thumb:hover,
+        html.mg-simple-ui .simple-activity-log-mobile::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #d4af37 0%, #8a7326 100%);
+            box-shadow: 0 0 16px rgba(212, 175, 55, 0.35);
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-chat-thread-wrap::-webkit-scrollbar-thumb,
+        html.mg-simple-ui[data-theme="light"] .simple-side-nav::-webkit-scrollbar-thumb,
+        html.mg-simple-ui[data-theme="light"] .simple-activity-log::-webkit-scrollbar-thumb,
+        html.mg-simple-ui[data-theme="light"] .simple-list-col::-webkit-scrollbar-thumb,
+        html.mg-simple-ui[data-theme="light"] .simple-detail-col::-webkit-scrollbar-thumb,
+        html.mg-simple-ui[data-theme="light"] .simple-detail-pre::-webkit-scrollbar-thumb,
+        html.mg-simple-ui[data-theme="light"] .simple-activity-log-mobile::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(184, 150, 46, 0.85) 0%, rgba(107, 90, 42, 0.75) 100%);
+            box-shadow: none;
+        }
+        html.mg-simple-ui .simple-chat-thread-wrap::-webkit-scrollbar-corner,
+        html.mg-simple-ui .simple-side-nav::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+
+        html.mg-simple-ui .simple-side-nav {
             width: min(228px, 32vw);
             flex-shrink: 0;
-            border-right: 1px solid rgba(212, 175, 55, 0.18);
-            background: rgba(10, 10, 10, 0.75);
-            backdrop-filter: blur(14px);
+            margin: 10px 0 10px 12px;
+            border-radius: 18px;
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            border-right: 1px solid rgba(212, 175, 55, 0.14);
+            background: rgba(10, 10, 10, 0.82);
+            backdrop-filter: blur(16px);
             padding: 14px 0 18px;
             overflow-y: auto;
-            box-shadow: inset -1px 0 0 rgba(212, 175, 55, 0.06);
+            box-shadow:
+                0 0 0 1px rgba(0, 0, 0, 0.35),
+                0 18px 40px rgba(0, 0, 0, 0.35),
+                inset 0 1px 0 rgba(212, 175, 55, 0.07);
         }
-        [data-theme="light"] .simple-side-nav {
-            background: rgba(252, 248, 240, 0.92);
-            border-right-color: rgba(184, 150, 46, 0.28);
-            box-shadow: inset -1px 0 0 rgba(184, 150, 46, 0.12);
+        html[data-theme="light"].mg-simple-ui .simple-side-nav {
+            background: rgba(252, 248, 240, 0.94);
+            border-color: rgba(184, 150, 46, 0.26);
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.55),
+                0 16px 36px rgba(107, 90, 42, 0.07),
+                inset 0 1px 0 rgba(184, 150, 46, 0.14);
         }
         .simple-nav-label {
             padding: 6px 16px 10px;
@@ -1455,10 +1607,34 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         [data-theme="light"] .simple-main {
             background: rgba(255, 255, 255, 0.2);
         }
+        html.mg-simple-ui .simple-main {
+            margin: 10px 8px 10px 4px;
+            border-radius: 22px;
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            background: linear-gradient(168deg, rgba(14, 12, 10, 0.94) 0%, rgba(5, 5, 8, 0.92) 55%, rgba(8, 7, 12, 0.9) 100%);
+            box-shadow:
+                0 0 0 1px rgba(0, 0, 0, 0.5),
+                0 28px 56px rgba(0, 0, 0, 0.42),
+                inset 0 1px 0 rgba(212, 175, 55, 0.09);
+            overflow: hidden;
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-main {
+            background: linear-gradient(168deg, rgba(255, 252, 246, 0.97) 0%, rgba(252, 248, 240, 0.95) 100%);
+            border-color: rgba(184, 150, 46, 0.22);
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.7),
+                0 20px 48px rgba(107, 90, 42, 0.1),
+                inset 0 1px 0 rgba(184, 150, 46, 0.12);
+        }
         .simple-toolbar {
-            padding: 14px 20px 16px;
+            flex-shrink: 0;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 16px;
+            padding: 12px 22px 14px;
             border-bottom: 1px solid rgba(212, 175, 55, 0.14);
-            background: linear-gradient(180deg, rgba(212, 175, 55, 0.06) 0%, transparent 100%);
+            background: linear-gradient(180deg, rgba(212, 175, 55, 0.07) 0%, transparent 100%);
         }
         [data-theme="light"] .simple-toolbar {
             border-bottom-color: rgba(184, 150, 46, 0.22);
@@ -1506,6 +1682,151 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         @media (max-width: 768px) {
             .simple-activity-log-mobile {
                 display: block;
+            }
+        }
+        /* Simple UI: Chat thread (center) vs library split */
+        .simple-chat-view {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 0 4px 12px;
+            box-sizing: border-box;
+        }
+        .simple-chat-surface {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            margin: 0 10px 4px;
+            border-radius: 18px;
+            border: 1px solid rgba(212, 175, 55, 0.11);
+            background: rgba(2, 2, 4, 0.42);
+            box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.05);
+            overflow: hidden;
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-chat-surface {
+            background: rgba(255, 255, 255, 0.28);
+            border-color: rgba(184, 150, 46, 0.18);
+            box-shadow: inset 0 1px 0 rgba(184, 150, 46, 0.1);
+        }
+        .simple-main-view-library .simple-chat-view {
+            display: none !important;
+        }
+        .simple-main-view-chat .simple-library-view {
+            display: none !important;
+        }
+        .simple-library-view {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .simple-chat-thread-wrap {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 22px 10px 32px 22px;
+            box-sizing: border-box;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-gutter: stable;
+        }
+        .simple-chat-thread {
+            max-width: 48rem;
+            margin: 0 auto;
+            padding-right: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .simple-chat-empty {
+            text-align: center;
+            color: var(--gold-dim);
+            font-size: 1rem;
+            padding: 2.5rem 1rem 1rem;
+            opacity: 0.85;
+        }
+        .simple-chat-row {
+            display: flex;
+            width: 100%;
+        }
+        .simple-chat-row--user {
+            justify-content: flex-end;
+        }
+        .simple-chat-row--assistant {
+            justify-content: flex-start;
+        }
+        .simple-chat-bubble {
+            max-width: min(94%, 44rem);
+            padding: 14px 18px;
+            border-radius: 18px;
+            line-height: 1.58;
+            font-size: 1.02rem;
+            box-sizing: border-box;
+        }
+        .simple-chat-row--user .simple-chat-bubble {
+            background: rgba(212, 175, 55, 0.14);
+            border: 1px solid rgba(212, 175, 55, 0.32);
+            color: #f9f1d8;
+            border-bottom-right-radius: 6px;
+        }
+        [data-theme="light"] .simple-chat-row--user .simple-chat-bubble {
+            background: rgba(184, 150, 46, 0.12);
+            border-color: rgba(107, 90, 42, 0.35);
+            color: #4a4238;
+        }
+        .simple-chat-row--assistant .simple-chat-bubble {
+            background: rgba(8, 8, 8, 0.5);
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            color: #f0ebe0;
+            border-bottom-left-radius: 6px;
+            backdrop-filter: blur(10px);
+        }
+        [data-theme="light"] .simple-chat-row--assistant .simple-chat-bubble {
+            background: rgba(255, 255, 255, 0.72);
+            border-color: rgba(184, 150, 46, 0.22);
+            color: #4a4238;
+        }
+        .simple-chat-bubble--error {
+            border-color: rgba(185, 28, 28, 0.45) !important;
+            box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.12);
+        }
+        .simple-chat-text {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .simple-chat-row--assistant .simple-chat-bubble .response-modal-code-block {
+            margin-top: 10px;
+        }
+        html.mg-simple-ui .simple-chat-row--assistant .simple-chat-bubble .response-modal-code {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(212, 175, 55, 0.12);
+            border-radius: 10px;
+        }
+        html[data-theme="light"].mg-simple-ui .simple-chat-row--assistant .simple-chat-bubble .response-modal-code {
+            background: rgba(255, 255, 255, 0.75);
+            border-color: rgba(184, 150, 46, 0.2);
+        }
+        @media (max-width: 768px) {
+            html.mg-simple-ui .simple-side-nav {
+                margin: 8px 0 8px 8px;
+                border-radius: 14px;
+            }
+            html.mg-simple-ui .simple-main {
+                margin: 8px 6px 8px 2px;
+                border-radius: 16px;
+            }
+            html.mg-simple-ui .simple-activity-col {
+                margin: 8px 8px 8px 0;
+                border-radius: 14px;
+            }
+            html.mg-simple-ui .simple-chat-surface {
+                margin: 0 6px 2px;
+                border-radius: 14px;
+            }
+            html.mg-simple-ui .simple-chat-thread-wrap {
+                padding: 16px 8px 24px 14px;
             }
         }
         .simple-split {
@@ -1619,6 +1940,101 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             color: #1d2228;
             border-color: rgba(184, 150, 46, 0.22);
         }
+        .simple-app-form-label {
+            display: block;
+            font-size: 0.68rem;
+            letter-spacing: 0.04em;
+            color: var(--gold-dim);
+            margin: 12px 0 6px;
+        }
+        .simple-app-title-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(212, 175, 55, 0.22);
+            background: rgba(255, 255, 255, 0.04);
+            color: #f9f1d8;
+            font-size: 0.9rem;
+            outline: none;
+        }
+        .simple-app-title-input:focus {
+            border-color: var(--accent, var(--gold));
+            background: rgba(212, 175, 55, 0.06);
+            box-shadow: 0 0 14px rgba(212, 175, 55, 0.12);
+        }
+        [data-theme="light"] .simple-app-title-input {
+            background: rgba(255, 255, 255, 0.85);
+            color: #5c2329;
+            border-color: rgba(184, 150, 46, 0.35);
+        }
+        [data-theme="light"] .simple-app-title-input:focus {
+            border-color: var(--light-gold, #b8962e);
+            box-shadow: 0 0 12px rgba(184, 150, 46, 0.15);
+        }
+        .simple-web-app-editor {
+            width: 100%;
+            box-sizing: border-box;
+            min-height: 200px;
+            max-height: min(48vh, 400px);
+            resize: vertical;
+            font-family: "Courier New", monospace;
+            font-size: 0.75rem;
+            line-height: 1.45;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            background: rgba(0, 0, 0, 0.35);
+            color: #dce3ea;
+            outline: none;
+        }
+        .simple-web-app-editor:focus {
+            border-color: rgba(212, 175, 55, 0.35);
+            box-shadow: 0 0 16px rgba(212, 175, 55, 0.08);
+        }
+        [data-theme="light"] .simple-web-app-editor {
+            background: rgba(255, 255, 255, 0.65);
+            color: #1d2228;
+            border-color: rgba(184, 150, 46, 0.22);
+        }
+        .simple-app-save-status {
+            margin-top: 10px;
+            font-size: 0.82rem;
+        }
+        html.mg-simple-ui .simple-web-app-editor {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(212, 175, 55, 0.55) rgba(3, 3, 3, 0.45);
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-web-app-editor {
+            scrollbar-color: rgba(184, 150, 46, 0.75) rgba(240, 235, 224, 0.85);
+        }
+        html.mg-simple-ui .simple-web-app-editor::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        html.mg-simple-ui .simple-web-app-editor::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 8px;
+            margin: 4px 0;
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-web-app-editor::-webkit-scrollbar-track {
+            background: rgba(232, 224, 210, 0.9);
+        }
+        html.mg-simple-ui .simple-web-app-editor::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(212, 175, 55, 0.55) 0%, rgba(138, 115, 38, 0.65) 100%);
+            border-radius: 8px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            box-shadow: 0 0 12px rgba(212, 175, 55, 0.15);
+        }
+        html.mg-simple-ui .simple-web-app-editor::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, #d4af37 0%, #8a7326 100%);
+            box-shadow: 0 0 16px rgba(212, 175, 55, 0.35);
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-web-app-editor::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(184, 150, 46, 0.85) 0%, rgba(107, 90, 42, 0.75) 100%);
+            box-shadow: none;
+        }
         .simple-open-panel-btn {
             margin-top: 12px;
             padding: 8px 14px;
@@ -1648,9 +2064,28 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             flex-direction: column;
             min-height: 0;
         }
+        html.mg-simple-ui .simple-activity-col {
+            margin: 10px 12px 10px 0;
+            border-radius: 18px;
+            border: 1px solid rgba(212, 175, 55, 0.14);
+            border-left: 1px solid rgba(212, 175, 55, 0.14);
+            background: rgba(8, 8, 10, 0.82);
+            box-shadow:
+                0 0 0 1px rgba(0, 0, 0, 0.35),
+                0 18px 40px rgba(0, 0, 0, 0.32),
+                inset 0 1px 0 rgba(212, 175, 55, 0.06);
+        }
         [data-theme="light"] .simple-activity-col {
             background: rgba(252, 248, 240, 0.88);
             border-left-color: rgba(184, 150, 46, 0.22);
+        }
+        html.mg-simple-ui[data-theme="light"] .simple-activity-col {
+            background: rgba(252, 248, 240, 0.94);
+            border-color: rgba(184, 150, 46, 0.22);
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.55),
+                0 16px 36px rgba(107, 90, 42, 0.06),
+                inset 0 1px 0 rgba(184, 150, 46, 0.12);
         }
         @media (max-width: 768px) {
             .simple-activity-col {
@@ -1759,6 +2194,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
 
     <div id="simple-ui-root" class="simple-ui-root">
         <nav class="simple-side-nav font-display" aria-label="Resource sections">
+            <button type="button" class="simple-nav-btn is-active" data-section="chat">Chat</button>
             <div class="simple-nav-label">Library</div>
             <button type="button" class="simple-nav-btn" data-section="memory">Memory</button>
             <button type="button" class="simple-nav-btn" data-section="tools">Tools</button>
@@ -1771,15 +2207,24 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             <div class="simple-nav-label simple-nav-label--spaced">Automation</div>
             <button type="button" class="simple-nav-btn" data-section="scheduled">Scheduled</button>
         </nav>
-        <main class="simple-main">
+        <main id="simple-main" class="simple-main simple-main-view-chat">
             <div class="simple-toolbar">
-                <h2 id="simple-section-title" class="font-display">Memory</h2>
+                <h2 id="simple-section-title" class="font-display">Chat</h2>
                 <div id="simple-toolbar-pulses" class="simple-toolbar-pulses" aria-hidden="true"></div>
                 <div id="simple-activity-log-mobile" class="simple-activity-log-mobile" aria-live="polite"></div>
             </div>
-            <div class="simple-split">
-                <div id="simple-list-col" class="simple-list-col font-serif"></div>
-                <div id="simple-detail-col" class="simple-detail-col font-serif"></div>
+            <div id="simple-chat-view" class="simple-chat-view">
+                <div class="simple-chat-surface">
+                    <div class="simple-chat-thread-wrap">
+                        <div id="simple-chat-thread" class="simple-chat-thread font-serif" role="log" aria-live="polite" aria-relevant="additions"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="simple-library-view" class="simple-library-view">
+                <div class="simple-split">
+                    <div id="simple-list-col" class="simple-list-col font-serif"></div>
+                    <div id="simple-detail-col" class="simple-detail-col font-serif"></div>
+                </div>
             </div>
         </main>
         <aside class="simple-activity-col" aria-label="Agent activity">
@@ -2019,7 +2464,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body web-app-modal-body">
-                    <iframe id="web-app-modal-frame" class="web-app-modal-frame" title="Web app" sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+                    <iframe id="web-app-modal-frame" class="web-app-modal-frame" title="Web app" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-pointer-lock" allow="pointer-lock; fullscreen; autoplay; gamepad; accelerometer; gyroscope; microphone; camera; display-capture; xr-spatial-tracking"></iframe>
                 </div>
             </div>
         </div>
@@ -2111,7 +2556,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     window.MEMORY_GRAPH_PROVIDERS = {
         mercury: { name: 'Mercury (Inception Labs)', models: ['mercury-2'] },
         featherless: { name: 'Featherless', models: ['glm47-flash'] },
-        alibaba: { name: 'Alibaba Cloud', models: ['qwen-plus'] },
+        alibaba: { name: 'Alibaba Cloud', models: ['qwen-plus', 'glm-5'] },
         gemini: {
             name: 'Gemini (Google)',
             models: [

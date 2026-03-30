@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Flight Shooter Pro</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      overflow: hidden; 
+      font-family: 'Segoe UI', sans-serif;
+      background: #000;
+      color: #fff;
+    }
+    #canvas-container {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+    }
+    canvas { display: block; }
+    #hud {
+      position: fixed;
+      top: 20px; left: 20px;
+      font-size: 14px;
+      z-index: 10;
+      text-shadow: 0 0 6px #0a0, 0 0 10px #0a0;
+      pointer-events: none;
+    }
+    #health-bar, #ammo-bar {
+      width: 200px; height: 20px;
+      background: #111; border-radius: 10px;
+      overflow: hidden; margin-top: 8px;
+      border: 1px solid #0a0;
+    }
+    #health-fill, #ammo-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0f0, #0a0);
+      border-radius: 10px;
+      transition: width 0.2s;
+    }
+    #crosshair {
+      position: fixed;
+      top: 50%; left: 50%;
+      width: 32px; height: 32px;
+      margin: -16px 0 0 -16px;
+      pointer-events: none;
+      z-index: 5;
+      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="%230a0" stroke-width="2"/><line x1="50" y1="0" x2="50" y2="100" stroke="%230a0" stroke-width="2"/><line x1="0" y1="50" x2="100" y2="50" stroke="%230a0" stroke-width="2"/></svg>') no-repeat center;
+    }
+    #instructions {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      max-width: 300px;
+      line-height: 1.5;
+      border: 1px solid #0a0;
+      z-index: 10;
+    }
+    #game-over, #victory {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0,0,0,0.85);
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s;
+      color: #0f0;
+      text-align: center;
+      text-shadow: 0 0 10px #0a0;
+    }
+    #game-over.show, #victory.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+    h1 { font-size: 48px; margin-bottom: 20px; }
+    p { font-size: 20px; margin: 10px 0; }
+    button {
+      background: #0a0;
+      color: #000;
+      border: none;
+      padding: 12px 32px;
+      font-size: 18px;
+      margin-top: 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    button:hover { background: #0f0; }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="hud">
+    <div><strong>FLIGHT SHOOTER PRO</strong></div>
+    <div>Health: <span id="health-value">100</span>%</div>
+    <div id="health-bar"><div id="health-fill" style="width:100%"></div></div>
+    <div>Ammo: <span id="ammo-value">30</span>/30</div>
+    <div id="ammo-bar"><div id="ammo-fill" style="width:100%"></div></div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="instructions">
+    <strong>CONTROLS</strong><br>
+    WASD — Thrust/Brake<br>
+    ← → ↑ ↓ — Pitch/Yaw/Roll<br>
+    SPACE — Fire missiles<br>
+    CLICK — Focus & lock controls
+  </div>
+  <div id="game-over">
+    <h1>MISSION FAILED</h1>
+    <p>Your aircraft has been destroyed.</p>
+    <button onclick="location.reload()">RETRY</button>
+  </div>
+  <div id="victory">
+    <h1>MISSION COMPLETE</h1>
+    <p>All hostiles eliminated.</p>
+    <button onclick="location.reload()">PLAY AGAIN</button>
+  </div>
+
+  <!-- Three.js r128 UMD: legacy examples/js paths still exist; r158+ removed them (404 → black screen). -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+
+  <script>
+    // --- CORE GAME ENGINE ---
+    let scene, camera, renderer, controls;
+    let player, enemies = [], bullets = [];
+    let clock = new THREE.Clock();
+    let health = 100, ammo = 30;
+    let gameActive = true;
+
+    // --- INIT ---
+    function init() {
+      // Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87CEEB);
+      scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 5, 15);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      // Controls
+      controls = new THREE.PointerLockControls(camera, document.body);
+      const blocker = document.getElementById('instructions');
+      const instructions = document.getElementById('instructions');
+
+      instructions.addEventListener('click', function () {
+        controls.lock();
+      });
+
+      controls.addEventListener('lock', function () {
+        instructions.style.display = 'none';
+      });
+
+      controls.addEventListener('unlock', function () {
+        instructions.style.display = '';
+      });
+
+      // Sky & ground
+      const skyGeo = new THREE.SphereGeometry(100, 32, 32);
+      const skyMat = new THREE.MeshBasicMaterial({
+        color: 0x87CEEB,
+        side: THREE.BackSide
+      });
+      scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+      const groundGeo = new THREE.PlaneGeometry(200, 200, 32, 32);
+      groundGeo.rotateX(-Math.PI / 2);
+      const groundMat = new THREE.MeshStandardMaterial({
+        color: 0x228B22,
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.position.y = -20;
+      scene.add(ground);
+
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0x404040, 2);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(10, 20, 15);
+      scene.add(dirLight);
+
+      // Player (simple F-16-like mesh)
+      const playerGeo = new THREE.ConeGeometry(0.5, 3, 8);
+      const playerMat = new THREE.MeshPhongMaterial({ color: 0x0066cc });
+      player = new THREE.Mesh(playerGeo, playerMat);
+      player.rotation.z = Math.PI / 2;
+      scene.add(player);
+
+      // Enemies
+      for (let i = 0; i < 5; i++) {
+        const enemyGeo = new THREE.ConeGeometry(0.4, 2.5, 8);
+        const enemyMat = new THREE.MeshPhongMaterial({ color: 0xcc0000 });
+        const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+        enemy.position.set(
+          (Math.random() - 0.5) * 80,
+          3 + Math.random() * 4,
+          -20 - Math.random() * 40
+        );
+        enemy.userData = { type: 'enemy', health: 100 };
+        enemies.push(enemy);
+        scene.add(enemy);
+      }
+
+      // Event listeners
+      window.addEventListener('resize', onWindowResize);
+      document.addEventListener('keydown', onKeyDown);
+      document.addEventListener('keyup', onKeyUp);
+
+      // Start loop
+      animate();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Input state
+    const keys = {};
+    function onKeyDown(event) {
+      keys[event.code] = true;
+      if (event.code === 'Space' && gameActive && ammo > 0) {
+        fireBullet();
+        ammo--;
+        updateHud();
+      }
+    }
+
+    function onKeyUp(event) {
+      keys[event.code] = false;
+    }
+
+    function fireBullet() {
+      const bulletGeo = new THREE.SphereGeometry(0.1, 8, 8);
+      const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+      bullet.position.copy(player.position);
+      bullet.userData = { type: 'bullet', speed: 0.5 };
+      bullet.quaternion.copy(player.quaternion);
+      scene.add(bullet);
+      bullets.push(bullet);
+    }
+
+    function updateHud() {
+      document.getElementById('health-value').textContent = Math.round(health);
+      document.getElementById('ammo-value').textContent = ammo;
+      document.getElementById('health-fill').style.width = health + '%';
+      document.getElementById('ammo-fill').style.width = (ammo / 30) * 100 + '%';
+    }
+
+    function gameOver() {
+      gameActive = false;
+      document.getElementById('game-over').classList.add('show');
+    }
+
+    function victory() {
+      gameActive = false;
+      document.getElementById('victory').classList.add('show');
+    }
+
+    // Game logic
+    function update() {
+      if (!gameActive) return;
+
+      // Player movement
+      const delta = clock.getDelta();
+      const speed = 0.2;
+
+      if (keys['KeyW']) player.position.z -= speed;
+      if (keys['KeyS']) player.position.z += speed;
+      if (keys['KeyA']) player.position.x -= speed;
+      if (keys['KeyD']) player.position.x += speed;
+
+      if (keys['ArrowUp']) player.rotation.x -= 0.02;
+      if (keys['ArrowDown']) player.rotation.x += 0.02;
+      if (keys['ArrowLeft']) player.rotation.y -= 0.02;
+      if (keys['ArrowRight']) player.rotation.y += 0.02;
+
+      // Clamp pitch
+      player.rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/3, player.rotation.x));
+
+      // Enemy AI
+      enemies.forEach(enemy => {
+        const dx = player.position.x - enemy.position.x;
+        const dz = player.position.z - enemy.position.z;
+        const dist = Math.sqrt(dx*dx + dz*dz);
+
+        if (dist < 30) {
+          // Chase player
+          enemy.position.x += (dx / dist) * 0.03;
+          enemy.position.z += (dz / dist) * 0.03;
+          enemy.lookAt(player.position);
+
+          // Fire occasionally
+          if (Math.random() < 0.002 && bullets.length < 20) {
+            const bulletGeo = new THREE.SphereGeometry(0.08, 6, 6);
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+            const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+            bullet.position.copy(enemy.position);
+            bullet.userData = { type: 'enemy-bullet', speed: 0.3 };
+            bullet.quaternion.copy(enemy.quaternion);
+            scene.add(bullet);
+            bullets.push(bullet);
+          }
+        }
+      });
+
+      // Bullets
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(b.quaternion);
+        b.position.add(forward.multiplyScalar(b.userData.speed));
+
+        // Remove if out of bounds
+        if (Math.abs(b.position.x) > 100 || Math.abs(b.position.z) > 100 || b.position.y < -30) {
+          scene.remove(b);
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        // Collision with enemies
+        if (b.userData.type === 'bullet') {
+          for (let j = enemies.length - 1; j >= 0; j--) {
+            const e = enemies[j];
+            const d = b.position.distanceTo(e.position);
+            if (d < 2.5) {
+              scene.remove(b);
+              bullets.splice(i, 1);
+              e.userData.health -= 30;
+              if (e.userData.health <= 0) {
+                scene.remove(e);
+                enemies.splice(j, 1);
+              }
+              break;
+            }
+          }
+        }
+
+        // Collision with player
+        if (b.userData.type === 'enemy-bullet') {
+          const d = b.position.distanceTo(player.position);
+          if (d < 2) {
+            scene.remove(b);
+            bullets.splice(i, 1);
+            health -= 15;
+            if (health <= 0) {
+              health = 0;
+              gameOver();
+            }
+          }
+        }
+      }
+
+      // Win condition
+      if (enemies.length === 0) {
+        victory();
+      }
+    }
+
+    // Render loop
+    function animate() {
+      requestAnimationFrame(animate);
+      update();
+      renderer.render(scene, camera);
+    }
+
+    // Start
+    init();
+    updateHud();
+  </script>
+</body>
+</html>

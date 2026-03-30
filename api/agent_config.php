@@ -64,6 +64,16 @@ switch ($action) {
         echo json_encode(add_model_to_provider($providerKey, $modelId));
         break;
 
+    case 'remove_model':
+        $providerKey = isset($input['providerKey']) ? (string) $input['providerKey'] : (isset($input['provider']) ? (string) $input['provider'] : '');
+        $modelId    = isset($input['modelId']) ? (string) $input['modelId'] : (isset($input['model']) ? (string) $input['model'] : '');
+        if ($providerKey === '' || $modelId === '') {
+            echo json_encode(['error' => 'providerKey and modelId are required']);
+            exit;
+        }
+        echo json_encode(remove_model_from_provider($providerKey, $modelId));
+        break;
+
     case 'set_system_prompt':
         $provider = isset($input['provider']) ? (string) $input['provider'] : '';
         $model = isset($input['model']) ? (string) $input['model'] : '';
@@ -73,5 +83,5 @@ switch ($action) {
 
     default:
         http_response_code(400);
-        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, or set_system_prompt']);
+        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, remove_model, or set_system_prompt']);
 }
