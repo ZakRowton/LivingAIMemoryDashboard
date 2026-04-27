@@ -196,7 +196,13 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
 
     $decoded = json_decode((string) $response, true);
     if (!is_array($decoded)) {
-        return ['error' => 'Invalid provider response', 'httpCode' => 502];
+        $r = (string) $response;
+
+        return [
+            'error' => 'Invalid provider response',
+            'httpCode' => 502,
+            'raw' => strlen($r) > 20000 ? substr($r, 0, 20000) : $r,
+        ];
     }
     return ['data' => $decoded, 'httpCode' => $httpCode];
 }
@@ -3665,9 +3671,51 @@ function requestGemini(array $provider, string $model, array $conversation, floa
 
     $decoded = json_decode((string) $response, true);
     if (!is_array($decoded)) {
-        return ['error' => 'Invalid provider response', 'httpCode' => 502];
+        $r = (string) $response;
+
+        return [
+            'error' => 'Invalid provider response',
+            'httpCode' => 502,
+            'raw' => strlen($r) > 20000 ? substr($r, 0, 20000) : $r,
+        ];
     }
     return ['data' => $decoded, 'httpCode' => $httpCode];
+}
+
+/**
+ * Whether the same chat request may succeed if retried (transient network, rate limits, bad gateway, HTML error page).
+ * Does not cover invalid_request_error / schema issues — use sanitize + retry in the main loop for those.
+ */
+function memory_graph_is_transient_llm_provider_failure(array $result): bool {
+    if (empty($result['error']) || !isset($result['error'])) {
+        return false;
+    }
+    $code = (int) ($result['httpCode'] ?? 0);
+    $raw = isset($result['raw']) ? (string) $result['raw'] : '';
+    $e = $result['error'];
+    if (is_array($e)) {
+        $errStr = isset($e['message']) && is_string($e['message']) ? $e['message'] : (string) json_encode($e);
+    } else {
+        $errStr = (string) $e;
+    }
+    if (strpos($errStr, 'Gateway error:') === 0) {
+        return true;
+    }
+    if (in_array($code, [408, 429], true)) {
+        return true;
+    }
+    if ($code >= 500) {
+        return true;
+    }
+    $looksLikeHtml = $raw !== '' && (stripos($raw, '<html') !== false || stripos($raw, '<!DOCTYPE') !== false);
+    if ((string) $e === 'Invalid provider response' && $looksLikeHtml) {
+        return true;
+    }
+    if ($looksLikeHtml && in_array($code, [200, 301, 302, 404], true)) {
+        return true;
+    }
+
+    return false;
 }
 
 /**
@@ -3946,7 +3994,7 @@ memory_graph_status_append_activity($status, 'session', 'Chat · ' . $providerKe
 writeStatus($requestId, $status);
 
 $apiRetryCount = 0;
-$apiErrorRetryMax = 3;
+$apiErrorRetryMax = 5;
 
 while (true) {
     $loopCount++;
@@ -3967,6 +4015,19 @@ while (true) {
         if ($isValidationError && $apiRetryCount < $apiErrorRetryMax) {
             $apiRetryCount++;
             $conversation = sanitizeConversationForApi($conversation);
+            continue;
+        }
+        if (memory_graph_is_transient_llm_provider_failure($result) && $apiRetryCount < $apiErrorRetryMax) {
+            $apiRetryCount++;
+            $delayUs = (int) min(2_000_000, 250_000 * (1 << min(4, $apiRetryCount - 1)));
+            if (function_exists('usleep') && $delayUs > 0) {
+                usleep($delayUs);
+            }
+            memory_graph_status_append_activity($status, 'llm_retry', 'Transient upstream error; auto-retrying (attempt ' . $apiRetryCount . '/' . $apiErrorRetryMax . ')', [
+                'httpCode' => (int) ($result['httpCode'] ?? 0),
+                'kind' => 'transient',
+            ]);
+            writeStatus($requestId, $status);
             continue;
         }
         memory_graph_status_append_activity($status, 'error', 'Upstream LLM request failed', [
