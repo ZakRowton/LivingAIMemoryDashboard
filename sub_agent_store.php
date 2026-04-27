@@ -166,6 +166,58 @@ function get_sub_agent_meta(string $name): ?array {
     ];
 }
 
+/** Fold a sub-agent label for fuzzy match (case/spacing/punctuation insensitive). */
+function memory_graph_sub_agent_name_fold(string $s): string {
+    $s = strtolower(trim($s));
+    $s = preg_replace('/\.md$/i', '', $s) ?? $s;
+
+    return preg_replace('/[^a-z0-9]+/', '', $s) ?? '';
+}
+
+/**
+ * Resolve a sub-agent by exact file match, then by folded stem/title vs files in sub-agents/*.md.
+ */
+function resolve_sub_agent_meta(string $name): ?array {
+    $direct = get_sub_agent_meta($name);
+    if ($direct !== null) {
+        return $direct;
+    }
+    $fold = memory_graph_sub_agent_name_fold($name);
+    if ($fold === '') {
+        return null;
+    }
+    foreach (list_sub_agent_files_meta(false) as $row) {
+        $fn = (string) ($row['name'] ?? '');
+        if ($fn === '') {
+            continue;
+        }
+        $stemFold = memory_graph_sub_agent_name_fold($fn);
+        $title = (string) ($row['title'] ?? pathinfo($fn, PATHINFO_FILENAME));
+        $titleFold = memory_graph_sub_agent_name_fold($title);
+        if ($fold === $stemFold || $fold === $titleFold) {
+            return get_sub_agent_meta($fn);
+        }
+    }
+
+    return null;
+}
+
+/** Basenames without .md for error hints when delegation name is wrong. */
+function sub_agent_known_slugs_for_errors(): array {
+    $out = [];
+    foreach (list_sub_agent_files_meta(false) as $row) {
+        $fn = (string) ($row['name'] ?? '');
+        if ($fn === '') {
+            continue;
+        }
+        $out[] = pathinfo($fn, PATHINFO_FILENAME);
+    }
+    $out = array_values(array_unique($out));
+    sort($out, SORT_STRING | SORT_FLAG_CASE);
+
+    return $out;
+}
+
 function write_sub_agent_file(string $name, string $content): array {
     $filename = normalize_sub_agent_filename($name);
     if ($filename === '') return ['error' => 'Invalid sub-agent file name'];

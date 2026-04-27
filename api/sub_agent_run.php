@@ -39,11 +39,13 @@ if ($name === '' || $prompt === '') {
     exit;
 }
 
-if (get_sub_agent_meta($name) === null) {
+$resolvedMeta = resolve_sub_agent_meta($name);
+if ($resolvedMeta === null) {
     http_response_code(404);
     echo json_encode(['error' => 'Sub-agent not found']);
     exit;
 }
+$canonicalName = pathinfo((string) ($resolvedMeta['name'] ?? $name), PATHINFO_FILENAME);
 
 $statusRequestId = isset($input['statusRequestId']) ? trim((string) $input['statusRequestId']) : '';
 $statusRequestId = preg_replace('/[^a-zA-Z0-9_\-]/', '', $statusRequestId);
@@ -54,11 +56,11 @@ if ($statusRequestId === '') {
 $prevRid = isset($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID']) ? (string) $GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] : '';
 $GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] = $statusRequestId;
 
-$meta = get_sub_agent_meta($name);
+$meta = $resolvedMeta;
 $nodeId = is_array($meta) ? trim((string) ($meta['nodeId'] ?? '')) : '';
-$ed = ['sub_agents' => ['toolName' => 'sub_agent_panel', 'arguments' => ['name' => $name]]];
+$ed = ['sub_agents' => ['toolName' => 'sub_agent_panel', 'arguments' => ['name' => $canonicalName]]];
 if ($nodeId !== '') {
-    $ed[$nodeId] = ['toolName' => 'sub_agent_panel', 'arguments' => ['name' => $name]];
+    $ed[$nodeId] = ['toolName' => 'sub_agent_panel', 'arguments' => ['name' => $canonicalName]];
 }
 $initialStatus = [
     'requestId' => $statusRequestId,
@@ -94,7 +96,7 @@ $initialStatus = [
 writeStatus($statusRequestId, $initialStatus);
 
 $args = [
-    'name' => $name,
+    'name' => $canonicalName,
     'prompt' => $prompt,
     'messages' => [],
 ];

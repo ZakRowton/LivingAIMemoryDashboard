@@ -843,9 +843,12 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     if ($name === '') {
         return ['error' => 'name is required'];
     }
-    $meta = get_sub_agent_meta($name);
+    $meta = resolve_sub_agent_meta($name);
     if ($meta === null) {
-        return ['error' => 'Sub-agent not found'];
+        return [
+            'error' => 'Sub-agent not found for name "' . $name . '". Use list_sub_agent_files; `name` must match a file in sub-agents/*.md (stem without .md).',
+            'availableSlugs' => sub_agent_known_slugs_for_errors(),
+        ];
     }
     $cfg = is_array($meta['config'] ?? null) ? $meta['config'] : [];
     $providerKeyRaw = trim((string) ($cfg['provider'] ?? ''));
@@ -2324,8 +2327,14 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     }
     if ($toolName === 'read_sub_agent_file') {
         $name = (string) ($arguments['name'] ?? '');
-        $meta = get_sub_agent_meta($name);
-        if ($meta === null) return ['error' => 'Sub-agent not found'];
+        $meta = resolve_sub_agent_meta($name);
+        if ($meta === null) {
+            return [
+                'error' => 'Sub-agent not found',
+                'availableSlugs' => sub_agent_known_slugs_for_errors(),
+            ];
+        }
+
         return $meta;
     }
     if ($toolName === 'create_sub_agent_file') {
@@ -2351,10 +2360,19 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         return memory_graph_execute_sub_agent_completion($providers, $arguments);
     }
     if ($toolName === 'start_sub_agent_chat') {
+        $rawName = (string) ($arguments['name'] ?? '');
+        $resolved = resolve_sub_agent_meta($rawName);
+        if ($resolved === null) {
+            return [
+                'error' => 'Sub-agent not found for name "' . $rawName . '". Call list_sub_agent_files and use the exact markdown stem (filename without .md), not a role label.',
+                'availableSlugs' => sub_agent_known_slugs_for_errors(),
+            ];
+        }
+        $canonicalName = pathinfo((string) ($resolved['name'] ?? $rawName), PATHINFO_FILENAME);
         $taskId = 'subtask_' . time() . '_' . mt_rand(1000, 99999);
         $cs = isset($arguments['chatSessionId']) ? trim((string) $arguments['chatSessionId']) : '';
         $payload = [
-            'name' => (string) ($arguments['name'] ?? ''),
+            'name' => $canonicalName,
             'prompt' => (string) ($arguments['prompt'] ?? ''),
             'messages' => isset($arguments['messages']) && is_array($arguments['messages']) ? $arguments['messages'] : [],
         ];
@@ -2744,7 +2762,7 @@ function buildToolUsageInstruction(array $activeTools, ?bool $blockSubAgentDeleg
 
     $subAgentDelegationBlock = $blockSubAgentDelegation
         ? "CRITICAL — Sub-agents (this session): Nested delegation is disabled. Do NOT call run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, or get_sub_agent_chat_result (they are unavailable here and will fail). Answer the user directly; use your remaining active tools. Sub-agent definitions live in sub-agents/<slug>.md (not under memory/). If list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, or delete_sub_agent_file appear in your active tool list, use them only to manage those config files — not to spawn another chat run.\n"
-        : "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with arguments name (slug without .md) and prompt (or messages). PARALLEL ORCHESTRATION: When the user bundles independent heavy work (e.g. web search + tool creation, research + coding), split it: keep one branch yourself and delegate the other to a sub-agent with start_sub_agent_chat (one self-contained prompt listing deliverables). In the same multi-tool turn or the next model round, continue your own tools (search, create_or_update_tool, etc.) without blocking on the sub-agent. Poll get_sub_agent_chat_result with taskId until status is done or failed; merge result.response (or assistantMessageExcerpt) into your final answer. Use wait_for_sub_agent_chat only when you must block until the sub-agent finishes (optional timeoutSeconds). Prefer start_sub_agent_chat + overlap over run_sub_agent_chat when both sides can progress at once. Never tell the user you \"have no sub-agent tool\", invent paths like memory/jarvis-spawn/, or emit fake markup like <function> XML—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"slug\",\"prompt\":\"...\"}}.\n";
+        : "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. The `name` argument is always the markdown filename stem (e.g. jarvis-clone for jarvis-clone.md)—never a made-up role like researcher unless that file exists. If unsure, call list_sub_agent_files once and copy an exact stem. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with name + prompt (or messages). PARALLEL ORCHESTRATION: When the user assigns you multiple independent tracks (e.g. list MCP tools + list memory + delegate heavy research), emit ALL tool_calls in a single assistant message (native parallel function calling). Put start_sub_agent_chat first in the tool_calls array when you also call other tools in that same message so the async sub-agent begins before your local list/search work. Then run your own tools in the same batch without waiting. Prefer start_sub_agent_chat + overlap over run_sub_agent_chat when both sides can progress at once; poll get_sub_agent_chat_result with taskId until done or failed and merge result.response. Use wait_for_sub_agent_chat only when you must block until the sub-agent finishes. Never invent sub-agent names or paths under memory/—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"exact-stem\",\"prompt\":\"...\"}}.\n";
 
     return trim(
         "You are MemoryGraph's server-side agent: real PHP tools, MCP, memory, rules, research files, jobs/cron, and dashboard web apps under apps/. Operate like a senior engineer—discover (list/read), act with tools, verify outputs, then answer. Ground claims in tool results and merged prompt content; name memory/research files when you rely on them.\n" .
@@ -3926,6 +3944,24 @@ while (true) {
                     'arguments' => $arguments,
                     'normalizedName' => $normalizedFunctionName,
                 ];
+            }
+
+            // Start async / blocking sub-agent work before other tools in the same turn so workers begin immediately.
+            if (count($prepared) > 1) {
+                usort($prepared, static function (array $a, array $b): int {
+                    $rank = static function (string $n): int {
+                        if ($n === 'start_sub_agent_chat') {
+                            return 0;
+                        }
+                        if ($n === 'run_sub_agent_chat') {
+                            return 1;
+                        }
+
+                        return 10;
+                    };
+
+                    return $rank($a['normalizedName']) <=> $rank($b['normalizedName']);
+                });
             }
 
             $parallelMcpResults = null;

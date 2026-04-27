@@ -1257,7 +1257,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Deletes a sub-agent config file.",
     ], [
         'name' => 'run_sub_agent_chat',
-        'description' => 'Run a sub-agent through the same MemoryGraph chat engine as Jarvis: active PHP tools, merged memory & rules, instructions, research, MCP, jobs, and web apps (requires MEMORYGRAPH_PUBLIC_BASE_URL and a registered provider key in the sub-agent config). Optional dashboard_url / link in the sub-agent markdown for UI. Returns response text plus usage when available.',
+        'description' => 'Run a sub-agent through the same MemoryGraph chat engine as Jarvis: active PHP tools, merged memory & rules, instructions, research, MCP, jobs, and web apps (requires MEMORYGRAPH_PUBLIC_BASE_URL and a registered provider key in the sub-agent config). `name` must be the exact sub-agents/*.md filename stem (call list_sub_agent_files if unsure). Optional dashboard_url / link in the sub-agent markdown for UI. Returns response text plus usage when available.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -1273,7 +1273,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Runs one sub-agent chat completion.",
     ], [
         'name' => 'start_sub_agent_chat',
-        'description' => 'Queue a sub-agent chat task and return taskId + asyncSpawn (cli|http|none|skip|already). Background execution uses MEMORYGRAPH_SUB_AGENT_ASYNC_SECRET; on Windows/single-thread hosts set MEMORYGRAPH_PHP_CLI so a detached PHP process can run the worker. Jarvis can overlap other tools while the sub-agent runs; use get_sub_agent_chat_result to poll.',
+        'description' => 'Queue a sub-agent chat task and return taskId + asyncSpawn (cli|http|none|skip|already). `name` must match a real file in sub-agents/*.md (stem without .md from list_sub_agent_files)—not a role label. Background execution uses MEMORYGRAPH_SUB_AGENT_ASYNC_SECRET; on Windows/single-thread hosts set MEMORYGRAPH_PHP_CLI so a detached PHP process can run the worker. When combining with other tools in one turn, prefer emitting this tool_call first so the worker starts immediately, then call list_* / brave_search / etc. in the same assistant message. Use get_sub_agent_chat_result to poll.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
