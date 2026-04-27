@@ -512,6 +512,126 @@ function memory_graph_sub_agent_public_base_url(): string {
     return rtrim($u, '/');
 }
 
+function memory_graph_sub_agent_worker_secret(): string {
+    return trim((string) memory_graph_env('MEMORYGRAPH_SUB_AGENT_ASYNC_SECRET', ''));
+}
+
+/**
+ * Fire-and-forget POST to api/chat.php worker. Short client timeout: the worker may run for minutes.
+ *
+ * @return bool True if the request was sent (including client-side timeout while the server keeps running).
+ */
+function memory_graph_fire_sub_agent_worker_http(string $taskId): bool {
+    $base = memory_graph_sub_agent_public_base_url();
+    $secret = memory_graph_sub_agent_worker_secret();
+    if ($base === '' || $secret === '') {
+        return false;
+    }
+    $safe = preg_replace('/[^a-zA-Z0-9_\-]/', '', $taskId);
+    if ($safe === '') {
+        return false;
+    }
+    $url = $base . '/api/chat.php';
+    $body = json_encode([
+        '__memoryGraphSubAgentWorker' => true,
+        '__workerSecret' => $secret,
+        'taskId' => $safe,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($body === false) {
+        return false;
+    }
+    if (!function_exists('curl_init')) {
+        return false;
+    }
+    $ch = curl_init($url);
+    if ($ch === false) {
+        return false;
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json; charset=utf-8'],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 3,
+        CURLOPT_NOSIGNAL => 1,
+    ]);
+    curl_exec($ch);
+    $errno = curl_errno($ch);
+    curl_close($ch);
+    // 0 = response (possibly full); 28 = operation timed out — server may still be executing the worker.
+    return $errno === 0 || $errno === 28;
+}
+
+function memory_graph_sub_agent_spawn_cli_worker(string $taskId): bool {
+    $php = trim((string) memory_graph_env('MEMORYGRAPH_PHP_CLI', ''));
+    if ($php === '' || !is_file($php)) {
+        return false;
+    }
+    $secret = memory_graph_sub_agent_worker_secret();
+    if ($secret === '') {
+        return false;
+    }
+    $worker = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sub_agent_async_worker.php';
+    if (!is_file($worker)) {
+        return false;
+    }
+    $safe = preg_replace('/[^a-zA-Z0-9_\-]/', '', $taskId);
+    if ($safe === '') {
+        return false;
+    }
+    $phpQ = escapeshellarg($php);
+    $workerQ = escapeshellarg($worker);
+    $tidQ = escapeshellarg($safe);
+    $secQ = escapeshellarg($secret);
+    if (PHP_OS_FAMILY === 'Windows') {
+        $cmd = 'start /B "" ' . $phpQ . ' ' . $workerQ . ' ' . $tidQ . ' ' . $secQ;
+        pclose(popen($cmd, 'r'));
+    } else {
+        exec($phpQ . ' ' . $workerQ . ' ' . $tidQ . ' ' . $secQ . ' > /dev/null 2>&1 &');
+    }
+
+    return true;
+}
+
+/**
+ * Start a background worker once per task (CLI preferred, then HTTP trigger).
+ *
+ * @return array{mode:string,note:string}
+ */
+function memory_graph_sub_agent_try_spawn_async_worker(string $taskId): array {
+    $secret = memory_graph_sub_agent_worker_secret();
+    if ($secret === '') {
+        return [
+            'mode' => 'none',
+            'note' => 'Set MEMORYGRAPH_SUB_AGENT_ASYNC_SECRET to enable background sub-agent runs. On single-thread PHP hosts, set MEMORYGRAPH_PHP_CLI to a real php.exe so a detached process can POST the worker.',
+        ];
+    }
+    $task = get_sub_agent_task($taskId);
+    if (!is_array($task) || (($task['status'] ?? '') !== 'queued')) {
+        return ['mode' => 'skip', 'note' => ''];
+    }
+    if (!empty($task['asyncSpawned'])) {
+        return ['mode' => 'already', 'note' => ''];
+    }
+    $mode = 'none';
+    if (memory_graph_sub_agent_spawn_cli_worker($taskId)) {
+        $mode = 'cli';
+    } elseif (memory_graph_fire_sub_agent_worker_http($taskId)) {
+        $mode = 'http';
+    }
+    if ($mode !== 'none') {
+        update_sub_agent_task($taskId, ['asyncSpawned' => true]);
+    }
+
+    return [
+        'mode' => $mode,
+        'note' => $mode === 'none'
+            ? 'Could not spawn worker: set MEMORYGRAPH_PHP_CLI (recommended on Windows) and/or MEMORYGRAPH_PUBLIC_BASE_URL for HTTP trigger.'
+            : '',
+    ];
+}
+
 /** Resolve sub-agent slug from tool arguments (models vary key names). */
 function memory_graph_sub_agent_slug_from_tool_arguments(array $arguments): string {
     foreach (['name', 'sub_agent', 'sub_agent_name', 'subAgent', 'agent', 'slug', 'file'] as $k) {
@@ -770,6 +890,52 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
         'via' => 'simple_one_shot',
         'note' => $base === '' ? 'Set MEMORYGRAPH_PUBLIC_BASE_URL so sub-agents can use the full tool/MCP/memory loop.' : 'Full tool loop requires a registered provider key in agent config (not endpoint-only).',
     ];
+}
+
+/**
+ * Block until a sub-agent task finishes, polling when another worker holds execution.
+ * Falls back to executing inline if the task stays queued (e.g. single-thread host with no async worker).
+ */
+function memory_graph_poll_sub_agent_task_until_done(string $taskId, int $timeoutSec, array $providers): array {
+    $deadline = time() + max(30, min(900, $timeoutSec));
+    $inlineAfterSec = 3;
+    $createdEpoch = null;
+    while (time() < $deadline) {
+        $task = get_sub_agent_task($taskId);
+        if ($task === null) {
+            return ['error' => 'Task not found'];
+        }
+        $st = (string) ($task['status'] ?? '');
+        if ($st === 'done' || $st === 'failed') {
+            return $task;
+        }
+        if ($st === 'queued') {
+            memory_graph_sub_agent_try_spawn_async_worker($taskId);
+            $createdRaw = (string) ($task['createdAt'] ?? '');
+            $createdEpoch = $createdEpoch ?? (strtotime($createdRaw) ?: time());
+            if ((time() - $createdEpoch) >= $inlineAfterSec) {
+                $payload = try_claim_sub_agent_task_for_execution($taskId);
+                if ($payload !== null) {
+                    $result = memory_graph_execute_sub_agent_completion($providers, $payload);
+                    if (isset($result['error'])) {
+                        return update_sub_agent_task($taskId, ['status' => 'failed', 'error' => (string) $result['error'], 'result' => null]);
+                    }
+
+                    return update_sub_agent_task($taskId, ['status' => 'done', 'result' => $result, 'error' => null]);
+                }
+            }
+            usleep(400000);
+            continue;
+        }
+        if ($st === 'running') {
+            usleep(400000);
+            continue;
+        }
+        usleep(400000);
+    }
+    $task = get_sub_agent_task($taskId);
+
+    return ['error' => 'Sub-agent task timed out', 'task' => $task];
 }
 
 function clearMemoryGraphToolRegistryCache(): void {
@@ -1953,19 +2119,67 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
     }
     if ($toolName === 'start_sub_agent_chat') {
         $taskId = 'subtask_' . time() . '_' . mt_rand(1000, 99999);
+        $cs = isset($arguments['chatSessionId']) ? trim((string) $arguments['chatSessionId']) : '';
         $payload = [
             'name' => (string) ($arguments['name'] ?? ''),
             'prompt' => (string) ($arguments['prompt'] ?? ''),
             'messages' => isset($arguments['messages']) && is_array($arguments['messages']) ? $arguments['messages'] : [],
         ];
+        if ($cs !== '') {
+            $payload['chatSessionId'] = $cs;
+        }
         create_sub_agent_task($taskId, $payload);
-        return ['ok' => true, 'taskId' => $taskId, 'status' => 'queued'];
+        $spawn = memory_graph_sub_agent_try_spawn_async_worker($taskId);
+        $out = [
+            'ok' => true,
+            'taskId' => $taskId,
+            'status' => 'queued',
+            'asyncSpawn' => $spawn['mode'],
+        ];
+        if (($spawn['note'] ?? '') !== '') {
+            $out['asyncHint'] = $spawn['note'];
+        }
+
+        return $out;
     }
     if ($toolName === 'get_sub_agent_chat_result') {
         $taskId = (string) ($arguments['taskId'] ?? '');
         if ($taskId === '') return ['error' => 'taskId is required'];
         $task = get_sub_agent_task($taskId);
         if ($task === null) return ['error' => 'Task not found'];
+        if ((string) ($task['status'] ?? '') === 'queued') {
+            memory_graph_sub_agent_try_spawn_async_worker($taskId);
+            $task = get_sub_agent_task($taskId) ?? $task;
+        }
+        if ((string) ($task['status'] ?? '') === 'queued') {
+            $createdAt = strtotime((string) ($task['createdAt'] ?? '')) ?: 0;
+            if ($createdAt > 0 && (time() - $createdAt) >= 4) {
+                $payload = try_claim_sub_agent_task_for_execution($taskId);
+                if ($payload !== null) {
+                    $result = memory_graph_execute_sub_agent_completion($providers, $payload);
+                    if (isset($result['error'])) {
+                        $em = $result['error'];
+                        if (!is_string($em)) {
+                            $em = json_encode($em, JSON_UNESCAPED_UNICODE);
+                        }
+                        update_sub_agent_task($taskId, ['status' => 'failed', 'error' => $em, 'result' => null]);
+                    } else {
+                        update_sub_agent_task($taskId, ['status' => 'done', 'result' => $result, 'error' => null]);
+                    }
+                    $task = get_sub_agent_task($taskId) ?? $task;
+                }
+            }
+        }
+        if ((string) ($task['status'] ?? '') === 'done' && is_array($task['result'] ?? null)) {
+            $r = $task['result'];
+            $resp = (string) ($r['response'] ?? '');
+            if ($resp !== '') {
+                $task['assistantMessageExcerpt'] = function_exists('mb_substr')
+                    ? mb_substr($resp, 0, 12000, 'UTF-8')
+                    : substr($resp, 0, 12000);
+            }
+        }
+
         return $task;
     }
     if ($toolName === 'wait_for_sub_agent_chat') {
@@ -1974,16 +2188,12 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         $task = get_sub_agent_task($taskId);
         if ($task === null) return ['error' => 'Task not found'];
         $status = (string) ($task['status'] ?? 'queued');
-        if ($status === 'queued' || $status === 'running') {
-            update_sub_agent_task($taskId, ['status' => 'running']);
-            $payload = is_array($task['payload'] ?? null) ? $task['payload'] : [];
-            $result = memory_graph_execute_sub_agent_completion($providers, $payload);
-            if (isset($result['error'])) {
-                return update_sub_agent_task($taskId, ['status' => 'failed', 'error' => $result['error']]);
-            }
-            return update_sub_agent_task($taskId, ['status' => 'done', 'result' => $result, 'error' => null]);
+        if ($status === 'done' || $status === 'failed') {
+            return $task;
         }
-        return $task;
+        $timeoutSec = isset($arguments['timeoutSeconds']) ? (int) $arguments['timeoutSeconds'] : 600;
+
+        return memory_graph_poll_sub_agent_task_until_done($taskId, $timeoutSec, $providers);
     }
     if ($toolName === 'add_provider') {
         $key = (string) ($arguments['key'] ?? $arguments['providerKey'] ?? '');
@@ -2295,7 +2505,7 @@ function buildToolUsageInstruction(array $activeTools): string {
         "Do not wrap that JSON in markdown fences.\n" .
         "CRITICAL — MCP autonomy: You must proactively use MCP tools whenever they can help complete the task. Never wait for the user to say \"use MCP\", \"call the MCP\", or similar. If list_available_tools shows mcp__* tools, or if configured MCP servers could provide data/actions the user needs, call those tools as part of your normal workflow. Treat MCP-exposed tools like any other first-class tool. If you are unsure what an MCP server offers, call list_mcp_servers then list_mcp_server_tools for active servers, then invoke the matching tool by name.\n" .
         $mcpAutonomyLine .
-        "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with arguments name (slug without .md) and prompt (or messages). For async: start_sub_agent_chat, then wait_for_sub_agent_chat or get_sub_agent_chat_result. Never tell the user you \"have no sub-agent tool\", invent paths like memory/jarvis-spawn/, or emit fake markup like <function> XML—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"slug\",\"prompt\":\"...\"}}.\n" .
+        "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with arguments name (slug without .md) and prompt (or messages). PARALLEL ORCHESTRATION: When the user bundles independent heavy work (e.g. web search + tool creation, research + coding), split it: keep one branch yourself and delegate the other to a sub-agent with start_sub_agent_chat (one self-contained prompt listing deliverables). In the same multi-tool turn or the next model round, continue your own tools (search, create_or_update_tool, etc.) without blocking on the sub-agent. Poll get_sub_agent_chat_result with taskId until status is done or failed; merge result.response (or assistantMessageExcerpt) into your final answer. Use wait_for_sub_agent_chat only when you must block until the sub-agent finishes (optional timeoutSeconds). Prefer start_sub_agent_chat + overlap over run_sub_agent_chat when both sides can progress at once. Never tell the user you \"have no sub-agent tool\", invent paths like memory/jarvis-spawn/, or emit fake markup like <function> XML—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"slug\",\"prompt\":\"...\"}}.\n" .
         "To discover what tools are currently available, call list_available_tools.\n" .
         ($listGetReadRef !== '' ? $listGetReadRef : '') .
         "CRITICAL — Before create_or_update_tool (or writing a new PHP tool): You MUST first exhaust existing capabilities. (1) Call list_available_tools and read every active tool name and description — custom tools, builtins, and MCP-proxied tools (names often look like mcp__ServerSlug__tool_slug) are all listed there. (2) Call list_mcp_servers, then for each relevant active server call list_mcp_server_tools to see remote MCP tools and parameters. Only if nothing fits should you create a new PHP tool. Prefer calling an existing tool or an MCP-exposed tool over building new code.\n" .
@@ -3038,6 +3248,46 @@ function mg_emit_upstream_llm_error_body(int $httpCode, string $rawBody): void {
 
 $input = json_decode(file_get_contents('php://input'), true);
 $input = is_array($input) ? $input : [];
+
+if (!empty($input['__memoryGraphSubAgentWorker'])) {
+    $ws = memory_graph_sub_agent_worker_secret();
+    if ($ws === '' || !hash_equals($ws, (string) ($input['__workerSecret'] ?? ''))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Invalid or missing MEMORYGRAPH_SUB_AGENT_ASYNC_SECRET for sub-agent worker']);
+        exit;
+    }
+    $taskId = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) ($input['taskId'] ?? ''));
+    if ($taskId === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'taskId required']);
+        exit;
+    }
+    $GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] = 'subagent_worker_' . $taskId;
+    $GLOBALS['MEMORY_GRAPH_CHAT_SESSION_ID'] = '';
+    $payload = try_claim_sub_agent_task_for_execution($taskId);
+    if ($payload === null) {
+        $t = get_sub_agent_task($taskId);
+        echo json_encode([
+            'ok' => true,
+            'skipped' => true,
+            'status' => is_array($t) ? (string) ($t['status'] ?? '') : '',
+        ]);
+        exit;
+    }
+    $result = memory_graph_execute_sub_agent_completion($providers, $payload);
+    if (isset($result['error'])) {
+        $em = $result['error'];
+        if (!is_string($em)) {
+            $em = json_encode($em, JSON_UNESCAPED_UNICODE);
+        }
+        update_sub_agent_task($taskId, ['status' => 'failed', 'error' => $em, 'result' => null]);
+    } else {
+        update_sub_agent_task($taskId, ['status' => 'done', 'result' => $result, 'error' => null]);
+    }
+    echo json_encode(['ok' => true, 'taskId' => $taskId]);
+    exit;
+}
+
 $GLOBALS['MEMORY_GRAPH_WEB_APP_OPEN'] = null;
 $GLOBALS['MEMORY_GRAPH_CRON_PENDING_PATHS'] = [];
 $GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'] = '';

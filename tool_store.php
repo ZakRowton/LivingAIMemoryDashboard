@@ -1273,7 +1273,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Runs one sub-agent chat completion.",
     ], [
         'name' => 'start_sub_agent_chat',
-        'description' => 'Queue a sub-agent chat task and return a taskId. Execution uses the same full chat pipeline as run_sub_agent_chat when MEMORYGRAPH_PUBLIC_BASE_URL is set.',
+        'description' => 'Queue a sub-agent chat task and return taskId + asyncSpawn (cli|http|none|skip|already). Background execution uses MEMORYGRAPH_SUB_AGENT_ASYNC_SECRET; on Windows/single-thread hosts set MEMORYGRAPH_PHP_CLI so a detached PHP process can run the worker. Jarvis can overlap other tools while the sub-agent runs; use get_sub_agent_chat_result to poll.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -1289,7 +1289,7 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Creates a queued sub-agent task.",
     ], [
         'name' => 'get_sub_agent_chat_result',
-        'description' => 'Read sub-agent task status/result by taskId.',
+        'description' => 'Read sub-agent task status/result by taskId. When status is done, assistantMessageExcerpt summarizes result.response for quick merging into Jarvis\'s answer.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
@@ -1302,13 +1302,14 @@ function get_builtin_tools(): array {
         'code' => "// Built-in tool\n// Reads queued sub-agent task result.",
     ], [
         'name' => 'wait_for_sub_agent_chat',
-        'description' => 'Wait for or execute a queued sub-agent task and return final status/result.',
+        'description' => 'Block until a queued/running sub-agent task completes (polls if another worker is executing). Optional timeoutSeconds (default 600). Prefer get_sub_agent_chat_result when Jarvis should keep working in parallel.',
         'active' => true,
         'builtin' => true,
         'parameters' => [
             'type' => 'object',
             'properties' => [
                 'taskId' => ['type' => 'string'],
+                'timeoutSeconds' => ['type' => 'integer', 'description' => 'Max wait (default 600, max 900).'],
             ],
             'required' => ['taskId'],
         ],

@@ -240,3 +240,46 @@ function update_sub_agent_task(string $taskId, array $updates): array {
     file_put_contents(sub_agent_task_path($taskId), json_encode($task, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     return $task;
 }
+
+/**
+ * Atomically move a task from queued → running and return its payload for execution.
+ * Returns null if the task is missing, not queued, or could not be locked.
+ */
+function try_claim_sub_agent_task_for_execution(string $taskId): ?array {
+    $path = sub_agent_task_path($taskId);
+    if (!is_file($path)) {
+        return null;
+    }
+    $fh = fopen($path, 'c+');
+    if ($fh === false) {
+        return null;
+    }
+    if (!flock($fh, LOCK_EX)) {
+        fclose($fh);
+        return null;
+    }
+    try {
+        rewind($fh);
+        $raw = stream_get_contents($fh);
+        $task = json_decode($raw, true);
+        if (!is_array($task) || (($task['status'] ?? '') !== 'queued')) {
+            return null;
+        }
+        $task['status'] = 'running';
+        $task['updatedAt'] = date('c');
+        $json = json_encode($task, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            return null;
+        }
+        rewind($fh);
+        ftruncate($fh, 0);
+        fwrite($fh, $json);
+        fflush($fh);
+        $payload = $task['payload'] ?? null;
+
+        return is_array($payload) ? $payload : [];
+    } finally {
+        flock($fh, LOCK_UN);
+        fclose($fh);
+    }
+}
