@@ -18,6 +18,7 @@
     var fullResponses = {};
     var modalInstance = null;
     var statusPollHandle = null;
+    var adhocStatusPollHandle = null;
     var stopPollingTimeout = null;
     var currentRequest = null;
     var wasStopped = false;
@@ -305,6 +306,26 @@
             pollStatusSnapshot(requestId, false);
         }, 100);
     }
+
+    /** Poll graph execution status for sub-agent panel runs (parallel to main chat polling). */
+    window.MemoryGraphStartAdhocStatusPoll = function (requestId) {
+        if (!requestId) return;
+        if (adhocStatusPollHandle) {
+            clearInterval(adhocStatusPollHandle);
+            adhocStatusPollHandle = null;
+        }
+        pollStatusSnapshot(requestId, true);
+        adhocStatusPollHandle = setInterval(function () {
+            pollStatusSnapshot(requestId, true);
+        }, 100);
+    };
+
+    window.MemoryGraphStopAdhocStatusPoll = function () {
+        if (adhocStatusPollHandle) {
+            clearInterval(adhocStatusPollHandle);
+            adhocStatusPollHandle = null;
+        }
+    };
 
     function buildModalText(promptText, responseText) {
         var parts = [];
@@ -688,7 +709,7 @@
                 chatSessionId: chatSessionId,
                 provider: settings.provider || 'mercury',
                 model: settings.model || 'mercury-2',
-                systemPrompt: settings.systemPrompt || '',
+                systemPrompt: (settings.systemPrompt != null && settings.systemPrompt !== '') ? settings.systemPrompt : '',
                 temperature: settings.temperature != null ? settings.temperature : 0.7,
                 messages: messages
             })

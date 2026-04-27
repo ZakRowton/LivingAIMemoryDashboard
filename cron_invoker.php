@@ -91,6 +91,15 @@ function mg_cron_resolve_model_for_job(array $job): array {
 
 function mg_cron_system_prompt_for(string $provider, string $model): string {
     $key = $provider . ':' . $model;
+    $cfg = get_agent_provider_config();
+    $ifm = isset($cfg['systemInstructionFilesByModel']) && is_array($cfg['systemInstructionFilesByModel']) ? $cfg['systemInstructionFilesByModel'] : [];
+    if (isset($ifm[$key]) && is_string($ifm[$key]) && trim($ifm[$key]) !== '') {
+        require_once __DIR__ . DIRECTORY_SEPARATOR . 'instruction_store.php';
+        $meta = get_instruction_meta(trim($ifm[$key]));
+        if ($meta !== null && isset($meta['content']) && trim((string) $meta['content']) !== '') {
+            return trim((string) $meta['content']);
+        }
+    }
     $map = get_system_prompts_by_model();
     return isset($map[$key]) ? (string) $map[$key] : '';
 }

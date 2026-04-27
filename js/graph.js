@@ -574,7 +574,8 @@
             if (id.indexOf('job_file_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('job_cron_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('sub_agent_file_') === 0) {
-                var subAgentPulse = activeSubAgentIds.indexOf(id) !== -1;
+                var recentSubIds = state && state.getRecentNodeIds ? state.getRecentNodeIds('sub_agent_file_') : [];
+                var subAgentPulse = activeSubAgentIds.indexOf(id) !== -1 || recentSubIds.indexOf(id) !== -1;
                 if (subAgentPulse) {
                     animateNode(id, true, t, 12, 0.22, 1.15);
                 } else {

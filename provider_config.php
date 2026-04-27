@@ -50,6 +50,7 @@ function get_agent_provider_config(): array {
         'customModels'    => [],
         'excludedBuiltinModels' => [],
         'systemPromptsByModel' => [],
+        'systemInstructionFilesByModel' => [],
         'providerApiKeys' => [],
     ];
     if (!file_exists($path)) {
@@ -87,6 +88,32 @@ function save_agent_provider_config(array $config): bool {
         }
     }
     $config['providerApiKeys'] = $pkClean;
+    $sifRaw = isset($config['systemInstructionFilesByModel']) && is_array($config['systemInstructionFilesByModel']) ? $config['systemInstructionFilesByModel'] : [];
+    $sifClean = [];
+    foreach ($sifRaw as $k => $v) {
+        if (!is_string($k) || !is_string($v)) {
+            continue;
+        }
+        $kk = trim($k);
+        $colonPos = strpos($kk, ':');
+        if ($colonPos === false || $colonPos < 1) {
+            continue;
+        }
+        $pk = substr($kk, 0, $colonPos);
+        $mk = substr($kk, $colonPos + 1);
+        if ($mk === '' || preg_match('/^[a-zA-Z0-9_-]+$/', $pk) !== 1) {
+            continue;
+        }
+        $vv = basename(trim(str_replace(['\\', '/'], '/', $v)));
+        if ($vv === '') {
+            continue;
+        }
+        if (strtolower(substr($vv, -3)) !== '.md') {
+            $vv .= '.md';
+        }
+        $sifClean[$kk] = $vv;
+    }
+    $config['systemInstructionFilesByModel'] = $sifClean;
     return @file_put_contents($path, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) !== false;
 }
 
@@ -113,6 +140,49 @@ function set_system_prompt_for_provider_model(string $provider, string $model, s
         return ['error' => 'Failed to save system prompt'];
     }
     return ['ok' => true, 'key' => $key];
+}
+
+/** Map key "provider:modelId" -> instruction filename under instructions/ */
+function get_system_instruction_files_by_model(): array {
+    $c = get_agent_provider_config();
+    $m = $c['systemInstructionFilesByModel'] ?? [];
+    return is_array($m) ? $m : [];
+}
+
+/**
+ * Attach an instruction file as the per-provider/model system prompt source (replaces textarea for that pair).
+ * Pass empty instructionFilename to clear.
+ */
+function set_system_instruction_file_for_provider_model(string $provider, string $model, string $instructionFilename): array {
+    $provider = preg_replace('/[^a-zA-Z0-9_\-]/', '', $provider);
+    $model = trim($model);
+    if ($provider === '' || $model === '') {
+        return ['error' => 'provider and model are required'];
+    }
+    $key = $provider . ':' . $model;
+    $fn = trim($instructionFilename);
+    if ($fn !== '') {
+        require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'instruction_store.php';
+        $fn = normalize_instruction_filename($fn);
+        if (get_instruction_meta($fn) === null) {
+            return ['error' => 'Instruction file not found'];
+        }
+    } else {
+        $fn = '';
+    }
+    $config = get_agent_provider_config();
+    if (!isset($config['systemInstructionFilesByModel']) || !is_array($config['systemInstructionFilesByModel'])) {
+        $config['systemInstructionFilesByModel'] = [];
+    }
+    if ($fn === '') {
+        unset($config['systemInstructionFilesByModel'][$key]);
+    } else {
+        $config['systemInstructionFilesByModel'][$key] = $fn;
+    }
+    if (!save_agent_provider_config($config)) {
+        return ['error' => 'Failed to save instruction file mapping'];
+    }
+    return ['ok' => true, 'key' => $key, 'instructionFile' => $fn];
 }
 
 /**
@@ -289,6 +359,7 @@ function get_providers_for_ui(): array {
         'currentModel'    => (string) ($config['currentModel'] ?? 'mercury-2'),
         'providers'       => $providers,
         'systemPromptsByModel' => get_system_prompts_by_model(),
+        'systemInstructionFilesByModel' => get_system_instruction_files_by_model(),
         'providerApiKeyStatus' => $apiKeyStatus,
     ];
 }

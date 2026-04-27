@@ -2566,8 +2566,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 </select>
                 <label class="provider-label">Model</label>
                 <select id="model-select" class="provider-select"></select>
-                <label class="provider-label">System prompt</label>
-                <textarea id="system-prompt-input" class="provider-textarea" rows="3" placeholder="Optional system instruction..."></textarea>
+                <label class="provider-label" for="system-instruction-select">System instruction file</label>
+                <select id="system-instruction-select" class="provider-select">
+                    <option value="">None</option>
+                </select>
+                <div class="panel-action-btn-row" style="margin-top: 8px;">
+                    <button type="button" id="system-instruction-create-btn" class="panel-action-btn">Create new instruction…</button>
+                </div>
+                <p class="text-muted font-serif" style="font-size: 0.75rem; margin-top: 8px;">The selected instructions/*.md file is loaded on the server and used as the system prompt for this provider and model. Edit files under Instructions on the graph.</p>
                 <label class="provider-label">Temperature</label>
                 <input type="number" id="temperature-input" class="provider-input" min="0" max="2" step="0.1" value="0.7">
             </div>
@@ -2849,12 +2855,13 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     (function () {
         var providerSelect = document.getElementById('provider-select');
         var modelSelect = document.getElementById('model-select');
-        var systemPromptInput = document.getElementById('system-prompt-input');
+        var systemInstructionSelect = document.getElementById('system-instruction-select');
+        var systemInstructionCreateBtn = document.getElementById('system-instruction-create-btn');
         var temperatureInput = document.getElementById('temperature-input');
-        window.MEMORY_GRAPH_SYSTEM_PROMPTS = {};
+        window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES = {};
+        window.MEMORY_GRAPH_INSTRUCTION_OPTIONS = [];
         var agentSelProvider = '';
         var agentSelModel = '';
-        var systemPromptSaveTimer = null;
 
         function agentPromptKey(pv, mv) {
             return (pv || '') + ':' + (mv || '');
@@ -2878,31 +2885,74 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             }).catch(function () {});
         }
 
-        function persistSystemPromptToServer(pv, mv, text) {
-            var k = agentPromptKey(pv, mv);
-            if (!pv || !mv || k === ':') return;
-            window.MEMORY_GRAPH_SYSTEM_PROMPTS[k] = text;
+        function persistInstructionFileToServer(pv, mv, filename) {
+            if (!pv || !mv) return;
             fetch('api/agent_config.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'set_system_prompt',
+                    action: 'set_system_instruction_file',
                     provider: pv,
                     model: mv,
-                    systemPrompt: text
+                    instructionFile: filename || ''
                 })
+            }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+                if (j && j.ok && j.key) {
+                    if (filename) {
+                        window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES[j.key] = filename;
+                    } else {
+                        delete window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES[j.key];
+                    }
+                }
             }).catch(function () {});
         }
 
-        function scheduleSystemPromptSave() {
-            if (!systemPromptInput || !providerSelect || !modelSelect) return;
-            clearTimeout(systemPromptSaveTimer);
-            systemPromptSaveTimer = setTimeout(function () {
-                var pv = providerSelect.value;
-                var mv = modelSelect.value;
-                window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(pv, mv)] = systemPromptInput.value;
-                persistSystemPromptToServer(pv, mv, systemPromptInput.value);
-            }, 500);
+        function syncInstructionSelectToCurrentKey() {
+            if (!systemInstructionSelect || !providerSelect || !modelSelect) return;
+            var k = agentPromptKey(providerSelect.value, modelSelect.value);
+            var fn = window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES[k] || '';
+            systemInstructionSelect.value = fn;
+            if (fn && !Array.prototype.some.call(systemInstructionSelect.options, function (o) { return o.value === fn; })) {
+                var opt = document.createElement('option');
+                opt.value = fn;
+                opt.textContent = fn + ' (missing)';
+                systemInstructionSelect.appendChild(opt);
+                systemInstructionSelect.value = fn;
+            }
+        }
+
+        function rebuildInstructionFileDropdown(names) {
+            if (!systemInstructionSelect) return;
+            var prev = systemInstructionSelect.value;
+            systemInstructionSelect.innerHTML = '';
+            var none = document.createElement('option');
+            none.value = '';
+            none.textContent = 'None';
+            systemInstructionSelect.appendChild(none);
+            (names || []).forEach(function (n) {
+                if (!n) return;
+                var opt = document.createElement('option');
+                opt.value = n;
+                opt.textContent = n;
+                systemInstructionSelect.appendChild(opt);
+            });
+            if (prev && Array.prototype.some.call(systemInstructionSelect.options, function (o) { return o.value === prev; })) {
+                systemInstructionSelect.value = prev;
+            } else {
+                syncInstructionSelectToCurrentKey();
+            }
+        }
+
+        function loadInstructionFileList(done) {
+            fetch('api_instructions.php?action=list')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (data) {
+                    var arr = (data && Array.isArray(data.instructions)) ? data.instructions : [];
+                    window.MEMORY_GRAPH_INSTRUCTION_OPTIONS = arr.map(function (x) { return x && x.name ? x.name : ''; }).filter(Boolean);
+                    rebuildInstructionFileDropdown(window.MEMORY_GRAPH_INSTRUCTION_OPTIONS);
+                    if (typeof done === 'function') done();
+                })
+                .catch(function () { if (typeof done === 'function') done(); });
         }
 
         function syncModelSelect() {
@@ -2921,8 +2971,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         function applyAgentConfig(data) {
             if (!data || !data.providers) return;
             window.MEMORY_GRAPH_PROVIDERS = data.providers;
-            window.MEMORY_GRAPH_SYSTEM_PROMPTS = (data.systemPromptsByModel && typeof data.systemPromptsByModel === 'object')
-                ? JSON.parse(JSON.stringify(data.systemPromptsByModel))
+            window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES = (data.systemInstructionFilesByModel && typeof data.systemInstructionFilesByModel === 'object')
+                ? JSON.parse(JSON.stringify(data.systemInstructionFilesByModel))
                 : {};
             if (providerSelect) {
                 providerSelect.innerHTML = '';
@@ -2941,64 +2991,73 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 }
             }
             captureAgentSelection();
-            if (systemPromptInput) {
-                var k = agentPromptKey(agentSelProvider, agentSelModel);
-                systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
-                    ? window.MEMORY_GRAPH_SYSTEM_PROMPTS[k]
-                    : '';
-            }
         }
         window.applyAgentConfig = applyAgentConfig;
 
+        if (systemInstructionSelect) {
+            systemInstructionSelect.addEventListener('change', function () {
+                if (!providerSelect || !modelSelect) return;
+                persistInstructionFileToServer(providerSelect.value, modelSelect.value, systemInstructionSelect.value || '');
+            });
+        }
+        if (systemInstructionCreateBtn) {
+            systemInstructionCreateBtn.addEventListener('click', function () {
+                var base = window.prompt('New instruction file base name (e.g. my-agent):', '');
+                if (base == null || String(base).trim() === '') return;
+                var safe = String(base).trim().replace(/[^\w\-]+/g, '-').replace(/^-+|-+$/g, '');
+                if (!safe) return;
+                var fname = safe.toLowerCase().slice(-3) === '.md' ? safe : (safe + '.md');
+                var body = '# Agent system instruction\n\n';
+                systemInstructionCreateBtn.disabled = true;
+                fetch('api_instructions.php?action=save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: fname, content: body })
+                }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                    .then(function (out) {
+                        if (!out.ok || (out.j && out.j.error)) {
+                            window.alert((out.j && out.j.error) ? out.j.error : 'Could not create file');
+                            return;
+                        }
+                        var created = (out.j && out.j.name) ? out.j.name : fname;
+                        loadInstructionFileList(function () {
+                            if (systemInstructionSelect) {
+                                systemInstructionSelect.value = created;
+                                if (providerSelect && modelSelect) {
+                                    persistInstructionFileToServer(providerSelect.value, modelSelect.value, created);
+                                }
+                            }
+                        });
+                        if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
+                    })
+                    .catch(function () { window.alert('Network error'); })
+                    .finally(function () { systemInstructionCreateBtn.disabled = false; });
+            });
+        }
+
         if (providerSelect) {
             providerSelect.addEventListener('change', function () {
-                if (systemPromptInput && agentSelProvider && agentSelModel) {
-                    window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(agentSelProvider, agentSelModel)] = systemPromptInput.value;
-                    persistSystemPromptToServer(agentSelProvider, agentSelModel, systemPromptInput.value);
-                }
                 syncModelSelect();
                 captureAgentSelection();
                 persistAgentSelectionToServer(agentSelProvider, agentSelModel);
-                if (systemPromptInput) {
-                    var k = agentPromptKey(agentSelProvider, agentSelModel);
-                    systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
-                        ? window.MEMORY_GRAPH_SYSTEM_PROMPTS[k]
-                        : '';
-                }
+                syncInstructionSelectToCurrentKey();
             });
         }
         if (modelSelect) {
             modelSelect.addEventListener('change', function () {
-                if (systemPromptInput && agentSelProvider && agentSelModel) {
-                    window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(agentSelProvider, agentSelModel)] = systemPromptInput.value;
-                    persistSystemPromptToServer(agentSelProvider, agentSelModel, systemPromptInput.value);
-                }
                 captureAgentSelection();
                 persistAgentSelectionToServer(agentSelProvider, agentSelModel);
-                if (systemPromptInput) {
-                    var k = agentPromptKey(agentSelProvider, agentSelModel);
-                    systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
-                        ? window.MEMORY_GRAPH_SYSTEM_PROMPTS[k]
-                        : '';
-                }
-            });
-        }
-        if (systemPromptInput) {
-            systemPromptInput.addEventListener('input', scheduleSystemPromptSave);
-            systemPromptInput.addEventListener('blur', function () {
-                clearTimeout(systemPromptSaveTimer);
-                if (!providerSelect || !modelSelect) return;
-                var pv = providerSelect.value;
-                var mv = modelSelect.value;
-                window.MEMORY_GRAPH_SYSTEM_PROMPTS[agentPromptKey(pv, mv)] = systemPromptInput.value;
-                persistSystemPromptToServer(pv, mv, systemPromptInput.value);
+                syncInstructionSelectToCurrentKey();
             });
         }
         syncModelSelect();
         captureAgentSelection();
         fetch('api/agent_config.php')
             .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (data) { if (data) applyAgentConfig(data); })
+            .then(function (data) {
+                if (data) applyAgentConfig(data);
+                loadInstructionFileList(function () { syncInstructionSelectToCurrentKey(); });
+            })
             .catch(function () {});
 
         window.getAgentSettings = function () {
@@ -3006,7 +3065,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 provider: (providerSelect && providerSelect.value) || 'mercury',
                 providerName: (window.MEMORY_GRAPH_PROVIDERS[(providerSelect && providerSelect.value) || 'mercury'] || {}).name || 'Mercury',
                 model: (modelSelect && modelSelect.value) || 'mercury-2',
-                systemPrompt: (systemPromptInput && systemPromptInput.value) || '',
+                systemPrompt: '',
                 temperature: (temperatureInput && temperatureInput.value) !== '' ? parseFloat(temperatureInput.value) : 0.7
             };
         };
@@ -4360,6 +4419,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     return;
                 }
                 var sid = (typeof window.MemoryGraphGetChatSessionId === 'function') ? window.MemoryGraphGetChatSessionId() : '';
+                var statusReqId = 'subagent_panel_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+                if (typeof window.MemoryGraphStartAdhocStatusPoll === 'function') {
+                    window.MemoryGraphStartAdhocStatusPoll(statusReqId);
+                }
                 subAgentSendBtn.disabled = true;
                 if (subAgentRunResponse) {
                     subAgentRunResponse.classList.remove('is-error');
@@ -4371,7 +4434,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     body: JSON.stringify({
                         name: window.currentOpenedSubAgent.name,
                         prompt: prompt,
-                        chatSessionId: sid
+                        chatSessionId: sid,
+                        statusRequestId: statusReqId
                     })
                 }).then(function (res) {
                     return res.text().then(function (t) {
@@ -4401,6 +4465,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                         subAgentRunResponse.textContent = (err && err.message) ? err.message : 'Request failed.';
                     }
                 }).finally(function () {
+                    if (typeof window.MemoryGraphStopAdhocStatusPoll === 'function') {
+                        window.MemoryGraphStopAdhocStatusPoll();
+                    }
                     subAgentSendBtn.disabled = false;
                 });
             });

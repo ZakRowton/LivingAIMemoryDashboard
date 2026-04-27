@@ -83,6 +83,13 @@ switch ($action) {
         echo json_encode(set_system_prompt_for_provider_model($provider, $model, $prompt));
         break;
 
+    case 'set_system_instruction_file':
+        $provider = isset($input['provider']) ? (string) $input['provider'] : '';
+        $model = isset($input['model']) ? (string) $input['model'] : '';
+        $instructionFile = isset($input['instructionFile']) ? (string) $input['instructionFile'] : '';
+        echo json_encode(set_system_instruction_file_for_provider_model($provider, $model, $instructionFile));
+        break;
+
     case 'set_provider_api_key':
         $provider = isset($input['provider']) ? (string) $input['provider'] : '';
         $apiKey = isset($input['apiKey']) ? (string) $input['apiKey'] : '';
@@ -95,5 +102,5 @@ switch ($action) {
 
     default:
         http_response_code(400);
-        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, remove_model, set_system_prompt, or set_provider_api_key']);
+        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, remove_model, set_system_prompt, set_system_instruction_file, or set_provider_api_key']);
 }

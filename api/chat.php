@@ -3504,6 +3504,25 @@ if ($model !== null && $model !== '' && !in_array($model, $allowedModels, true))
     $model = $provider['defaultModel'] ?? '';
 }
 $modelId = ($model !== null && $model !== '') ? $model : ($provider['defaultModel'] ?? '');
+$pmKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $providerKey) . ':' . trim((string) $modelId);
+$agentCfgForPrompt = get_agent_provider_config();
+$sifm = isset($agentCfgForPrompt['systemInstructionFilesByModel']) && is_array($agentCfgForPrompt['systemInstructionFilesByModel'])
+    ? $agentCfgForPrompt['systemInstructionFilesByModel']
+    : [];
+$instrFileMapped = isset($sifm[$pmKey]) && is_string($sifm[$pmKey]) ? trim($sifm[$pmKey]) : '';
+if ($instrFileMapped !== '') {
+    $im = get_instruction_meta($instrFileMapped);
+    if ($im !== null && isset($im['content']) && trim((string) $im['content']) !== '') {
+        $systemPrompt = trim((string) $im['content']);
+    }
+} elseif (trim($systemPrompt) === '') {
+    $spm = isset($agentCfgForPrompt['systemPromptsByModel']) && is_array($agentCfgForPrompt['systemPromptsByModel'])
+        ? $agentCfgForPrompt['systemPromptsByModel']
+        : [];
+    if (isset($spm[$pmKey]) && is_string($spm[$pmKey]) && trim($spm[$pmKey]) !== '') {
+        $systemPrompt = trim($spm[$pmKey]);
+    }
+}
 $activeTools = loadToolRegistry();
 $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
 $memoryRulesBlock = buildMemoryAndRulesSystemPromptSection();
