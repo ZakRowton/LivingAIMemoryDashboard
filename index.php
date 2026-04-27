@@ -1506,6 +1506,96 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             color: var(--gold-light);
             font-weight: 600;
         }
+        .settings-provider-api-keys {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .settings-api-key-row {
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(212, 175, 55, 0.18);
+            background: rgba(0, 0, 0, 0.22);
+        }
+        [data-theme="light"] .settings-api-key-row {
+            background: rgba(255, 255, 255, 0.45);
+            border-color: rgba(180, 150, 70, 0.2);
+        }
+        .settings-api-key-row-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .settings-api-key-label {
+            font-size: 0.72rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--gold-dim);
+        }
+        .settings-api-key-badge {
+            font-size: 0.65rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(212, 175, 55, 0.25);
+            color: var(--gold-dim);
+        }
+        .settings-api-key-badge.is-override {
+            color: #e8dcc8;
+            border-color: rgba(212, 175, 55, 0.45);
+        }
+        .settings-api-key-badge.is-env {
+            color: var(--gold-dim);
+        }
+        .settings-api-key-badge.is-none {
+            opacity: 0.75;
+        }
+        .settings-api-key-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .settings-api-key-actions .settings-api-key-input {
+            flex: 1;
+            min-width: 0;
+            font-size: 0.82rem;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(212, 175, 55, 0.22);
+            background: rgba(0, 0, 0, 0.35);
+            color: #e8e4dc;
+        }
+        [data-theme="light"] .settings-api-key-actions .settings-api-key-input {
+            background: rgba(255, 255, 255, 0.8);
+            color: #222;
+        }
+        .settings-api-key-actions .settings-api-key-btn {
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(212, 175, 55, 0.35);
+            background: rgba(212, 175, 55, 0.12);
+            color: var(--gold-light);
+            cursor: pointer;
+        }
+        .settings-api-key-actions .settings-api-key-btn:hover {
+            background: rgba(212, 175, 55, 0.2);
+        }
+        .settings-api-key-msg {
+            font-size: 0.72rem;
+            margin-top: 6px;
+            color: var(--gold-dim);
+        }
+        .settings-api-key-msg.is-error {
+            color: #e8a0a0;
+        }
 
         /* Simple chat layout (replaces visible 3D graph) */
         html.mg-simple-ui #graph-container {
@@ -2350,9 +2440,15 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     </label>
                 </div>
             </div>
+            <div class="settings-section" id="settings-provider-api-section">
+                <div class="settings-section-kicker font-display">Connections</div>
+                <h3 class="settings-section-title font-display">AI provider API keys</h3>
+                <p class="settings-section-lead font-serif">Optional overrides are saved in <strong>config/agent_config.json</strong> on the server and override <code>.env</code> for chat. Clear the field and use <strong>Clear override</strong> to use <code>.env</code> again.</p>
+                <div id="settings-provider-api-keys-mount" class="settings-provider-api-keys font-serif" aria-live="polite"></div>
+            </div>
             <div class="settings-panel-spacer" aria-hidden="true"></div>
             <footer class="settings-panel-footer">
-                <p class="settings-footer-note font-serif">Your layout preference is stored in <strong>this browser</strong> only (local storage). Switch anytime; the graph keeps working in the background for jobs and status.</p>
+                <p class="settings-footer-note font-serif">Layout preference is stored in <strong>this browser</strong> only (local storage). API key overrides live on the server. Switch anytime; the graph keeps working in the background for jobs and status.</p>
             </footer>
         </div>
     </aside>

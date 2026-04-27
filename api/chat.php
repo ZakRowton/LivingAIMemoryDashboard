@@ -96,6 +96,12 @@ function memory_graph_alibaba_sanitize_api_key(string $k): string {
  * Resolve API key from env. DashScope console often documents DASHSCOPE_API_KEY; older docs use ALIBABA_API_KEY.
  */
 function memory_graph_alibaba_api_key(): string {
+    if (function_exists('get_provider_api_key_override')) {
+        $ov = get_provider_api_key_override('alibaba');
+        if ($ov !== '') {
+            return memory_graph_alibaba_sanitize_api_key($ov);
+        }
+    }
     foreach (['DASHSCOPE_API_KEY', 'ALIBABA_API_KEY', 'ALIBABA_CLOUD_API_KEY', 'ALIYUN_API_KEY'] as $envKey) {
         $v = memory_graph_env($envKey, '');
         if ($v === null || $v === '') {
@@ -257,6 +263,21 @@ $customProviders = get_custom_provider_definitions_for_chat();
 foreach ($customProviders as $key => $def) {
     $providers[$key] = $def;
 }
+foreach ($providers as $_pk => &$_pdef) {
+    if (!is_array($_pdef)) {
+        continue;
+    }
+    $ov = get_provider_api_key_override($_pk);
+    if ($ov === '') {
+        continue;
+    }
+    if ($_pk === 'alibaba') {
+        $_pdef['apiKey'] = memory_graph_alibaba_sanitize_api_key($ov);
+    } else {
+        $_pdef['apiKey'] = $ov;
+    }
+}
+unset($_pdef);
 
 function statusDirPath(): string {
     $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'chat-status';

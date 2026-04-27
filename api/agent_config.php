@@ -7,6 +7,8 @@ header('Access-Control-Allow-Origin: ' . ($_SERVER['HTTP_ORIGIN'] ?? '*'));
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'env.php';
+memory_graph_load_env();
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'provider_config.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
@@ -81,7 +83,17 @@ switch ($action) {
         echo json_encode(set_system_prompt_for_provider_model($provider, $model, $prompt));
         break;
 
+    case 'set_provider_api_key':
+        $provider = isset($input['provider']) ? (string) $input['provider'] : '';
+        $apiKey = isset($input['apiKey']) ? (string) $input['apiKey'] : '';
+        if ($provider === '') {
+            echo json_encode(['error' => 'provider is required']);
+            exit;
+        }
+        echo json_encode(set_provider_api_key($provider, $apiKey));
+        break;
+
     default:
         http_response_code(400);
-        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, remove_model, or set_system_prompt']);
+        echo json_encode(['error' => 'Unknown action. Use set_selection, add_provider, add_model, remove_model, set_system_prompt, or set_provider_api_key']);
 }

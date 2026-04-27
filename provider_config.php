@@ -16,11 +16,28 @@ if (!function_exists('agent_provider_config_path')) {
 
 /** Built-in provider keys and their UI display names / default models (for list). */
 function get_builtin_provider_ui(): array {
+    $openRouterModel = trim((string) ($_ENV['OPENROUTER_MODEL'] ?? getenv('OPENROUTER_MODEL') ?: 'google/gemma-4-31b-it:free'));
+    if ($openRouterModel === '') {
+        $openRouterModel = 'google/gemma-4-31b-it:free';
+    }
+    $nvidiaNimModel = trim((string) ($_ENV['NVIDIA_NIM_MODEL'] ?? getenv('NVIDIA_NIM_MODEL') ?: 'deepseek-ai/deepseek-v4-flash'));
+    if ($nvidiaNimModel === '') {
+        $nvidiaNimModel = 'deepseek-ai/deepseek-v4-flash';
+    }
     return [
         'mercury'   => ['name' => 'Mercury (Inception Labs)', 'models' => ['mercury-2']],
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
         'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
         'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
+        'openrouter' => ['name' => 'OpenRouter', 'models' => [$openRouterModel]],
+        'nvidia_nim' => ['name' => 'NVIDIA NIM', 'models' => [
+            $nvidiaNimModel,
+            'deepseek-ai/deepseek-v4-pro',
+            'nvidia/nemotron-voicechat',
+            'z-ai/glm-4.7',
+            'minimaxai/minimax-m2.7',
+            'mistralai/devstral-2-123b-instruct-2512',
+        ]],
     ];
 }
 
@@ -33,6 +50,7 @@ function get_agent_provider_config(): array {
         'customModels'    => [],
         'excludedBuiltinModels' => [],
         'systemPromptsByModel' => [],
+        'providerApiKeys' => [],
     ];
     if (!file_exists($path)) {
         return $default;
@@ -56,6 +74,19 @@ function save_agent_provider_config(array $config): bool {
     if (!isset($config['systemPromptsByModel']) || !is_array($config['systemPromptsByModel'])) {
         $config['systemPromptsByModel'] = [];
     }
+    $pkRaw = isset($config['providerApiKeys']) && is_array($config['providerApiKeys']) ? $config['providerApiKeys'] : [];
+    $pkClean = [];
+    foreach ($pkRaw as $k => $v) {
+        $kk = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $k);
+        if ($kk === '' || !is_string($v)) {
+            continue;
+        }
+        $vv = trim($v);
+        if ($vv !== '') {
+            $pkClean[$kk] = $vv;
+        }
+    }
+    $config['providerApiKeys'] = $pkClean;
     return @file_put_contents($path, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) !== false;
 }
 
@@ -132,6 +163,107 @@ function set_current_provider_model(string $provider, string $model): array {
     return ['ok' => true, 'provider' => $config['currentProvider'], 'model' => $config['currentModel']];
 }
 
+function get_provider_api_key_override(string $providerKey): string {
+    $providerKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', $providerKey);
+    if ($providerKey === '') {
+        return '';
+    }
+    $config = get_agent_provider_config();
+    $map = isset($config['providerApiKeys']) && is_array($config['providerApiKeys']) ? $config['providerApiKeys'] : [];
+    if (!isset($map[$providerKey]) || !is_string($map[$providerKey])) {
+        return '';
+    }
+    return trim($map[$providerKey]);
+}
+
+/**
+ * Persist API key override for a built-in or custom provider (stored in agent_config.json).
+ * Empty apiKey removes the override so .env is used again.
+ */
+function set_provider_api_key(string $providerKey, string $apiKey): array {
+    $providerKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', $providerKey);
+    if ($providerKey === '') {
+        return ['error' => 'provider is required'];
+    }
+    $builtin = get_builtin_provider_ui();
+    $config = get_agent_provider_config();
+    $custom = isset($config['customProviders']) && is_array($config['customProviders']) ? $config['customProviders'] : [];
+    if (!isset($builtin[$providerKey]) && !isset($custom[$providerKey])) {
+        return ['error' => 'Unknown provider'];
+    }
+    $apiKey = trim($apiKey);
+    if (!isset($config['providerApiKeys']) || !is_array($config['providerApiKeys'])) {
+        $config['providerApiKeys'] = [];
+    }
+    if ($apiKey === '') {
+        unset($config['providerApiKeys'][$providerKey]);
+    } else {
+        $config['providerApiKeys'][$providerKey] = $apiKey;
+    }
+    if (!save_agent_provider_config($config)) {
+        return ['error' => 'Failed to save'];
+    }
+    return [
+        'ok' => true,
+        'provider' => $providerKey,
+        'apiKeyStatus' => get_provider_api_key_ui_row($providerKey),
+    ];
+}
+
+function provider_env_key_has_value(string $envKey): bool {
+    if ($envKey === '' || !function_exists('memory_graph_env')) {
+        return false;
+    }
+    $v = memory_graph_env($envKey, '');
+    return $v !== null && trim((string) $v) !== '';
+}
+
+/** For UI: whether a key is configured (override or .env) and which source wins for requests. */
+function get_provider_api_key_ui_row(string $providerKey): array {
+    $providerKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', $providerKey);
+    if ($providerKey === '') {
+        return ['configured' => false, 'source' => 'none'];
+    }
+    if (get_provider_api_key_override($providerKey) !== '') {
+        return ['configured' => true, 'source' => 'override'];
+    }
+    $hasEnv = false;
+    if ($providerKey === 'alibaba') {
+        foreach (['DASHSCOPE_API_KEY', 'ALIBABA_API_KEY', 'ALIBABA_CLOUD_API_KEY', 'ALIYUN_API_KEY'] as $ek) {
+            if (provider_env_key_has_value($ek)) {
+                $hasEnv = true;
+                break;
+            }
+        }
+    } else {
+        $config = get_agent_provider_config();
+        $custom = isset($config['customProviders']) && is_array($config['customProviders']) ? $config['customProviders'] : [];
+        if (isset($custom[$providerKey]) && is_array($custom[$providerKey])) {
+            $ev = trim((string) ($custom[$providerKey]['envVar'] ?? ''));
+            if ($ev === '') {
+                $ev = strtoupper($providerKey) . '_API_KEY';
+            }
+            $hasEnv = provider_env_key_has_value($ev);
+        } else {
+            $map = [
+                'mercury' => 'MERCURY_API_KEY',
+                'featherless' => 'FEATHERLESS_API_KEY',
+                'gemini' => 'GEMINI_API_KEY',
+                'openrouter' => 'OPENROUTER_API_KEY',
+                'nvidia_nim' => 'NVIDIA_NIM_API_KEY',
+            ];
+            $ek = $map[$providerKey] ?? '';
+            if ($ek !== '') {
+                $hasEnv = provider_env_key_has_value($ek);
+            }
+        }
+    }
+    return [
+        'configured' => $hasEnv,
+        'source' => $hasEnv ? 'env' : 'none',
+    ];
+}
+
 /** Returns providers list for UI: { currentProvider, currentModel, providers: { key: { name, models } } } */
 function get_providers_for_ui(): array {
     $config = get_agent_provider_config();
@@ -147,17 +279,24 @@ function get_providers_for_ui(): array {
         $providers[$key]['models'] = get_merged_models_for_provider($key, $config);
     }
 
+    $apiKeyStatus = [];
+    foreach (array_keys($providers) as $pkey) {
+        $apiKeyStatus[$pkey] = get_provider_api_key_ui_row($pkey);
+    }
+
     return [
         'currentProvider' => (string) ($config['currentProvider'] ?? 'mercury'),
         'currentModel'    => (string) ($config['currentModel'] ?? 'mercury-2'),
         'providers'       => $providers,
         'systemPromptsByModel' => get_system_prompts_by_model(),
+        'providerApiKeyStatus' => $apiKeyStatus,
     ];
 }
 
 /** List providers and models for AI (same shape + custom provider definitions for reference). */
 function list_providers_models_for_tool(): array {
     $ui = get_providers_for_ui();
+    unset($ui['providerApiKeyStatus']);
     $config = get_agent_provider_config();
     $ui['customProviderDefinitions'] = isset($config['customProviders']) ? $config['customProviders'] : [];
     $ui['excludedBuiltinModels'] = isset($config['excludedBuiltinModels']) && is_array($config['excludedBuiltinModels'])
@@ -337,6 +476,10 @@ function get_custom_provider_definitions_for_chat(): array {
     foreach ($custom as $key => $def) {
         $envVar = isset($def['envVar']) ? (string) $def['envVar'] : (strtoupper($key) . '_API_KEY');
         $apiKey = function_exists('memory_graph_env') ? (memory_graph_env($envVar, '') ?? '') : (getenv($envVar) ?: '');
+        $ov = get_provider_api_key_override($key);
+        if ($ov !== '') {
+            $apiKey = $ov;
+        }
         $entry = [
             'type'         => isset($def['type']) && $def['type'] === 'gemini' ? 'gemini' : 'openai',
             'defaultModel' => isset($def['defaultModel']) ? (string) $def['defaultModel'] : 'default',

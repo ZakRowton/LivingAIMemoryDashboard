@@ -124,10 +124,141 @@
         loadSectionList(currentSection);
     }
 
+    function sourceBadgeClass(src) {
+        if (src === 'override') {
+            return 'is-override';
+        }
+        if (src === 'env') {
+            return 'is-env';
+        }
+        return 'is-none';
+    }
+
+    function badgeTextForSource(src) {
+        if (src === 'override') {
+            return 'Saved override';
+        }
+        if (src === 'env') {
+            return '.env';
+        }
+        return 'Not set';
+    }
+
+    function setClearButtonState($btn, enabled) {
+        $btn.prop('disabled', !enabled);
+        $btn.css('opacity', enabled ? '' : '0.45');
+    }
+
+    function renderSettingsProviderApiKeys($mount, data) {
+        $mount.empty();
+        if (!data || !data.providers) {
+            $mount.append($('<p class="settings-api-key-msg is-error font-serif">').text('Invalid response.'));
+            return;
+        }
+        var status = data.providerApiKeyStatus && typeof data.providerApiKeyStatus === 'object'
+            ? data.providerApiKeyStatus
+            : {};
+        var keys = Object.keys(data.providers).sort();
+        keys.forEach(function (key) {
+            var def = data.providers[key] || {};
+            var displayName = def.name || key;
+            var st = status[key] || { configured: false, source: 'none' };
+            var row = $('<div class="settings-api-key-row">');
+            var hdr = $('<div class="settings-api-key-row-header">');
+            hdr.append($('<span class="settings-api-key-label font-display">').text(displayName));
+            var badge = $('<span class="settings-api-key-badge font-display">')
+                .text(badgeTextForSource(st.source))
+                .addClass(sourceBadgeClass(st.source));
+            hdr.append(badge);
+            row.append(hdr);
+            var act = $('<div class="settings-api-key-actions">');
+            var inp = $('<input type="password" class="settings-api-key-input">')
+                .attr('autocomplete', 'new-password')
+                .attr('spellcheck', false)
+                .attr('placeholder', st.source === 'override' ? 'Enter new key to replace…' : 'Paste API key')
+                .attr('aria-label', 'API key for ' + displayName);
+            var btnSave = $('<button type="button" class="settings-api-key-btn font-display">').text('Save');
+            var btnClear = $('<button type="button" class="settings-api-key-btn font-display">').text('Clear override');
+            var msg = $('<p class="settings-api-key-msg">').hide().text('');
+            act.append(inp, btnSave, btnClear);
+            row.append(act, msg);
+            setClearButtonState(btnClear, st.source === 'override');
+            function setBadge(st2) {
+                var src = (st2 && st2.source) ? st2.source : 'none';
+                badge.removeClass('is-override is-env is-none').addClass(sourceBadgeClass(src));
+                badge.text(badgeTextForSource(src));
+                setClearButtonState(btnClear, src === 'override');
+            }
+            function postKey(val) {
+                msg.removeClass('is-error').text('Saving…').show();
+                fetch('api/agent_config.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ action: 'set_provider_api_key', provider: key, apiKey: val })
+                })
+                    .then(function (r) {
+                        return r.json().then(function (j) {
+                            return { ok: r.ok, j: j };
+                        });
+                    })
+                    .then(function (x) {
+                        if (!x.j || x.j.error) {
+                            msg.addClass('is-error').text((x.j && x.j.error) ? x.j.error : 'Save failed');
+                            return;
+                        }
+                        inp.val('');
+                        if (x.j.apiKeyStatus) {
+                            setBadge(x.j.apiKeyStatus);
+                        }
+                        msg.removeClass('is-error').text('Saved.');
+                        setTimeout(function () {
+                            msg.fadeOut(200);
+                        }, 1200);
+                    })
+                    .catch(function () {
+                        msg.addClass('is-error').text('Network error');
+                    });
+            }
+            btnSave.on('click', function () {
+                var v = (inp.val() || '').trim();
+                if (!v) {
+                    msg.removeClass('is-error').show().text('Enter a key to save, or use Clear override.');
+                    return;
+                }
+                postKey(v);
+            });
+            btnClear.on('click', function () {
+                inp.val('');
+                postKey('');
+            });
+            $mount.append(row);
+        });
+    }
+
+    function refreshSettingsProviderApiKeys() {
+        var $mount = $('#settings-provider-api-keys-mount');
+        if (!$mount.length) {
+            return;
+        }
+        $mount.html('<p class="settings-api-key-msg font-serif">Loading…</p>');
+        fetch('api/agent_config.php', { credentials: 'same-origin' })
+            .then(function (r) {
+                return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status));
+            })
+            .then(function (data) {
+                renderSettingsProviderApiKeys($mount, data);
+            })
+            .catch(function () {
+                $mount.html('<p class="settings-api-key-msg is-error font-serif">Could not load provider list.</p>');
+            });
+    }
+
     function openSettings() {
         if (!$panel.length) return;
         $backdrop.removeAttr('hidden').addClass('is-open');
         $panel.addClass('is-open').attr('aria-hidden', 'false');
+        refreshSettingsProviderApiKeys();
     }
 
     function closeSettings() {
