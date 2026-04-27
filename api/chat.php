@@ -3143,7 +3143,8 @@ function formatToolResultForModel(string $toolName, array $toolResult, bool $inl
         return $base . '. Continue and answer the original user request.';
     }
     if (isset($toolResult['error'])) {
-        return 'Tool error — resolve before final answer.' . $fixDirective . ' Payload: ' . $json;
+        return 'Tool error — resolve before final answer.' . $fixDirective . ' Payload: ' . $json
+            . "\n\n(Runner: keep the agent loop going — fix, retry with corrected arguments, or answer the user; do not end on this error alone unless impossible.)";
     }
     if ($toolName === 'create_or_update_tool') {
         $name = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
@@ -3319,6 +3320,100 @@ function openai_extract_assistant_message_text(?array $message): string {
         return $s !== '' ? $s : '';
     }
     return '';
+}
+
+/**
+ * True when assistant text is only scratchpad / thinking wrappers (not a user-facing answer).
+ * OpenClaw-style runners keep looping until the model emits a real reply.
+ */
+function memory_graph_text_is_meta_thinking_only(string $s): bool {
+    $t = trim($s);
+    if ($t === '') {
+        return false;
+    }
+    if (strlen($t) > 12000) {
+        return false;
+    }
+    $stripped = preg_replace('/<think>[\s\S]*?<\/redacted_thinking>/i', '', $t);
+    $stripped = preg_replace('/<think>[\s\S]*?<\/redacted_thinking>/i', '', $stripped);
+    $stripped = preg_replace('/<thinking>[\s\S]*?<\/thinking>/i', '', $stripped);
+    $stripped = preg_replace('/<reasoning>[\s\S]*?<\/reasoning>/i', '', $stripped);
+    $stripped = preg_replace('/<redacted[_-]?reasoning>[\s\S]*?<\/redacted[_-]?reasoning>/i', '', $stripped);
+    $stripped = trim((string) $stripped);
+    if ($stripped === '') {
+        return true;
+    }
+    if (strlen($stripped) <= 64 && preg_match('/^(hmm+\.?|thinking\.?|let me think\.?|ok\.?|…+\.?)$/iu', $stripped)) {
+        return true;
+    }
+
+    return false;
+}
+
+function memory_graph_agent_assistant_needs_self_correction(string $assistantContent, bool $hadToolCalls): bool {
+    if ($hadToolCalls) {
+        return false;
+    }
+    $t = trim($assistantContent);
+
+    return $t === '' || memory_graph_text_is_meta_thinking_only($assistantContent);
+}
+
+/** User-turn nudge so the model continues the loop instead of finalizing on empty / reasoning-only text. */
+function memory_graph_agent_self_correction_user_nudge(): string {
+    return "Continue the task: your last reply had no user-facing answer (empty or internal reasoning only). "
+        . "Do not expose chain-of-thought. Either call tools (if the last tool result had an error, fix it and retry) "
+        . "or write one clear final message for the user.";
+}
+
+/**
+ * Optional system hint (gateway-style agent runner). Set MEMORYGRAPH_DISABLE_GATEWAY_HINTS=1 to omit.
+ * Prior art: openclaw/openclaw (personal assistant gateway patterns).
+ */
+function memory_graph_gateway_runner_system_hint(string $sessionId, array $input): string {
+    if (function_exists('memory_graph_env_truthy') && memory_graph_env_truthy('MEMORYGRAPH_DISABLE_GATEWAY_HINTS')) {
+        return '';
+    }
+    $parts = [];
+    $parts[] = '[Agent runner — gateway-style loop]';
+    $parts[] = 'After any tool error: correct with tools or a concise user-facing resolution; do not finalize on the error alone.';
+    $parts[] = 'Never send chain-of-thought, redacted_thinking / thinking / reasoning blocks, or reasoning-only text as the final user-visible answer.';
+    if ($sessionId !== '' && empty($input['skipChatHistoryAppend'])) {
+        $parts[] = 'This chat session id may be serialized server-side so parallel requests for the same session run in order.';
+    }
+
+    return implode(' ', $parts);
+}
+
+/**
+ * Serialize HTTP chat handling per session id (lane). Skipped when skipChatHistoryAppend (nested sub-agent HTTP) to avoid deadlock.
+ *
+ * @return resource|false|null null = no lock; false = could not open
+ */
+function memory_graph_chat_session_lane_acquire(string $chatSessionId, array $input) {
+    if ($chatSessionId === '' || !empty($input['skipChatHistoryAppend'])) {
+        return null;
+    }
+    $sid = preg_replace('/[^\w\-]/', '', $chatSessionId);
+    if ($sid === '') {
+        return null;
+    }
+    $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'chat-lanes';
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+        return false;
+    }
+    $path = $dir . DIRECTORY_SEPARATOR . 'lane_' . hash('sha256', $sid) . '.lock';
+    $fh = @fopen($path, 'c+');
+    if ($fh === false) {
+        return false;
+    }
+    if (!@flock($fh, LOCK_EX)) {
+        fclose($fh);
+
+        return false;
+    }
+
+    return $fh;
 }
 
 function requestOpenAiCompatible(array $provider, string $model, array $conversation, float $temperature, array $tools, string $providerKey = ''): array {
@@ -3653,11 +3748,27 @@ $effectiveSystemPrompt = trim(
     . ($sessionCtx !== '' ? $sessionCtx . "\n\n" : '')
     . buildToolUsageInstruction($activeTools)
 );
+$gwHint = memory_graph_gateway_runner_system_hint($chatSessionIdInput, $input);
+if ($gwHint !== '') {
+    $effectiveSystemPrompt = trim($effectiveSystemPrompt . "\n\n" . $gwHint);
+}
 $conversation = normalizeConversation($messages, $effectiveSystemPrompt, $provider['type']);
 $finalContent = '';
 $lastToolResultText = '';
 $loopCount = 0;
+$agentSelfCorrectionCount = 0;
 $jobsToRun = [];
+
+$laneLockFh = memory_graph_chat_session_lane_acquire($chatSessionIdInput, $input);
+if (is_resource($laneLockFh)) {
+    register_shutdown_function(static function () use (&$laneLockFh): void {
+        if (is_resource($laneLockFh)) {
+            @flock($laneLockFh, LOCK_UN);
+            @fclose($laneLockFh);
+            $laneLockFh = null;
+        }
+    });
+}
 
 $userPreview = is_string($initialUserContent) ? $initialUserContent : '';
 if (strlen($userPreview) > 1200) {
@@ -4003,6 +4114,21 @@ while (true) {
             continue;
         }
 
+        $hadToolCallsForFinal = !empty($toolCalls) && is_array($toolCalls);
+        if (memory_graph_agent_assistant_needs_self_correction($assistantContent, $hadToolCallsForFinal)
+            && $agentSelfCorrectionCount < 14) {
+            $agentSelfCorrectionCount++;
+            memory_graph_status_append_activity(
+                $status,
+                'system',
+                'Agent loop: non-final reply (empty or reasoning-only); nudging model',
+                ['turn' => $loopCount, 'correction_index' => $agentSelfCorrectionCount]
+            );
+            $conversation[] = ['role' => 'user', 'content' => memory_graph_agent_self_correction_user_nudge()];
+            writeStatus($requestId, $status);
+            continue;
+        }
+
         $finalContent = $assistantContent;
         break;
     }
@@ -4120,6 +4246,20 @@ while (true) {
         continue;
     }
 
+    if (memory_graph_agent_assistant_needs_self_correction($assistantContent, false)
+        && $agentSelfCorrectionCount < 14) {
+        $agentSelfCorrectionCount++;
+        memory_graph_status_append_activity(
+            $status,
+            'system',
+            'Agent loop (Gemini): non-final reply; nudging model',
+            ['turn' => $loopCount, 'correction_index' => $agentSelfCorrectionCount]
+        );
+        $conversation[] = ['role' => 'user', 'content' => memory_graph_agent_self_correction_user_nudge()];
+        writeStatus($requestId, $status);
+        continue;
+    }
+
     $finalContent = $assistantContent;
     break;
 }
@@ -4138,6 +4278,9 @@ if (trim($finalContent) === '') {
 }
 
 $memoryGraphMeta = [];
+if (!empty($agentSelfCorrectionCount)) {
+    $memoryGraphMeta['agent_self_correction_turns'] = $agentSelfCorrectionCount;
+}
 if ($synthesizedFromTools) {
     $memoryGraphMeta['synthesized_from_tools'] = true;
 }
