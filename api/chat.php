@@ -488,6 +488,15 @@ function memory_graph_resolve_sub_agent_provider_key(string $raw, array $provide
     if ($k === 'nvidia' && isset($providers['nvidia_nim'])) {
         $k = 'nvidia_nim';
     }
+    // Docs often say "OpenAI" / gpt-*; MemoryGraph keys are openrouter, mercury, etc.
+    if ($k === 'openai') {
+        if (isset($providers['openrouter'])) {
+            return 'openrouter';
+        }
+        if (isset($providers['mercury'])) {
+            return 'mercury';
+        }
+    }
     if ($k !== '' && isset($providers[$k])) {
         return $k;
     }
@@ -1224,6 +1233,9 @@ function normalizeToolName(string $name): string {
         'get_instruction' => 'read_instruction_file',
         'list_tool' => 'list_available_tools',
         'get_tool' => 'list_available_tools',
+        'sub_agent_chat' => 'run_sub_agent_chat',
+        'chat_sub_agent' => 'run_sub_agent_chat',
+        'spawn_sub_agent' => 'run_sub_agent_chat',
     ];
     return $aliases[$normalized] ?? $aliases[$name] ?? $normalized;
 }
@@ -1233,6 +1245,84 @@ function normalizeToolArguments(string $toolName, array $args): array {
         $args['city'] = $args['location'];
     }
     return $args;
+}
+
+/**
+ * Some models emit pseudo-XML like <function><parameter name="name">...</parameter></function>
+ * instead of native tools or JSON. Map a small subset to real builtins so the run still works.
+ */
+function memory_graph_parse_pseudo_xml_tool_call(string $trimmed): ?array {
+    if (stripos($trimmed, '<function') === false) {
+        return null;
+    }
+    if (!preg_match('/<function\b[^>]*>([\s\S]*?)<\/function>/i', $trimmed, $fm)) {
+        return null;
+    }
+    $inner = $fm[1];
+    $params = [];
+    if (preg_match_all('/<parameter\s+name\s*=\s*["\']([^"\']+)["\']\s*>([\s\S]*?)<\/parameter>/i', $inner, $pm, PREG_SET_ORDER)) {
+        foreach ($pm as $row) {
+            $key = strtolower(trim($row[1]));
+            $val = trim($row[2]);
+            $val = html_entity_decode($val, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $params[$key] = $val;
+        }
+    }
+    if ($params === []) {
+        return null;
+    }
+    if (!empty($params['tool']) && is_string($params['tool'])) {
+        $name = normalizeToolName(trim($params['tool']));
+        unset($params['tool']);
+        $args = $params;
+        if (isset($args['arguments']) && is_string($args['arguments'])) {
+            $decodedArgs = json_decode($args['arguments'], true);
+            if (is_array($decodedArgs)) {
+                $args = $decodedArgs;
+            } else {
+                unset($args['arguments']);
+            }
+        }
+        return [
+            'name' => $name,
+            'arguments' => is_array($args) ? normalizeToolArguments($name, $args) : normalizeToolArguments($name, []),
+        ];
+    }
+    $action = strtolower((string) ($params['action'] ?? ''));
+    if ($action === 'chat' && !empty($params['name'])) {
+        $slug = preg_replace('/\.md$/i', '', trim((string) $params['name']));
+        $prompt = (string) ($params['message'] ?? $params['prompt'] ?? $params['content'] ?? '');
+        if ($slug !== '' && $prompt !== '') {
+            $tn = 'run_sub_agent_chat';
+            return [
+                'name' => $tn,
+                'arguments' => normalizeToolArguments($tn, ['name' => $slug, 'prompt' => $prompt]),
+            ];
+        }
+    }
+    if (!empty($params['content']) || !empty($params['config'])) {
+        $rawName = trim((string) ($params['name'] ?? ''));
+        if ($rawName !== '') {
+            $slug = preg_replace('/\.md$/i', '', $rawName);
+            $args = ['name' => $slug];
+            if (!empty($params['content'])) {
+                $args['content'] = (string) $params['content'];
+            }
+            if (!empty($params['config'])) {
+                $cfg = $params['config'];
+                if (is_string($cfg)) {
+                    $cfgDecoded = json_decode($cfg, true);
+                    $args['config'] = is_array($cfgDecoded) ? $cfgDecoded : ['raw' => $cfg];
+                }
+            }
+            $tn = 'create_sub_agent_file';
+            return [
+                'name' => $tn,
+                'arguments' => normalizeToolArguments($tn, $args),
+            ];
+        }
+    }
+    return null;
 }
 
 function parseInlineToolCall(?string $content): ?array {
@@ -1252,7 +1342,7 @@ function parseInlineToolCall(?string $content): ?array {
         } else {
             $start = strpos($trimmed, '{');
             if ($start === false) {
-                return null;
+                return memory_graph_parse_pseudo_xml_tool_call($trimmed);
             }
             $depth = 0;
             $len = strlen($trimmed);
@@ -1269,18 +1359,18 @@ function parseInlineToolCall(?string $content): ?array {
                 }
             }
             if ($depth !== 0) {
-                return null;
+                return memory_graph_parse_pseudo_xml_tool_call($trimmed);
             }
         }
     }
     $decoded = json_decode($jsonStr, true);
     if (!is_array($decoded)) {
-        return null;
+        return memory_graph_parse_pseudo_xml_tool_call($trimmed);
     }
     $name = $decoded['tool'] ?? $decoded['name'] ?? null;
     $arguments = $decoded['arguments'] ?? $decoded['parameters'] ?? [];
     if (!is_string($name) || !is_array($arguments)) {
-        return null;
+        return memory_graph_parse_pseudo_xml_tool_call($trimmed);
     }
     return [
         'name' => normalizeToolName($name),
@@ -2047,6 +2137,20 @@ function buildListGetReadToolsQuickReference(array $activeTools): string {
     if ($readWebAppActive) {
         $lines[] = '- read_web_app: ONLY local dashboard mini-apps (apps/<slug>/index.html). Never substitute for web search—use brave_search for the public web.';
     }
+    $subRun = [];
+    foreach ($activeTools as $tool) {
+        if (empty($tool['active']) || !is_array($tool)) {
+            continue;
+        }
+        $n = (string) ($tool['name'] ?? '');
+        if (in_array($n, ['run_sub_agent_chat', 'start_sub_agent_chat', 'get_sub_agent_chat_result', 'wait_for_sub_agent_chat', 'create_sub_agent_file', 'update_sub_agent_file', 'delete_sub_agent_file'], true)) {
+            $subRun[$n] = true;
+        }
+    }
+    if ($subRun !== []) {
+        ksort($subRun);
+        $lines[] = '- Sub-agents (Markdown configs in sub-agents/*.md — never memory/ for agent configs): ' . implode(', ', array_keys($subRun)) . '. Chat a sub-agent with run_sub_agent_chat using JSON {"tool":"run_sub_agent_chat","arguments":{"name":"<slug>","prompt":"..."}} or native function calling.';
+    }
     return implode("\n", $lines) . "\n";
 }
 
@@ -2089,6 +2193,7 @@ function buildToolUsageInstruction(array $activeTools): string {
         "Do not wrap that JSON in markdown fences.\n" .
         "CRITICAL — MCP autonomy: You must proactively use MCP tools whenever they can help complete the task. Never wait for the user to say \"use MCP\", \"call the MCP\", or similar. If list_available_tools shows mcp__* tools, or if configured MCP servers could provide data/actions the user needs, call those tools as part of your normal workflow. Treat MCP-exposed tools like any other first-class tool. If you are unsure what an MCP server offers, call list_mcp_servers then list_mcp_server_tools for active servers, then invoke the matching tool by name.\n" .
         $mcpAutonomyLine .
+        "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with arguments name (slug without .md) and prompt (or messages). For async: start_sub_agent_chat, then wait_for_sub_agent_chat or get_sub_agent_chat_result. Never tell the user you \"have no sub-agent tool\", invent paths like memory/jarvis-spawn/, or emit fake markup like <function> XML—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"slug\",\"prompt\":\"...\"}}.\n" .
         "To discover what tools are currently available, call list_available_tools.\n" .
         ($listGetReadRef !== '' ? $listGetReadRef : '') .
         "CRITICAL — Before create_or_update_tool (or writing a new PHP tool): You MUST first exhaust existing capabilities. (1) Call list_available_tools and read every active tool name and description — custom tools, builtins, and MCP-proxied tools (names often look like mcp__ServerSlug__tool_slug) are all listed there. (2) Call list_mcp_servers, then for each relevant active server call list_mcp_server_tools to see remote MCP tools and parameters. Only if nothing fits should you create a new PHP tool. Prefer calling an existing tool or an MCP-exposed tool over building new code.\n" .
