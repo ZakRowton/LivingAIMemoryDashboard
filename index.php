@@ -704,6 +704,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             }
         }
         .font-display { font-family: 'Cinzel', serif; }
+        .font-serif { font-family: 'Playfair Display', Georgia, serif; }
         /* Node widget – glowing panel */
         .node-widget {
             position: fixed;
@@ -1271,17 +1272,24 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             position: fixed;
             top: 0;
             right: 0;
-            width: min(360px, 100vw);
+            width: min(380px, 100vw);
             height: 100%;
             z-index: 118;
-            background: var(--panel-bg);
-            backdrop-filter: blur(16px);
-            border-left: 1px solid rgba(214, 219, 226, 0.2);
-            box-shadow: -8px 0 40px rgba(0, 0, 0, 0.45);
+            background: linear-gradient(165deg, rgba(14, 17, 22, 0.94) 0%, rgba(8, 10, 14, 0.92) 45%, rgba(6, 8, 12, 0.96) 100%);
+            backdrop-filter: blur(18px);
+            border-left: 1px solid rgba(212, 175, 55, 0.22);
+            box-shadow:
+                -12px 0 48px rgba(0, 0, 0, 0.55),
+                inset 0 1px 0 rgba(214, 219, 226, 0.06);
             transform: translateX(100%);
             transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
             display: flex;
             flex-direction: column;
+        }
+        [data-theme="light"] .settings-panel {
+            background: linear-gradient(165deg, rgba(252, 250, 246, 0.98) 0%, rgba(245, 241, 234, 0.96) 100%);
+            border-left-color: rgba(180, 150, 70, 0.28);
+            box-shadow: -8px 0 36px rgba(0, 0, 0, 0.12);
         }
         .settings-panel.is-open {
             transform: translateX(0);
@@ -1290,65 +1298,187 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 16px 18px;
-            border-bottom: 1px solid rgba(214, 219, 226, 0.15);
-            font-size: 1.1rem;
-            color: var(--gold);
-            text-shadow: 0 0 12px rgba(214, 219, 226, 0.12);
+            padding: 20px 22px 18px;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.18);
+            flex-shrink: 0;
+        }
+        .settings-panel-title {
+            font-size: 0.72rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: #d4af37;
+            text-shadow: 0 0 20px rgba(212, 175, 55, 0.25);
+        }
+        [data-theme="light"] .settings-panel-title {
+            color: #8a7228;
+            text-shadow: none;
         }
         .settings-panel-close {
-            background: none;
-            border: none;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            border-radius: 10px;
             color: var(--gold-dim);
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             line-height: 1;
             cursor: pointer;
-            padding: 4px 8px;
+            padding: 6px 12px;
+            transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+        [data-theme="light"] .settings-panel-close {
+            background: rgba(255, 255, 255, 0.5);
         }
         .settings-panel-close:hover {
             color: var(--gold-light);
+            border-color: rgba(212, 175, 55, 0.4);
+            background: rgba(212, 175, 55, 0.08);
         }
         .settings-panel-body {
-            padding: 18px 22px 22px;
+            padding: 22px 22px 20px;
             overflow-y: auto;
-            overflow-x: visible;
+            overflow-x: hidden;
             flex: 1;
             min-width: 0;
+            min-height: 0;
             box-sizing: border-box;
-        }
-        .settings-row {
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            padding: 14px 0;
-            border-bottom: 1px solid rgba(214, 219, 226, 0.1);
         }
-        .settings-label {
-            font-size: 0.95rem;
-            color: var(--gold-light);
+        .settings-section {
+            flex-shrink: 0;
         }
-        .settings-hint {
-            font-family: 'Playfair Display', serif;
-            font-size: 0.82rem;
+        .settings-section-kicker {
+            font-family: 'Cinzel', serif;
+            font-size: 0.62rem;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
             color: var(--gold-dim);
-            margin-top: 4px;
-            line-height: 1.35;
+            margin-bottom: 6px;
         }
-        /* Bootstrap switch uses negative margin-left; ps-0 clips the thumb — keep default padding */
-        .settings-panel .settings-interface-switch.form-switch {
-            padding-left: 2.75em;
-        }
-        .settings-panel .settings-interface-switch .form-check-input {
-            width: 2.75rem;
-            height: 1.35rem;
-            cursor: pointer;
-            margin-top: 0.15em;
-        }
-        .settings-panel .settings-interface-switch .form-check-label {
-            cursor: pointer;
+        .settings-section-title {
+            margin: 0 0 10px;
+            font-size: 1.15rem;
+            font-weight: 600;
             color: var(--gold-light);
-            font-family: 'Playfair Display', serif;
-            padding-top: 0.1em;
+            letter-spacing: 0.04em;
+        }
+        .settings-section-lead {
+            margin: 0 0 18px;
+            font-size: 0.84rem;
+            line-height: 1.55;
+            color: var(--gold-dim);
+            max-width: 32em;
+        }
+        .settings-option-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 16px 18px;
+            border-radius: 14px;
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            background: rgba(0, 0, 0, 0.28);
+            box-shadow: inset 0 1px 0 rgba(214, 219, 226, 0.05);
+        }
+        [data-theme="light"] .settings-option-card {
+            background: rgba(255, 255, 255, 0.55);
+            border-color: rgba(180, 150, 70, 0.22);
+        }
+        .settings-option-text {
+            min-width: 0;
+            flex: 1;
+        }
+        .settings-option-name {
+            font-size: 0.78rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #e8dcc8;
+            margin-bottom: 4px;
+        }
+        [data-theme="light"] .settings-option-name {
+            color: var(--gold-light);
+        }
+        .settings-option-desc {
+            font-size: 0.8rem;
+            line-height: 1.45;
+            color: var(--gold-dim);
+        }
+        /* Gold-themed switch (no Bootstrap blue) */
+        .settings-toggle {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            flex-shrink: 0;
+            cursor: pointer;
+            margin: 0;
+        }
+        .settings-toggle-input {
+            position: absolute;
+            opacity: 0;
+            width: 1px;
+            height: 1px;
+            margin: 0;
+            pointer-events: none;
+        }
+        .settings-toggle-ui {
+            position: relative;
+            width: 52px;
+            height: 30px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid rgba(212, 175, 55, 0.35);
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+            transition: background 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+        }
+        [data-theme="light"] .settings-toggle-ui {
+            background: rgba(255, 255, 255, 0.65);
+        }
+        .settings-toggle-thumb {
+            position: absolute;
+            top: 3px;
+            left: 4px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: linear-gradient(145deg, #f5f0e4 0%, #c9b896 45%, #a08c5c 100%);
+            box-shadow:
+                0 2px 6px rgba(0, 0, 0, 0.45),
+                inset 0 1px 0 rgba(255, 255, 255, 0.35);
+            transition: transform 0.22s cubic-bezier(0.2, 0.85, 0.2, 1);
+        }
+        .settings-toggle-input:checked + .settings-toggle-ui {
+            background: rgba(212, 175, 55, 0.18);
+            border-color: rgba(212, 175, 55, 0.55);
+            box-shadow:
+                inset 0 2px 8px rgba(0, 0, 0, 0.25),
+                0 0 20px rgba(212, 175, 55, 0.12);
+        }
+        .settings-toggle-input:checked + .settings-toggle-ui .settings-toggle-thumb {
+            transform: translateX(22px);
+        }
+        .settings-toggle-input:focus-visible + .settings-toggle-ui {
+            outline: 2px solid rgba(212, 175, 55, 0.65);
+            outline-offset: 3px;
+        }
+        .settings-panel-spacer {
+            flex: 1;
+            min-height: 32px;
+        }
+        .settings-panel-footer {
+            flex-shrink: 0;
+            margin-top: auto;
+            padding-top: 18px;
+            border-top: 1px solid rgba(212, 175, 55, 0.12);
+        }
+        .settings-footer-note {
+            margin: 0;
+            font-size: 0.76rem;
+            line-height: 1.5;
+            color: var(--gold-dim);
+            opacity: 0.92;
+        }
+        .settings-footer-note strong {
+            color: var(--gold-light);
+            font-weight: 600;
         }
 
         /* Simple chat layout (replaces visible 3D graph) */
@@ -2173,22 +2303,31 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
 
     <button type="button" id="settings-fab" class="settings-fab font-display" aria-label="Open settings" title="Settings">&#9881;</button>
     <div id="settings-backdrop" class="settings-backdrop" hidden></div>
-    <aside id="settings-panel" class="settings-panel font-display" aria-hidden="true">
+    <aside id="settings-panel" class="settings-panel" aria-hidden="true">
         <div class="settings-panel-header">
-            <span>Settings</span>
-            <button type="button" class="settings-panel-close" id="settings-panel-close" aria-label="Close settings">&times;</button>
+            <span class="settings-panel-title font-display">Settings</span>
+            <button type="button" class="settings-panel-close font-display" id="settings-panel-close" aria-label="Close settings">&times;</button>
         </div>
         <div class="settings-panel-body">
-            <div class="settings-row">
-                <div>
-                    <div class="settings-label">Interface mode</div>
-                    <div class="settings-hint">Use the 3D memory graph, or a focused chat layout with sidebar navigation and live activity hints.</div>
-                </div>
-                <div class="form-check form-switch settings-interface-switch">
-                    <input class="form-check-input" type="checkbox" id="ui-mode-simple-switch" role="switch" aria-label="Simple chat layout">
-                    <label class="form-check-label" for="ui-mode-simple-switch">Simple chat layout</label>
+            <div class="settings-section">
+                <div class="settings-section-kicker font-display">Workspace</div>
+                <h3 class="settings-section-title font-display">Interface</h3>
+                <p class="settings-section-lead font-serif">Choose between the full <strong>3D memory graph</strong> and a <strong>focused chat workspace</strong> with sidebar navigation, library browser, and live activity hints.</p>
+                <div class="settings-option-card">
+                    <div class="settings-option-text">
+                        <div class="settings-option-name font-display">Simple chat</div>
+                        <div class="settings-option-desc font-serif">Hides the graph view; keeps agents, tools, and jobs one click away in the rail.</div>
+                    </div>
+                    <label class="settings-toggle" for="ui-mode-simple-switch">
+                        <input type="checkbox" class="settings-toggle-input" id="ui-mode-simple-switch" role="switch" aria-label="Use simple chat layout">
+                        <span class="settings-toggle-ui" aria-hidden="true"><span class="settings-toggle-thumb"></span></span>
+                    </label>
                 </div>
             </div>
+            <div class="settings-panel-spacer" aria-hidden="true"></div>
+            <footer class="settings-panel-footer">
+                <p class="settings-footer-note font-serif">Your layout preference is stored in <strong>this browser</strong> only (local storage). Switch anytime; the graph keeps working in the background for jobs and status.</p>
+            </footer>
         </div>
     </aside>
 
