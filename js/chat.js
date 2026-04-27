@@ -1148,6 +1148,9 @@
                 pollStatusSnapshot(requestId, true);
                 if (wasStopped) {
                     stopStatusPolling();
+                    if ($input.length) {
+                        $input.val(text);
+                    }
                 } else if (!stopPollingTimeout) {
                     stopPollingTimeout = setTimeout(function () {
                         stopStatusPolling();
@@ -1156,9 +1159,11 @@
                 if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
                 processNextInQueue();
                 focusChatInputSoon();
-                var mgAtt = window.__mgMainChatAttachments;
-                if (mgAtt && typeof mgAtt.clear === 'function') {
-                    mgAtt.clear();
+                if (!wasStopped) {
+                    var mgAtt = window.__mgMainChatAttachments;
+                    if (mgAtt && typeof mgAtt.clear === 'function') {
+                        mgAtt.clear();
+                    }
                 }
             });
     }
