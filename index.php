@@ -1126,19 +1126,33 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
         .tool-list-item {
             display: flex;
-            align-items: center;
+            flex-direction: row;
+            align-items: flex-start;
             justify-content: space-between;
             gap: 10px;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
             padding: 10px 12px;
             border: 1px solid rgba(214, 219, 226, 0.14);
             border-radius: 8px;
             background: rgba(255,255,255,0.04);
         }
+        .tool-list-item > div:first-child {
+            flex: 1 1 0;
+            min-width: 0;
+        }
         .tool-list-name {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
             font-size: 0.92rem;
             color: var(--gold-light);
-            line-height: 1.3;
-            word-break: break-word;
+            line-height: 1.35;
+            white-space: normal;
+            word-break: normal;
+            overflow-wrap: anywhere;
         }
         .execution-widget {
             position: fixed;
@@ -2248,8 +2262,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             margin: 0;
             padding: 0;
         }
+        .simple-item-row {
+            min-width: 0;
+            max-width: 100%;
+        }
         .simple-item-btn {
             width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
             text-align: left;
             padding: 10px 12px;
             margin-bottom: 6px;
@@ -2259,6 +2279,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             color: #f9f1d8;
             font-size: 0.9rem;
             cursor: pointer;
+            white-space: normal;
+            word-break: normal;
+            overflow-wrap: anywhere;
+            line-height: 1.35;
             transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
         }
         [data-theme="light"] .simple-item-btn {
@@ -3455,6 +3479,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 captureAgentSelection();
                 persistAgentSelectionToServer(agentSelProvider, agentSelModel);
                 syncInstructionSelectToCurrentKey();
+                if (systemInstructionSelect) {
+                    persistInstructionFileToServer(providerSelect.value, modelSelect ? modelSelect.value : '', systemInstructionSelect.value || '');
+                }
             });
         }
         if (modelSelect) {
@@ -3462,6 +3489,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 captureAgentSelection();
                 persistAgentSelectionToServer(agentSelProvider, agentSelModel);
                 syncInstructionSelectToCurrentKey();
+                if (systemInstructionSelect && providerSelect) {
+                    persistInstructionFileToServer(providerSelect.value, modelSelect.value, systemInstructionSelect.value || '');
+                }
             });
         }
         syncModelSelect();

@@ -244,6 +244,42 @@
             render();
         }
 
+        /**
+         * Restore the attachment strip from prior API content parts (e.g. re-editing a queued item).
+         */
+        function setPartsFromApi(parts) {
+            clear();
+            if (!Array.isArray(parts) || !parts.length) {
+                return;
+            }
+            parts.forEach(function (p) {
+                if (!p || !p.type) {
+                    return;
+                }
+                var kind = 'file';
+                var label = 'Attachment';
+                if (p.type === 'image_url') {
+                    kind = 'image';
+                    label = 'Image';
+                } else if (p.type === 'input_audio') {
+                    kind = 'audio';
+                    label = (p.input_audio && p.input_audio.format) ? 'audio' : 'audio';
+                } else if (p.type === 'input_video') {
+                    kind = 'video';
+                    label = 'Video';
+                } else if (p.type === 'text') {
+                    kind = 'text';
+                    var t = String(p.text || '');
+                    label = t.length > 36 ? t.slice(0, 33) + '…' : t;
+                } else {
+                    kind = 'file';
+                    label = p.type;
+                }
+                items.push({ id: uid(), part: p, label: label, kind: kind });
+            });
+            render();
+        }
+
         function getParts() {
             return items.map(function (x) {
                 return x.part;
@@ -302,7 +338,7 @@
 
         render();
 
-        return { addFileList: addFileList, clear: clear, render: render, getParts: getParts, summaryLine: summaryLine };
+        return { addFileList: addFileList, clear: clear, setParts: setPartsFromApi, render: render, getParts: getParts, summaryLine: summaryLine };
     }
 
     window.__mgMainChatAttachments = null;

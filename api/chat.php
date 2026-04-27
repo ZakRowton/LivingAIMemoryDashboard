@@ -172,6 +172,7 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
         }
         $headers[] = 'HTTP-Referer: ' . $referer;
         $headers[] = 'X-Title: MemoryGraph';
+        $headers[] = 'X-OpenRouter-Title: MemoryGraph';
     }
     $ch = curl_init($endpoint);
     curl_setopt_array($ch, [
@@ -3583,7 +3584,44 @@ function requestOpenAiCompatible(array $provider, string $model, array $conversa
         }
     }
 
+    if (isset($result['error']) && $providerKey === 'openrouter' && !empty($tools)) {
+        $rawOr = isset($result['raw']) ? (string) $result['raw'] : '';
+        $hcOr = (int) ($result['httpCode'] ?? 0);
+        if (memory_graph_openrouter_may_retry_without_tools($hcOr, $rawOr)) {
+            $payloadNo = $payload;
+            unset($payloadNo['tools'], $payloadNo['tool_choice']);
+            $result = memory_graph_openai_compatible_post($endpoint, $apiKey, $payloadNo, $providerKey);
+        }
+    }
+
     return $result;
+}
+
+/**
+ * When OpenRouter returns 400/404, some models reject tool/function calling. Retry once without tools.
+ */
+function memory_graph_openrouter_may_retry_without_tools(int $httpCode, string $raw): bool {
+    if ($raw === '' || ($httpCode !== 400 && $httpCode !== 404)) {
+        return false;
+    }
+    $j = json_decode($raw, true);
+    $msg = '';
+    if (is_array($j)) {
+        if (isset($j['error']['message']) && is_string($j['error']['message'])) {
+            $msg = $j['error']['message'];
+        } elseif (isset($j['message']) && is_string($j['message'])) {
+            $msg = $j['message'];
+        }
+    }
+    if ($msg === '') {
+        $msg = $raw;
+    }
+    $m = strtolower($msg);
+    if (strpos($m, 'tool') === false && strpos($m, 'function') === false) {
+        return false;
+    }
+
+    return (bool) preg_match('/\b(not supported|does not support|no tool|unsupported|invalid tool|function_call|tool_use|no endpoints found that support tools)\b/i', $m);
 }
 
 function memory_graph_gemini_parts_from_content(mixed $content): array {

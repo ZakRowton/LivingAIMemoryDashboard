@@ -317,6 +317,11 @@
             var $actions = $('<div class="chat-queue-item-actions">');
             $('<button type="button" title="Edit">&#9998;</button>').on('click', function () {
                 $input.val(item.text).focus();
+                if (window.__mgMainChatAttachments && typeof window.__mgMainChatAttachments.setParts === 'function') {
+                    window.__mgMainChatAttachments.setParts(item.parts && item.parts.length ? item.parts : []);
+                } else if (window.__mgMainChatAttachments && typeof window.__mgMainChatAttachments.clear === 'function' && (!item.parts || !item.parts.length)) {
+                    window.__mgMainChatAttachments.clear();
+                }
                 removeFromQueue(idx);
                 renderQueue();
             }).appendTo($actions);
