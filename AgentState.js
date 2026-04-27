@@ -82,6 +82,17 @@ class AgentState {
         this.dispatchGraphActivity();
     }
 
+    markSubAgentFileNodesActive(subAgentFileNodeIds, durationMs) {
+        var ms = Math.max(0, parseInt(durationMs, 10) || 0) || this.memoryFileAccessHoldMs;
+        var until = this.nowMs() + Math.max(3200, ms);
+        (Array.isArray(subAgentFileNodeIds) ? subAgentFileNodeIds : []).forEach(function (nodeId) {
+            if (!nodeId || nodeId.indexOf('sub_agent_file_') !== 0) return;
+            this.recentNodeActivityUntil[nodeId] = until;
+        }, this);
+        this.recentSectionActivityUntil.sub_agents = until;
+        this.dispatchGraphActivity();
+    }
+
     isSectionRecentlyActive(section) {
         if (!section || !Object.prototype.hasOwnProperty.call(this.recentSectionActivityUntil, section)) return false;
         return (this.recentSectionActivityUntil[section] || 0) > this.nowMs();
@@ -240,6 +251,9 @@ class AgentState {
             memoryIds.forEach(function (nodeId) {
                 if (nodeId && nodeId.indexOf('memory_file_') === 0) this.recentNodeActivityUntil[nodeId] = until;
             }, this);
+        }
+        if (subAgentIds.length > 0 || details.sub_agents) {
+            this.markSubAgentFileNodesActive(subAgentIds, parseInt(data.durationMs, 10) || this.memoryFileAccessHoldMs);
         }
         var durationMs = Math.max(this.activityHoldMs, parseInt(data.durationMs, 10) || 0);
         this.dispatchGraphActivity(durationMs);

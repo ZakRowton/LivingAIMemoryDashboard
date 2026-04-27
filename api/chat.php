@@ -512,6 +512,61 @@ function memory_graph_sub_agent_public_base_url(): string {
     return rtrim($u, '/');
 }
 
+/** Resolve sub-agent slug from tool arguments (models vary key names). */
+function memory_graph_sub_agent_slug_from_tool_arguments(array $arguments): string {
+    foreach (['name', 'sub_agent', 'sub_agent_name', 'subAgent', 'agent', 'slug', 'file'] as $k) {
+        if (!empty($arguments[$k]) && is_string($arguments[$k])) {
+            $t = trim($arguments[$k]);
+            if ($t !== '') {
+                return $t;
+            }
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Re-read/write chat status so the UI can pulse Sub-Agents during long run_sub_agent_chat (e.g. nested HTTP),
+ * and to survive single-worker environments where status was not merged yet.
+ */
+function memory_graph_reinforce_sub_agent_status_pulse(string $subAgentSlugOrFilename, array $arguments): void {
+    $rid = trim((string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? ''));
+    if ($rid === '') {
+        return;
+    }
+    $fn = normalize_sub_agent_filename($subAgentSlugOrFilename);
+    if ($fn === '') {
+        return;
+    }
+    $nid = sub_agent_node_id($fn);
+    $path = statusDirPath() . DIRECTORY_SEPARATOR . $rid . '.json';
+    $raw = @file_get_contents($path);
+    $status = ($raw !== false && $raw !== '') ? json_decode($raw, true) : [];
+    if (!is_array($status)) {
+        $status = [];
+    }
+    $existing = isset($status['activeSubAgentIds']) && is_array($status['activeSubAgentIds']) ? $status['activeSubAgentIds'] : [];
+    if (!in_array($nid, $existing, true)) {
+        $existing[] = $nid;
+    }
+    $status['activeSubAgentIds'] = array_values($existing);
+    $status['lastActiveSubAgentIds'] = $status['activeSubAgentIds'];
+    $ed = isset($status['executionDetailsByNode']) && is_array($status['executionDetailsByNode']) ? $status['executionDetailsByNode'] : [];
+    $ed['sub_agents'] = ['toolName' => 'run_sub_agent_chat', 'arguments' => $arguments];
+    $ed[$nid] = ['toolName' => 'run_sub_agent_chat', 'arguments' => $arguments];
+    $status['executionDetailsByNode'] = $ed;
+    $status['lastExecutionDetailsByNode'] = $ed;
+    $holdMs = 120000;
+    $rawHold = $_ENV['MEMORYGRAPH_SUB_AGENT_STATUS_MS'] ?? getenv('MEMORYGRAPH_SUB_AGENT_STATUS_MS');
+    if ($rawHold !== false && $rawHold !== null && (string) $rawHold !== '') {
+        $holdMs = max(8000, (int) $rawHold);
+    }
+    $status['lastEventExpiresAtMs'] = (int) round(microtime(true) * 1000) + $holdMs;
+    $status['thinking'] = true;
+    writeStatus($rid, $status);
+}
+
 /**
  * Run a sub-agent through the same api/chat.php pipeline (tools, merged memory/rules, MCP, etc.).
  * Requires MEMORYGRAPH_PUBLIC_BASE_URL so the server can POST to itself (needed for multi-step tool loops).
@@ -626,6 +681,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
             if ($body === false) {
                 return ['error' => 'Failed to encode sub-agent chat payload'];
             }
+            memory_graph_reinforce_sub_agent_status_pulse($name, $arguments);
             $ch = curl_init($url);
             curl_setopt_array($ch, [
                 CURLOPT_POST => true,
@@ -687,6 +743,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
         . "\n\n[Sub-agent simple mode: MEMORYGRAPH_PUBLIC_BASE_URL is not set or provider is endpoint-only — tool calls are not executed in this fallback.]"
     );
     $conversation = normalizeConversation($messages, $mergedSystem, $providerType);
+    memory_graph_reinforce_sub_agent_status_pulse($name, $arguments);
     $result = $providerType === 'gemini'
         ? requestGemini($provider, $model, $conversation, $temperature, $mergedSystem)
         : requestOpenAiCompatible($provider, $model, $conversation, $temperature, [], $providerKey);
@@ -1114,7 +1171,10 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     }
     $subAgentNameArg = '';
     if (in_array($normalizedFunctionName, ['run_sub_agent_chat', 'start_sub_agent_chat', 'create_sub_agent_file', 'update_sub_agent_file', 'delete_sub_agent_file', 'read_sub_agent_file'], true)) {
-        $subAgentNameArg = (string) ($arguments['name'] ?? '');
+        $subAgentNameArg = memory_graph_sub_agent_slug_from_tool_arguments($arguments);
+        if ($subAgentNameArg === '') {
+            $subAgentNameArg = (string) ($arguments['name'] ?? '');
+        }
     } elseif (in_array($normalizedFunctionName, ['wait_for_sub_agent_chat', 'get_sub_agent_chat_result'], true) && !empty($arguments['taskId'])) {
         $task = get_sub_agent_task((string) $arguments['taskId']);
         if (is_array($task) && is_array($task['payload'] ?? null) && isset($task['payload']['name'])) {
@@ -1988,6 +2048,15 @@ function executeToolCall(string $toolName, array $arguments, array $activeTools,
 
 function executeToolCallInner(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     $normalizedName = normalizeToolName($toolName);
+    if (in_array($normalizedName, ['run_sub_agent_chat', 'start_sub_agent_chat'], true)) {
+        $sn = memory_graph_sub_agent_slug_from_tool_arguments($arguments);
+        if ($sn === '') {
+            $sn = (string) ($arguments['name'] ?? $arguments['subAgent'] ?? '');
+        }
+        if ($sn !== '') {
+            memory_graph_reinforce_sub_agent_status_pulse($sn, $arguments);
+        }
+    }
     if (!isset($activeTools[$normalizedName])) {
         return ['error' => 'Tool is not active or not registered', '__disabled' => false];
     }
