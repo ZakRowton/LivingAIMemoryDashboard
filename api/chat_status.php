@@ -20,6 +20,7 @@ if ($requestId === '') {
         'activeRulesIds' => [],
         'activeMcpIds' => [],
         'activeJobIds' => [],
+        'activeSubAgentIds' => [],
         'memoryToolExecuting' => false,
         'toolExecuting' => false,
         'instructionToolExecuting' => false,
@@ -49,6 +50,7 @@ if (!file_exists($path)) {
         'activeRulesIds' => [],
         'activeMcpIds' => [],
         'activeJobIds' => [],
+        'activeSubAgentIds' => [],
         'memoryToolExecuting' => false,
         'toolExecuting' => false,
         'instructionToolExecuting' => false,
@@ -90,10 +92,13 @@ $effectiveActiveMcpIds = isset($data['activeMcpIds']) && is_array($data['activeM
 $effectiveActiveJobIds = isset($data['activeJobIds']) && is_array($data['activeJobIds']) && count($data['activeJobIds']) > 0
     ? array_values($data['activeJobIds'])
     : ($hasRecentActivity && isset($data['lastActiveJobIds']) && is_array($data['lastActiveJobIds']) ? array_values($data['lastActiveJobIds']) : []);
+$effectiveActiveSubAgentIds = isset($data['activeSubAgentIds']) && is_array($data['activeSubAgentIds']) && count($data['activeSubAgentIds']) > 0
+    ? array_values($data['activeSubAgentIds'])
+    : ($hasRecentActivity && isset($data['lastActiveSubAgentIds']) && is_array($data['lastActiveSubAgentIds']) ? array_values($data['lastActiveSubAgentIds']) : []);
 $effectiveExecutionDetails = isset($data['executionDetailsByNode']) && is_array($data['executionDetailsByNode']) && count($data['executionDetailsByNode']) > 0
     ? $data['executionDetailsByNode']
     : ($hasRecentActivity && isset($data['lastExecutionDetailsByNode']) && is_array($data['lastExecutionDetailsByNode']) ? $data['lastExecutionDetailsByNode'] : []);
-$effectiveThinking = !empty($data['thinking']) || $effectiveGettingAvailTools || $effectiveCheckingMemory || $effectiveCheckingInstructions || $effectiveCheckingMcps || $effectiveCheckingJobs || count($effectiveActiveToolIds) > 0 || count($effectiveActiveMemoryIds) > 0 || count($effectiveActiveInstructionIds) > 0 || count($effectiveActiveMcpIds) > 0 || count($effectiveActiveJobIds) > 0;
+$effectiveThinking = !empty($data['thinking']) || $effectiveGettingAvailTools || $effectiveCheckingMemory || $effectiveCheckingInstructions || $effectiveCheckingMcps || $effectiveCheckingJobs || count($effectiveActiveToolIds) > 0 || count($effectiveActiveMemoryIds) > 0 || count($effectiveActiveInstructionIds) > 0 || count($effectiveActiveMcpIds) > 0 || count($effectiveActiveJobIds) > 0 || count($effectiveActiveSubAgentIds) > 0 || (!empty($effectiveExecutionDetails['sub_agents']));
 $effectiveMemoryToolExecuting = $effectiveCheckingMemory || count($effectiveActiveMemoryIds) > 0;
 $effectiveToolExecuting = $effectiveGettingAvailTools || count($effectiveActiveToolIds) > 0;
 $effectiveInstructionToolExecuting = $effectiveCheckingInstructions || count($effectiveActiveInstructionIds) > 0;
@@ -117,6 +122,7 @@ echo json_encode([
     'activeRulesIds' => $effectiveActiveRulesIds,
     'activeMcpIds' => $effectiveActiveMcpIds,
     'activeJobIds' => $effectiveActiveJobIds,
+    'activeSubAgentIds' => $effectiveActiveSubAgentIds,
     'memoryToolExecuting' => $effectiveMemoryToolExecuting,
     'toolExecuting' => $effectiveToolExecuting,
     'instructionToolExecuting' => $effectiveInstructionToolExecuting,

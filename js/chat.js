@@ -202,6 +202,7 @@
             window.agentState.setActiveJobIds([]);
             window.agentState.setActiveResearchIds([]);
             window.agentState.setActiveRulesIds([]);
+            if (typeof window.agentState.setActiveSubAgentIds === 'function') window.agentState.setActiveSubAgentIds([]);
             window.agentState.setExecutionDetailsByNode({});
             if (typeof window.agentState.setMemoryToolExecuting === 'function') window.agentState.setMemoryToolExecuting(false);
             if (typeof window.agentState.setToolExecuting === 'function') window.agentState.setToolExecuting(false);
@@ -221,6 +222,7 @@
         var inferredRulesIds = Array.isArray(status.activeRulesIds) ? status.activeRulesIds.slice() : [];
         var inferredMcpIds = Array.isArray(status.activeMcpIds) ? status.activeMcpIds.slice() : [];
         var inferredJobIds = Array.isArray(status.activeJobIds) ? status.activeJobIds.slice() : [];
+        var inferredSubAgentIds = Array.isArray(status.activeSubAgentIds) ? status.activeSubAgentIds.slice() : [];
 
         Object.keys(executionDetails).forEach(function (key) {
             if (key.indexOf('tool_') === 0 && inferredToolIds.indexOf(key) === -1) inferredToolIds.push(key);
@@ -230,6 +232,7 @@
             if (key.indexOf('rules_file_') === 0 && inferredRulesIds.indexOf(key) === -1) inferredRulesIds.push(key);
             if (key.indexOf('mcp_server_') === 0 && inferredMcpIds.indexOf(key) === -1) inferredMcpIds.push(key);
             if ((key.indexOf('job_file_') === 0 || key.indexOf('job_cron_') === 0) && inferredJobIds.indexOf(key) === -1) inferredJobIds.push(key);
+            if (key.indexOf('sub_agent_file_') === 0 && inferredSubAgentIds.indexOf(key) === -1) inferredSubAgentIds.push(key);
         });
 
         var inferredCheckingMcps = !!(status.checkingMcps || inferredMcpIds.length || executionDetails.mcps);
@@ -239,8 +242,9 @@
         var inferredResearchExecution = !!(status.checkingResearch || inferredResearchIds.length || executionDetails.research);
         var inferredRulesExecution = !!(status.checkingRules || inferredRulesIds.length || executionDetails.rules);
         var inferredJobExecution = !!(status.checkingJobs || inferredJobIds.length || executionDetails.jobs);
+        var inferredSubAgentExecution = !!(inferredSubAgentIds.length || executionDetails.sub_agents);
         var memoryActive = !!(status.checkingMemory || inferredMemoryIds.length > 0 || status.memoryToolExecuting || status.isAccessingMemoryFile);
-        var durationMs = memoryActive && inferredMemoryIds.length > 0 ? 4500 : (status.thinking ? 2600 : 2200);
+        var durationMs = (memoryActive && inferredMemoryIds.length > 0) || (inferredSubAgentExecution && inferredSubAgentIds.length > 0) ? 4500 : (status.thinking ? 2600 : 2200);
         if (typeof window.agentState !== 'undefined' && typeof window.agentState.applySnapshotFromStatus === 'function') {
             window.agentState.applySnapshotFromStatus({
                 thinking: !!status.thinking,
@@ -258,6 +262,7 @@
                 activeRulesIds: inferredRulesIds,
                 activeMcpIds: inferredMcpIds,
                 activeJobIds: inferredJobIds,
+                activeSubAgentIds: inferredSubAgentIds,
                 executionDetailsByNode: executionDetails,
                 isAccessingMemoryFile: !!(status.isAccessingMemoryFile || memoryActive),
                 durationMs: durationMs

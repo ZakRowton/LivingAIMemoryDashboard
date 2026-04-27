@@ -288,10 +288,11 @@ function clearStatusFlags(array &$status): void {
     $status['activeRulesIds'] = [];
     $status['activeMcpIds'] = [];
     $status['activeJobIds'] = [];
+    $status['activeSubAgentIds'] = [];
     $status['executionDetailsByNode'] = [];
 }
 
-function markExecutionStatus(array &$status, string $requestId, bool $gettingAvailTools, bool $checkingMemory, bool $checkingInstructions, bool $checkingResearch, bool $checkingRules, bool $checkingMcps, bool $checkingJobs, array $activeToolIds, array $activeMemoryIds, array $activeInstructionIds, array $activeResearchIds, array $activeRulesIds, array $activeMcpIds, array $activeJobIds, array $executionDetailsByNode): void {
+function markExecutionStatus(array &$status, string $requestId, bool $gettingAvailTools, bool $checkingMemory, bool $checkingInstructions, bool $checkingResearch, bool $checkingRules, bool $checkingMcps, bool $checkingJobs, array $activeToolIds, array $activeMemoryIds, array $activeInstructionIds, array $activeResearchIds, array $activeRulesIds, array $activeMcpIds, array $activeJobIds, array $activeSubAgentIds, array $executionDetailsByNode): void {
     $status['gettingAvailTools'] = $gettingAvailTools;
     $status['checkingMemory'] = $checkingMemory;
     $status['checkingInstructions'] = $checkingInstructions;
@@ -313,6 +314,7 @@ function markExecutionStatus(array &$status, string $requestId, bool $gettingAva
     }
     $status['checkingJobs'] = $checkingJobs;
     $status['activeJobIds'] = array_values($activeJobIds);
+    $status['activeSubAgentIds'] = array_values($activeSubAgentIds);
     $status['executionDetailsByNode'] = $executionDetailsByNode;
     $status['lastGettingAvailTools'] = $gettingAvailTools;
     $status['lastCheckingMemory'] = $checkingMemory;
@@ -328,6 +330,7 @@ function markExecutionStatus(array &$status, string $requestId, bool $gettingAva
     $status['lastActiveRulesIds'] = array_values($activeRulesIds);
     $status['lastActiveMcpIds'] = array_values($activeMcpIds);
     $status['lastActiveJobIds'] = array_values($activeJobIds);
+    $status['lastActiveSubAgentIds'] = array_values($activeSubAgentIds);
     $status['lastExecutionDetailsByNode'] = $executionDetailsByNode;
     $status['lastEventExpiresAtMs'] = (int) round(microtime(true) * 1000) + 5500;
     writeStatus($requestId, $status);
@@ -348,6 +351,7 @@ function clearCurrentExecutionStatus(array &$status, string $requestId): void {
     $status['activeRulesIds'] = [];
     $status['activeMcpIds'] = [];
     $status['activeJobIds'] = [];
+    $status['activeSubAgentIds'] = [];
     $status['executionDetailsByNode'] = [];
     writeStatus($requestId, $status);
 }
@@ -924,6 +928,7 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     $activeRulesIds = [];
     $activeMcpIds = [];
     $activeJobIds = [];
+    $activeSubAgentIds = [];
     $executionDetails = [
         'tool_' . $normalizedFunctionName => [
             'toolName' => $normalizedFunctionName,
@@ -1107,6 +1112,33 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
             'arguments' => $arguments,
         ];
     }
+    $subAgentNameArg = '';
+    if (in_array($normalizedFunctionName, ['run_sub_agent_chat', 'start_sub_agent_chat', 'create_sub_agent_file', 'update_sub_agent_file', 'delete_sub_agent_file', 'read_sub_agent_file'], true)) {
+        $subAgentNameArg = (string) ($arguments['name'] ?? '');
+    } elseif (in_array($normalizedFunctionName, ['wait_for_sub_agent_chat', 'get_sub_agent_chat_result'], true) && !empty($arguments['taskId'])) {
+        $task = get_sub_agent_task((string) $arguments['taskId']);
+        if (is_array($task) && is_array($task['payload'] ?? null) && isset($task['payload']['name'])) {
+            $subAgentNameArg = (string) $task['payload']['name'];
+        }
+    }
+    if ($subAgentNameArg !== '') {
+        $fn = normalize_sub_agent_filename($subAgentNameArg);
+        if ($fn !== '') {
+            $nid = sub_agent_node_id($fn);
+            $activeSubAgentIds[] = $nid;
+            $executionDetails[$nid] = [
+                'toolName' => $normalizedFunctionName,
+                'arguments' => $arguments,
+            ];
+        }
+    }
+    $subAgentToolNames = ['list_sub_agent_files', 'read_sub_agent_file', 'create_sub_agent_file', 'update_sub_agent_file', 'delete_sub_agent_file', 'run_sub_agent_chat', 'start_sub_agent_chat', 'wait_for_sub_agent_chat', 'get_sub_agent_chat_result'];
+    if (in_array($normalizedFunctionName, $subAgentToolNames, true)) {
+        $executionDetails['sub_agents'] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
     return [
         'gettingAvailTools' => $gettingAvailTools,
         'checkingMemory' => $checkingMemory,
@@ -1122,6 +1154,7 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
         'activeRulesIds' => $activeRulesIds,
         'activeMcpIds' => $activeMcpIds,
         'activeJobIds' => $activeJobIds,
+        'activeSubAgentIds' => $activeSubAgentIds,
         'executionDetails' => $executionDetails,
     ];
 }
@@ -2969,6 +3002,7 @@ $status = [
     'activeInstructionIds' => [],
     'activeMcpIds' => [],
     'activeJobIds' => [],
+    'activeSubAgentIds' => [],
     'executionDetailsByNode' => [],
     'lastGettingAvailTools' => false,
     'lastCheckingMemory' => false,
@@ -2980,6 +3014,7 @@ $status = [
     'lastActiveInstructionIds' => [],
     'lastActiveMcpIds' => [],
     'lastActiveJobIds' => [],
+    'lastActiveSubAgentIds' => [],
     'lastExecutionDetailsByNode' => [],
     'lastEventExpiresAtMs' => 0,
     'graphRefreshToken' => '',
@@ -3204,6 +3239,7 @@ while (true) {
                     $executionState['activeRulesIds'],
                     $executionState['activeMcpIds'],
                     $executionState['activeJobIds'],
+                    $executionState['activeSubAgentIds'],
                     $executionState['executionDetails']
                 );
                 $mcpOverride = null;
@@ -3297,6 +3333,7 @@ while (true) {
                 $executionState['activeRulesIds'],
                 $executionState['activeMcpIds'],
                 $executionState['activeJobIds'],
+                $executionState['activeSubAgentIds'],
                 $executionState['executionDetails']
             );
             try {
@@ -3398,6 +3435,7 @@ while (true) {
             $executionState['activeRulesIds'],
             $executionState['activeMcpIds'],
             $executionState['activeJobIds'],
+            $executionState['activeSubAgentIds'],
             $executionState['executionDetails']
         );
         try {

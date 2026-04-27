@@ -16,6 +16,8 @@ class AgentState {
         this.activeCategoryIds = [];
         this.activeMcpIds = [];
         this.activeJobIds = [];
+        this.activeSubAgentIds = [];
+        this.subAgentsToolExecuting = false;
         this.backgroundGettingAvailTools = false;
         this.backgroundCheckingMemory = false;
         this.backgroundCheckingInstructions = false;
@@ -29,6 +31,7 @@ class AgentState {
         this.backgroundActiveCategoryIds = [];
         this.backgroundActiveMcpIds = [];
         this.backgroundJobIds = [];
+        this.backgroundActiveSubAgentIds = [];
         this.backgroundExecutionDetailsByNode = {};
         this.executionDetailsByNode = {};
         this.toolExecuting = false;
@@ -40,7 +43,7 @@ class AgentState {
         this.memoryFileAccessHoldMs = 4500;
         this.activityHoldMs = 2200;
         this.recentAgentActivityUntil = 0;
-        this.recentSectionActivityUntil = { tools: 0, memory: 0, instructions: 0, research: 0, rules: 0, categories: 0, mcps: 0, jobs: 0 };
+        this.recentSectionActivityUntil = { tools: 0, memory: 0, instructions: 0, research: 0, rules: 0, categories: 0, mcps: 0, jobs: 0, sub_agents: 0 };
         this.recentNodeActivityUntil = {};
     }
 
@@ -109,10 +112,11 @@ class AgentState {
         if (this.isSectionRecentlyActive('categories')) sections.push('categories');
         if (this.mcpToolExecuting || this.checkingMcps || this.backgroundCheckingMcps || this.isSectionRecentlyActive('mcps')) sections.push('mcps');
         if (this.jobExecuting || this.checkingJobs || this.backgroundCheckingJobs || this.isSectionRecentlyActive('jobs')) sections.push('jobs');
+        if (this.subAgentsToolExecuting || this.backgroundActiveSubAgentIds.length || this.isSectionRecentlyActive('sub_agents')) sections.push('sub_agents');
         if (this.isAccessingMemoryFile) nodeIds = nodeIds.concat(this.activeMemoryIds);
         nodeIds = nodeIds
-            .concat(this.activeToolIds, this.activeMemoryIds, this.activeInstructionIds, this.activeResearchIds, this.activeRulesIds, this.activeCategoryIds, this.activeMcpIds, this.activeJobIds)
-            .concat(this.backgroundActiveToolIds, this.backgroundActiveMemoryIds, this.backgroundActiveInstructionIds, this.backgroundActiveResearchIds, this.backgroundActiveRulesIds, this.backgroundActiveCategoryIds, this.backgroundActiveMcpIds, this.backgroundJobIds)
+            .concat(this.activeToolIds, this.activeMemoryIds, this.activeInstructionIds, this.activeResearchIds, this.activeRulesIds, this.activeCategoryIds, this.activeMcpIds, this.activeJobIds, this.activeSubAgentIds)
+            .concat(this.backgroundActiveToolIds, this.backgroundActiveMemoryIds, this.backgroundActiveInstructionIds, this.backgroundActiveResearchIds, this.backgroundActiveRulesIds, this.backgroundActiveCategoryIds, this.backgroundActiveMcpIds, this.backgroundJobIds, this.backgroundActiveSubAgentIds)
             .concat(this.getRecentNodeIds('tool_'))
             .concat(this.getRecentNodeIds('memory_file_'))
             .concat(this.getRecentNodeIds('instruction_file_'))
@@ -121,7 +125,8 @@ class AgentState {
             .concat(this.getRecentNodeIds('category_'))
             .concat(this.getRecentNodeIds('mcp_server_'))
             .concat(this.getRecentNodeIds('job_file_'))
-            .concat(this.getRecentNodeIds('job_cron_'));
+            .concat(this.getRecentNodeIds('job_cron_'))
+            .concat(this.getRecentNodeIds('sub_agent_file_'));
         var dur = Math.max(this.activityHoldMs, parseInt(durationMs, 10) || 0) || this.activityHoldMs;
         document.dispatchEvent(new CustomEvent('memoryGraphActivity', { detail: {
             sections: sections.filter(function (value, index, arr) { return value && arr.indexOf(value) === index; }),
@@ -141,6 +146,7 @@ class AgentState {
         var categoryIds = Array.isArray(data.activeCategoryIds) ? data.activeCategoryIds.slice() : [];
         var mcpIds = Array.isArray(data.activeMcpIds) ? data.activeMcpIds.slice() : [];
         var jobIds = Array.isArray(data.activeJobIds) ? data.activeJobIds.slice() : [];
+        var subAgentIds = Array.isArray(data.activeSubAgentIds) ? data.activeSubAgentIds.slice() : [];
         Object.keys(details).forEach(function (nodeId) {
             if (nodeId.indexOf('tool_') === 0 && toolIds.indexOf(nodeId) === -1) toolIds.push(nodeId);
             if (nodeId.indexOf('memory_file_') === 0 && memoryIds.indexOf(nodeId) === -1) memoryIds.push(nodeId);
@@ -150,12 +156,15 @@ class AgentState {
             if (nodeId.indexOf('category_') === 0 && categoryIds.indexOf(nodeId) === -1) categoryIds.push(nodeId);
             if (nodeId.indexOf('mcp_server_') === 0 && mcpIds.indexOf(nodeId) === -1) mcpIds.push(nodeId);
             if ((nodeId.indexOf('job_file_') === 0 || nodeId.indexOf('job_cron_') === 0) && jobIds.indexOf(nodeId) === -1) jobIds.push(nodeId);
+            if (nodeId.indexOf('sub_agent_file_') === 0 && subAgentIds.indexOf(nodeId) === -1) subAgentIds.push(nodeId);
         });
         this.toolExecuting = !!(data.gettingAvailTools || toolIds.length || details.tools);
         this.memoryToolExecuting = !!(data.checkingMemory || memoryIds.length || details.memory);
         this.instructionToolExecuting = !!(data.checkingInstructions || instructionIds.length || details.instructions);
         this.mcpToolExecuting = !!(data.checkingMcps || mcpIds.length || details.mcps);
         this.jobExecuting = !!(data.checkingJobs || jobIds.length || details.jobs);
+        this.subAgentsToolExecuting = !!(subAgentIds.length || details.sub_agents);
+        this.activeSubAgentIds = subAgentIds;
         if (data.gettingAvailTools || details.tools || toolIds.length) { this.markSectionActivity('tools'); this.markNodeActivity(toolIds); }
         if (data.checkingMemory || details.memory || memoryIds.length) { this.markSectionActivity('memory'); this.markNodeActivity(memoryIds); }
         if (data.checkingInstructions || details.instructions || instructionIds.length) { this.markSectionActivity('instructions'); this.markNodeActivity(instructionIds); }
@@ -164,6 +173,7 @@ class AgentState {
         if (data.checkingCategories || details.categories || categoryIds.length) { this.markSectionActivity('categories'); this.markNodeActivity(categoryIds); }
         if (data.checkingMcps || details.mcps || mcpIds.length) { this.markSectionActivity('mcps'); this.markNodeActivity(mcpIds); }
         if (data.checkingJobs || details.jobs || jobIds.length) { this.markSectionActivity('jobs'); this.markNodeActivity(jobIds); }
+        if (this.subAgentsToolExecuting) { this.markSectionActivity('sub_agents'); this.markNodeActivity(subAgentIds); }
         if (data.thinking || data.isThinking) { this.recentAgentActivityUntil = this.holdUntil(); this.markNodeActivity(['agent']); }
         this.dispatchGraphActivity();
     }
@@ -179,6 +189,7 @@ class AgentState {
         var categoryIds = Array.isArray(data.activeCategoryIds) ? data.activeCategoryIds.slice() : [];
         var mcpIds = Array.isArray(data.activeMcpIds) ? data.activeMcpIds.slice() : [];
         var jobIds = Array.isArray(data.activeJobIds) ? data.activeJobIds.slice() : [];
+        var subAgentIds = Array.isArray(data.activeSubAgentIds) ? data.activeSubAgentIds.slice() : [];
         Object.keys(details).forEach(function (nodeId) {
             if (nodeId.indexOf('tool_') === 0 && toolIds.indexOf(nodeId) === -1) toolIds.push(nodeId);
             if (nodeId.indexOf('memory_file_') === 0 && memoryIds.indexOf(nodeId) === -1) memoryIds.push(nodeId);
@@ -188,6 +199,7 @@ class AgentState {
             if (nodeId.indexOf('category_') === 0 && categoryIds.indexOf(nodeId) === -1) categoryIds.push(nodeId);
             if (nodeId.indexOf('mcp_server_') === 0 && mcpIds.indexOf(nodeId) === -1) mcpIds.push(nodeId);
             if ((nodeId.indexOf('job_file_') === 0 || nodeId.indexOf('job_cron_') === 0) && jobIds.indexOf(nodeId) === -1) jobIds.push(nodeId);
+            if (nodeId.indexOf('sub_agent_file_') === 0 && subAgentIds.indexOf(nodeId) === -1) subAgentIds.push(nodeId);
         });
         this.isThinking = !!data.thinking;
         this.gettingAvailTools = !!data.gettingAvailTools;
@@ -203,12 +215,14 @@ class AgentState {
         this.activeCategoryIds = categoryIds;
         this.activeMcpIds = mcpIds;
         this.activeJobIds = jobIds;
+        this.activeSubAgentIds = subAgentIds;
         this.executionDetailsByNode = details;
         this.toolExecuting = !!(this.gettingAvailTools || toolIds.length || details.tools);
         this.memoryToolExecuting = !!(this.checkingMemory || memoryIds.length || details.memory);
         this.instructionToolExecuting = !!(this.checkingInstructions || instructionIds.length || details.instructions);
         this.mcpToolExecuting = !!(this.checkingMcps || mcpIds.length || details.mcps);
         this.jobExecuting = !!(this.checkingJobs || jobIds.length || details.jobs);
+        this.subAgentsToolExecuting = !!(subAgentIds.length || details.sub_agents);
         this.isAccessingMemoryFile = !!(data.isAccessingMemoryFile || memoryIds.length > 0);
         if (this.isThinking) { this.recentAgentActivityUntil = this.holdUntil(); this.markNodeActivity(['agent']); }
         if (this.toolExecuting) { this.markSectionActivity('tools'); this.markNodeActivity(toolIds); }
@@ -219,6 +233,7 @@ class AgentState {
         if (data.checkingCategories || categoryIds.length || details.categories) { this.markSectionActivity('categories'); this.markNodeActivity(categoryIds); }
         if (this.mcpToolExecuting) { this.markSectionActivity('mcps'); this.markNodeActivity(mcpIds); }
         if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(jobIds); }
+        if (this.subAgentsToolExecuting) { this.markSectionActivity('sub_agents'); this.markNodeActivity(subAgentIds); }
         if (memoryIds.length > 0) {
             var durationMs = this.memoryFileAccessHoldMs;
             var until = this.nowMs() + Math.max(0, parseInt(durationMs, 10) || 3200);
@@ -267,6 +282,13 @@ class AgentState {
     setActiveInstructionIds(activeInstructionIds) { this.activeInstructionIds = Array.isArray(activeInstructionIds) ? activeInstructionIds : []; this.instructionToolExecuting = !!(this.checkingInstructions || this.activeInstructionIds.length || this.backgroundActiveInstructionIds.length); if (this.instructionToolExecuting) { this.markSectionActivity('instructions'); this.markNodeActivity(this.activeInstructionIds); } this.dispatchGraphActivity(); }
     setActiveMcpIds(activeMcpIds) { this.activeMcpIds = Array.isArray(activeMcpIds) ? activeMcpIds : []; this.mcpToolExecuting = !!(this.checkingMcps || this.activeMcpIds.length || this.backgroundActiveMcpIds.length); if (this.mcpToolExecuting) { this.markSectionActivity('mcps'); this.markNodeActivity(this.activeMcpIds); } this.dispatchGraphActivity(); }
     setActiveJobIds(activeJobIds) { this.activeJobIds = Array.isArray(activeJobIds) ? activeJobIds : []; this.jobExecuting = !!(this.checkingJobs || this.activeJobIds.length || this.backgroundJobIds.length); if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(this.activeJobIds); } this.dispatchGraphActivity(); }
+    setActiveSubAgentIds(activeSubAgentIds) {
+        this.activeSubAgentIds = Array.isArray(activeSubAgentIds) ? activeSubAgentIds : [];
+        var details = this.executionDetailsByNode && typeof this.executionDetailsByNode === 'object' ? this.executionDetailsByNode : {};
+        this.subAgentsToolExecuting = !!(this.activeSubAgentIds.length || details.sub_agents || this.backgroundActiveSubAgentIds.length);
+        if (this.subAgentsToolExecuting) { this.markSectionActivity('sub_agents'); this.markNodeActivity(this.activeSubAgentIds.concat(this.backgroundActiveSubAgentIds)); }
+        this.dispatchGraphActivity();
+    }
     setActiveResearchIds(activeResearchIds) { this.activeResearchIds = Array.isArray(activeResearchIds) ? activeResearchIds : []; this.dispatchGraphActivity(); }
     setActiveRulesIds(activeRulesIds) { this.activeRulesIds = Array.isArray(activeRulesIds) ? activeRulesIds : []; this.dispatchGraphActivity(); }
     setActiveCategoryIds(activeCategoryIds) { this.activeCategoryIds = Array.isArray(activeCategoryIds) ? activeCategoryIds : []; if (this.activeCategoryIds.length) { this.markSectionActivity('categories'); this.markNodeActivity(this.activeCategoryIds); } this.dispatchGraphActivity(); }
@@ -296,11 +318,17 @@ class AgentState {
         this.backgroundActiveMemoryIds = Array.isArray(data.activeMemoryIds) ? data.activeMemoryIds.slice() : [];
         this.backgroundActiveInstructionIds = Array.isArray(data.activeInstructionIds) ? data.activeInstructionIds.slice() : [];
         this.backgroundActiveMcpIds = Array.isArray(data.activeMcpIds) ? data.activeMcpIds.slice() : [];
+        this.backgroundActiveSubAgentIds = Array.isArray(data.activeSubAgentIds) ? data.activeSubAgentIds.slice() : [];
         this.backgroundExecutionDetailsByNode = data.executionDetailsByNode && typeof data.executionDetailsByNode === 'object' ? data.executionDetailsByNode : {};
         this.jobExecuting = !!(this.backgroundCheckingJobs || this.checkingJobs || this.activeJobIds.length || this.backgroundJobIds.length);
+        this.subAgentsToolExecuting = !!(this.activeSubAgentIds.length || this.backgroundActiveSubAgentIds.length || (this.executionDetailsByNode && this.executionDetailsByNode.sub_agents) || (this.backgroundExecutionDetailsByNode && this.backgroundExecutionDetailsByNode.sub_agents));
         if (this.jobExecuting) {
             this.markSectionActivity('jobs');
             this.markNodeActivity(runningIds);
+        }
+        if (this.subAgentsToolExecuting) {
+            this.markSectionActivity('sub_agents');
+            this.markNodeActivity(this.backgroundActiveSubAgentIds.concat(this.activeSubAgentIds));
         }
         var durationMs = Math.max(this.activityHoldMs, parseInt(data.durationMs, 10) || 0) || 3200;
         this.dispatchGraphActivity(durationMs);
@@ -308,9 +336,13 @@ class AgentState {
     setExecutionDetailsByNode(executionDetailsByNode) {
         this.executionDetailsByNode = executionDetailsByNode && typeof executionDetailsByNode === 'object' ? executionDetailsByNode : {};
         var detailNodeIds = Object.keys(this.executionDetailsByNode).filter(function (key) {
-            return key === 'agent' || key.indexOf('tool_') === 0 || key.indexOf('memory_file_') === 0 || key.indexOf('instruction_file_') === 0 || key.indexOf('mcp_server_') === 0 || key.indexOf('job_file_') === 0 || key.indexOf('job_cron_') === 0 || key.indexOf('category_') === 0;
+            return key === 'agent' || key.indexOf('tool_') === 0 || key.indexOf('memory_file_') === 0 || key.indexOf('instruction_file_') === 0 || key.indexOf('mcp_server_') === 0 || key.indexOf('job_file_') === 0 || key.indexOf('job_cron_') === 0 || key.indexOf('category_') === 0 || key.indexOf('sub_agent_file_') === 0;
         });
         if (detailNodeIds.length) this.markNodeActivity(detailNodeIds);
+        var d = this.executionDetailsByNode;
+        var bd = this.backgroundExecutionDetailsByNode;
+        this.subAgentsToolExecuting = !!(this.activeSubAgentIds.length || this.backgroundActiveSubAgentIds.length || (d && d.sub_agents) || (bd && bd.sub_agents));
+        if (d && d.sub_agents) this.markSectionActivity('sub_agents');
         this.dispatchGraphActivity();
     }
     setAgentNode(node) { this.parentAgentNode = node; }

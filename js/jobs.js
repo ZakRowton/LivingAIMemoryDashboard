@@ -119,6 +119,7 @@
         var aggregatedMemoryIds = [];
         var aggregatedInstructionIds = [];
         var aggregatedMcpIds = [];
+        var aggregatedSubAgentIds = [];
         var aggregatedExecutionDetails = {};
         var anyGettingTools = false;
         var anyCheckingMemory = false;
@@ -141,12 +142,14 @@
             aggregatedMemoryIds = aggregatedMemoryIds.concat(status.activeMemoryIds || []);
             aggregatedInstructionIds = aggregatedInstructionIds.concat(status.activeInstructionIds || []);
             aggregatedMcpIds = aggregatedMcpIds.concat(status.activeMcpIds || []);
+            aggregatedSubAgentIds = aggregatedSubAgentIds.concat(status.activeSubAgentIds || []);
             Object.keys(executionDetails).forEach(function (key) {
                 aggregatedExecutionDetails[key] = executionDetails[key];
                 if (key.indexOf('tool_') === 0) aggregatedToolIds.push(key);
                 if (key.indexOf('memory_file_') === 0) aggregatedMemoryIds.push(key);
                 if (key.indexOf('instruction_file_') === 0) aggregatedInstructionIds.push(key);
                 if (key.indexOf('mcp_server_') === 0) aggregatedMcpIds.push(key);
+                if (key.indexOf('sub_agent_file_') === 0) aggregatedSubAgentIds.push(key);
             });
         });
 
@@ -162,6 +165,7 @@
                 activeMemoryIds: uniq(aggregatedMemoryIds),
                 activeInstructionIds: uniq(aggregatedInstructionIds),
                 activeMcpIds: uniq(aggregatedMcpIds),
+                activeSubAgentIds: uniq(aggregatedSubAgentIds),
                 executionDetailsByNode: aggregatedExecutionDetails,
                 durationMs: anyCheckingJobs ? 3200 : 2400
             });
@@ -184,9 +188,10 @@
                     anyCheckingMemory ? 'memory' : '',
                     anyCheckingInstructions ? 'instructions' : '',
                     anyCheckingMcps ? 'mcps' : '',
-                    anyCheckingJobs ? 'jobs' : ''
+                    anyCheckingJobs ? 'jobs' : '',
+                    aggregatedSubAgentIds.length || aggregatedExecutionDetails.sub_agents ? 'sub_agents' : ''
                 ].filter(Boolean),
-                ['agent'].concat(uniq(aggregatedToolIds.concat(aggregatedMemoryIds, aggregatedInstructionIds, aggregatedMcpIds, runningIds))),
+                ['agent'].concat(uniq(aggregatedToolIds.concat(aggregatedMemoryIds, aggregatedInstructionIds, aggregatedMcpIds, aggregatedSubAgentIds, runningIds))),
                 anyCheckingJobs ? 3200 : 2400
             );
         }
