@@ -1115,7 +1115,8 @@
                     });
                 }
                 if (typeof window.applyAgentConfig === 'function') {
-                    $.getJSON('api/agent_config.php').done(function (data) { if (data) window.applyAgentConfig(data); }).fail(function () {});
+                    $.ajax({ url: 'api/agent_config.php', dataType: 'json', cache: false })
+                        .done(function (data) { if (data) window.applyAgentConfig(data); });
                 }
             })
             .fail(function (xhr) {

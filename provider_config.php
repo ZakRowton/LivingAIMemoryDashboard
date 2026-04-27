@@ -354,12 +354,18 @@ function get_providers_for_ui(): array {
         $apiKeyStatus[$pkey] = get_provider_api_key_ui_row($pkey);
     }
 
+    $sifm = get_system_instruction_files_by_model();
+    // json_encode encodes [] as a JSON array; the UI expects a string-keyed object so empty maps are {}.
+    if ($sifm === []) {
+        $sifm = new \stdClass();
+    }
+
     return [
         'currentProvider' => (string) ($config['currentProvider'] ?? 'mercury'),
         'currentModel'    => (string) ($config['currentModel'] ?? 'mercury-2'),
         'providers'       => $providers,
         'systemPromptsByModel' => get_system_prompts_by_model(),
-        'systemInstructionFilesByModel' => get_system_instruction_files_by_model(),
+        'systemInstructionFilesByModel' => $sifm,
         'providerApiKeyStatus' => $apiKeyStatus,
     ];
 }

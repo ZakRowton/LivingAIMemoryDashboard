@@ -3319,17 +3319,23 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             agentSelModel = modelSelect ? modelSelect.value : '';
         }
 
-        function persistAgentSelectionToServer(pv, mv) {
-            if (!pv) return;
-            fetch('api/agent_config.php', {
+        function agentConfigFetchOpts(bodyObj) {
+            return {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'set_selection',
-                    provider: pv,
-                    model: mv || ''
-                })
-            }).catch(function () {});
+                credentials: 'same-origin',
+                cache: 'no-store',
+                body: JSON.stringify(bodyObj)
+            };
+        }
+
+        function persistAgentSelectionToServer(pv, mv) {
+            if (!pv) return;
+            fetch('api/agent_config.php', agentConfigFetchOpts({
+                action: 'set_selection',
+                provider: pv,
+                model: mv || ''
+            })).catch(function () {});
         }
 
         function persistInstructionFileToServer(pv, mv, filename) {
@@ -3342,16 +3348,27 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 mvEff = String(agentSelModel).trim();
             }
             if (!mvEff) return;
-            fetch('api/agent_config.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'set_system_instruction_file',
-                    provider: pv,
-                    model: mvEff,
-                    instructionFile: filename || ''
-                })
-            }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+            fetch('api/agent_config.php', agentConfigFetchOpts({
+                action: 'set_system_instruction_file',
+                provider: pv,
+                model: mvEff,
+                instructionFile: filename || ''
+            })).then(function (r) {
+                return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+            }).then(function (x) {
+                if (!x || !x.j) {
+                    if (typeof console !== 'undefined' && console.warn) {
+                        console.warn('set_system_instruction_file: bad response');
+                    }
+                    return;
+                }
+                if (x.j.error) {
+                    if (typeof console !== 'undefined' && console.warn) {
+                        console.warn('set_system_instruction_file: ' + String(x.j.error));
+                    }
+                    return;
+                }
+                var j = x.j;
                 if (j && j.ok && j.key) {
                     if (filename) {
                         window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES[j.key] = filename;
@@ -3359,7 +3376,18 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                         delete window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES[j.key];
                     }
                 }
-            }).catch(function () {});
+            }).catch(function () {
+                if (typeof console !== 'undefined' && console.warn) {
+                    console.warn('set_system_instruction_file: network error');
+                }
+            });
+        }
+
+        function normalizeSystemInstructionMap(raw) {
+            if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+                return JSON.parse(JSON.stringify(raw));
+            }
+            return {};
         }
 
         function syncInstructionSelectToCurrentKey() {
@@ -3399,7 +3427,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
 
         function loadInstructionFileList(done) {
-            fetch('api_instructions.php?action=list')
+            fetch('api_instructions.php?action=list', { credentials: 'same-origin', cache: 'no-store' })
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (data) {
                     var arr = (data && Array.isArray(data.instructions)) ? data.instructions : [];
@@ -3426,9 +3454,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         function applyAgentConfig(data) {
             if (!data || !data.providers) return;
             window.MEMORY_GRAPH_PROVIDERS = data.providers;
-            window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES = (data.systemInstructionFilesByModel && typeof data.systemInstructionFilesByModel === 'object')
-                ? JSON.parse(JSON.stringify(data.systemInstructionFilesByModel))
-                : {};
+            window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES = normalizeSystemInstructionMap(data.systemInstructionFilesByModel);
             if (providerSelect) {
                 providerSelect.innerHTML = '';
                 Object.keys(data.providers).forEach(function (key) {
@@ -3520,7 +3546,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
         syncModelSelect();
         captureAgentSelection();
-        fetch('api/agent_config.php')
+        fetch('api/agent_config.php', { credentials: 'same-origin', cache: 'no-store' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
                 if (data) applyAgentConfig(data);
