@@ -29,6 +29,94 @@
         return '';
     }
 
+    var LONG_JOB_AJAX_MS = 600000;
+
+    function memoryGraphNodeIdForSubAgentStem(stem) {
+        var s = (stem == null) ? '' : String(stem).replace(/\.md$/i, '');
+        s = s.split(/[/\\]/).pop() || 'agent';
+        var slug = s.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+        return 'sub_agent_file_' + (slug || 'agent');
+    }
+
+    /**
+     * Parse optional YAML front matter: ---\nassignee: sub_agent\nsubAgent: name\n---\n
+     * @returns {{ runAssignee: string, subAgent: string|null, subAgentNodeId: string|null, body: string }}
+     */
+    function parseJobFileForRun(raw) {
+        var out = {
+            runAssignee: 'main',
+            subAgent: null,
+            subAgentNodeId: null,
+            body: String(raw || '')
+        };
+        var t = String(raw || '').replace(/^\uFEFF/, '');
+        t = t.replace(/^[ \t\x0B\r\n]+/, '');
+        if (t.length < 4 || t.indexOf('---') !== 0) {
+            return out;
+        }
+        var lines = t.split(/\r?\n/);
+        if (lines.length < 2 || (lines[0] || '').replace(/\r$/, '') !== '---') {
+            return out;
+        }
+        var meta = {};
+        var i;
+        for (i = 1; i < lines.length; i++) {
+            var Lr = (lines[i] || '').replace(/\r$/, '');
+            if (Lr === '---') {
+                break;
+            }
+            var m = /^([a-zA-Z0-9_]+)\s*:\s*(.*)$/.exec(Lr);
+            if (m) {
+                var k = (m[1] || '').trim();
+                var v = (m[2] || '').replace(/^['"]|['"]$/g, '').trim();
+                if (k) {
+                    meta[k] = v;
+                }
+            }
+        }
+        if (i >= lines.length || (lines[i] || '').replace(/\r$/, '') !== '---') {
+            return out;
+        }
+        out.body = lines.slice(i + 1).join('\n').replace(/^\n+/, '');
+        var assignee = String(meta.assignee != null ? meta.assignee : 'main').toLowerCase();
+        if (assignee === 'sub_agent' || assignee === 'subagent' || assignee === 'sub' || assignee === 'sub-agent') {
+            out.runAssignee = 'sub_agent';
+        } else {
+            out.runAssignee = 'main';
+        }
+        var subName = (meta.subAgent != null && String(meta.subAgent).trim() !== '') ? String(meta.subAgent) : (meta.sub_agent != null ? String(meta.sub_agent) : '');
+        if (meta.subAgentName != null && String(meta.subAgentName).trim() !== '') {
+            subName = String(meta.subAgentName);
+        }
+        subName = subName.split(/[/\\]/).pop() || '';
+        subName = subName.replace(/\.md$/i, '').trim() || null;
+        var fromNode = String(meta.subAgentNodeId != null ? meta.subAgentNodeId : (meta.sub_agent_node_id != null ? meta.sub_agent_node_id : '')).trim();
+        if (out.runAssignee === 'sub_agent' && subName) {
+            out.subAgent = subName;
+            out.subAgentNodeId = memoryGraphNodeIdForSubAgentStem(subName);
+        } else if (out.runAssignee === 'sub_agent' && fromNode.indexOf('sub_agent_file_') === 0) {
+            out.subAgentNodeId = fromNode;
+        }
+        return out;
+    }
+
+    window.MemoryGraphParseJobFile = parseJobFileForRun;
+
+    /**
+     * Build full .md file text with optional front matter (Main / Sub-agent).
+     * @param {string} assigneeType 'main' | 'sub_agent'
+     * @param {string} subAgentStem  filename stem, no .md, or empty
+     * @param {string} body  task list body only
+     */
+    window.MemoryGraphBuildJobFile = function (assigneeType, subAgentStem, body) {
+        var b = (body == null) ? '' : String(body);
+        if (assigneeType === 'sub_agent' && subAgentStem && String(subAgentStem).trim() !== '') {
+            var st = String(subAgentStem).trim().replace(/\.md$/i, '');
+            return '---\nassignee: sub_agent\nsubAgent: ' + st + '\n---\n\n' + b;
+        }
+        return b;
+    };
+
     function parseJobSteps(content) {
         return String(content || '')
             .split(/\r?\n/)
@@ -89,9 +177,9 @@
 
     function getRunningNodeIds() {
         return Object.keys(jobs).filter(function (name) {
-            return jobs[name] && jobs[name].state === 'running' && jobs[name].nodeId;
+            return jobs[name] && jobs[name].state === 'running' && (jobs[name].nodeId || jobs[name].subAgentNodeId);
         }).map(function (name) {
-            return jobs[name].nodeId;
+            return jobs[name].subAgentNodeId || jobs[name].nodeId;
         });
     }
 
@@ -417,28 +505,63 @@
         var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
         var stepIndex = job.currentStepIndex;
         var stepText = job.steps[stepIndex];
-        var requestId = 'job_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        var isSub = job.runAssignee === 'sub_agent' && (job.subAgentName || job.subAgentNodeId);
+        var mainRequestId = 'job_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        var subStatusId = (job.runToken != null) ? ('subjob_' + job.runToken + '_s' + stepIndex) : ('subjob_' + Date.now() + '_' + stepIndex);
+        var requestId = isSub ? subStatusId : mainRequestId;
         var prompt = buildStepPrompt(name, stepText, stepIndex + 1, job.steps.length);
+        var subNameForApi = (job.subAgentName != null && String(job.subAgentName).trim() !== '') ? String(job.subAgentName).trim() : '';
+        if (isSub && !subNameForApi) {
+            var resultsErr = (job.results || []).slice();
+            resultsErr.push({
+                task: stepText,
+                response: 'Error: sub-agent name missing for this job (add subAgent: in the job header).'
+            });
+            setJobState(name, {
+                results: resultsErr,
+                currentStepIndex: stepIndex + 1,
+                statusText: 'Step failed: no sub-agent name.'
+            });
+            runNextJobStep(name);
+            return;
+        }
 
         setJobState(name, {
             requestId: requestId,
             promptText: prompt,
-            statusText: 'Running step ' + (stepIndex + 1) + ' of ' + job.steps.length + ': ' + stepText
+            statusText: (isSub ? ('Sub-agent step ' + (stepIndex + 1) + ' of ' + job.steps.length) : ('Running step ' + (stepIndex + 1) + ' of ' + job.steps.length)) + ': ' + stepText
         });
 
-        var request = jQuery.ajax({
-            url: 'api/chat.php',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({
-                requestId: requestId,
-                provider: settings.provider || 'mercury',
-                model: settings.model || 'mercury-2',
-                systemPrompt: settings.systemPrompt || '',
-                temperature: settings.temperature != null ? settings.temperature : 0.7,
-                messages: [{ role: 'user', content: prompt }]
-            })
-        });
+        var request;
+        if (isSub) {
+            request = jQuery.ajax({
+                url: 'api/sub_agent_run.php',
+                method: 'POST',
+                contentType: 'application/json',
+                timeout: LONG_JOB_AJAX_MS,
+                data: JSON.stringify({
+                    name: subNameForApi,
+                    prompt: prompt,
+                    chatSessionId: job.subChatSessionId != null ? String(job.subChatSessionId) : '',
+                    statusRequestId: subStatusId
+                })
+            });
+        } else {
+            request = jQuery.ajax({
+                url: 'api/chat.php',
+                method: 'POST',
+                contentType: 'application/json',
+                timeout: LONG_JOB_AJAX_MS,
+                data: JSON.stringify({
+                    requestId: mainRequestId,
+                    provider: settings.provider || 'mercury',
+                    model: settings.model || 'mercury-2',
+                    systemPrompt: settings.systemPrompt || '',
+                    temperature: settings.temperature != null ? settings.temperature : 0.7,
+                    messages: [{ role: 'user', content: prompt }]
+                })
+            });
+        }
 
         if (jobs[name]) jobs[name].request = request;
         startJobPolling(name, requestId);
@@ -453,11 +576,19 @@
                 }
             }
             var contentText = '';
-            if (typeof window.MemoryGraphExtractAssistantFromChatResponse === 'function') {
-                contentText = window.MemoryGraphExtractAssistantFromChatResponse(res);
-            } else if (res && res.choices && res.choices[0] && res.choices[0].message) {
-                var mc = res.choices[0].message.content;
-                contentText = typeof mc === 'string' ? mc : '';
+            if (isSub) {
+                if (res && res.error) {
+                    contentText = 'Error: ' + String(res.error);
+                } else if (res && res.response != null) {
+                    contentText = String(res.response);
+                }
+            } else {
+                if (typeof window.MemoryGraphExtractAssistantFromChatResponse === 'function') {
+                    contentText = window.MemoryGraphExtractAssistantFromChatResponse(res);
+                } else if (res && res.choices && res.choices[0] && res.choices[0].message) {
+                    var mc = res.choices[0].message.content;
+                    contentText = typeof mc === 'string' ? mc : '';
+                }
             }
             var results = job.results || [];
             results.push({
@@ -506,26 +637,55 @@
     function runJob(name, content, options) {
         if (!name) return;
         var nodeId = options && options.nodeId ? options.nodeId : null;
-        var steps = parseJobSteps(content);
+        var parsed = parseJobFileForRun(String(content || ''));
+        var bodyForSteps = parsed && parsed.body != null ? String(parsed.body) : String(content || '');
+        var steps = parseJobSteps(bodyForSteps);
 
         if (jobs[name] && jobs[name].state === 'running') {
             stopJobByName(name);
         }
         delete responseCache[name];
 
+        if (parsed.runAssignee === 'sub_agent' && !parsed.subAgent && !parsed.subAgentNodeId) {
+            setJobState(name, {
+                name: name,
+                nodeId: nodeId,
+                state: 'error',
+                statusText: 'Job header says sub_agent but `subAgent` (or `subAgentNodeId`) is missing. Save the job with a sub-agent selected.'
+            });
+            return;
+        }
+
         if (!steps.length) {
             setJobState(name, {
                 name: name,
                 nodeId: nodeId,
                 state: 'error',
-                statusText: 'No job steps found. Use markdown list items like "- Task".'
+                statusText: 'No job steps found. Use markdown list items like "- Task" in the task body (below the header).'
             });
             return;
+        }
+
+        var runToken = Date.now() + '_' + Math.floor(Math.random() * 100000);
+        var safeName = String(name).replace(/[^a-z0-9._-]+/gi, '_');
+        var subChatSessionId = 'jcr_' + safeName + '_' + runToken;
+        var subNode = null;
+        if (parsed.runAssignee === 'sub_agent') {
+            if (parsed.subAgentNodeId && String(parsed.subAgentNodeId).indexOf('sub_agent_file_') === 0) {
+                subNode = parsed.subAgentNodeId;
+            } else if (parsed.subAgent) {
+                subNode = memoryGraphNodeIdForSubAgentStem(parsed.subAgent);
+            }
         }
 
         setJobState(name, {
             name: name,
             nodeId: nodeId,
+            subAgentNodeId: subNode,
+            runAssignee: parsed.runAssignee,
+            subAgentName: parsed.runAssignee === 'sub_agent' ? parsed.subAgent : null,
+            subChatSessionId: subChatSessionId,
+            runToken: runToken,
             state: 'running',
             statusText: 'Queued ' + steps.length + ' steps...',
             steps: steps,

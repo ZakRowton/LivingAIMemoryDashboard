@@ -3041,8 +3041,18 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 <button type="button" id="mcp-delete-btn" class="panel-action-btn btn-stop">Delete MCP</button>
             </div>
             <div id="job-config-panel" style="display: none; margin-top: 15px;">
-                <label class="provider-label">Job Contents</label>
-                <textarea id="job-content-input" class="provider-textarea" rows="10" placeholder="Job tasks..."></textarea>
+                <label class="provider-label" for="job-assignee-type">Run as</label>
+                <div class="panel-action-btn-row" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+                    <select id="job-assignee-type" class="provider-textarea" style="min-width:160px;min-height:36px;padding:4px 8px;font-size:0.9rem;" title="Which agent runs each job step">
+                        <option value="main">Main agent (Jarvis)</option>
+                        <option value="sub_agent">Sub-agent</option>
+                    </select>
+                    <select id="job-subagent-select" class="provider-textarea" style="min-width:200px;min-height:36px;padding:4px 8px;font-size:0.9rem;display:none;" title="Sub-agent config (sub-agents/*.md)">
+                    </select>
+                </div>
+                <p class="mb-1 text-muted" style="font-size:0.8rem;">Optional header is saved in the file. Task lines use list syntax: <code>- Step one</code></p>
+                <label class="provider-label" for="job-content-input">Job tasks (body)</label>
+                <textarea id="job-content-input" class="provider-textarea" rows="10" placeholder="- First task&#10;- Second task"></textarea>
                 <div class="job-config-actions">
                     <button type="button" id="job-save-btn" class="panel-action-btn">Save Job</button>
                     <button type="button" id="job-execute-btn" class="panel-action-btn">Execute Job</button>
@@ -3529,6 +3539,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         var mcpRefreshToolsBtn = document.getElementById('mcp-refresh-tools-btn');
         var mcpDeleteBtn = document.getElementById('mcp-delete-btn');
         var jobContentInput = document.getElementById('job-content-input');
+        var jobAssigneeType = document.getElementById('job-assignee-type');
+        var jobSubagentSelect = document.getElementById('job-subagent-select');
         var jobSaveBtn = document.getElementById('job-save-btn');
         var jobExecuteBtn = document.getElementById('job-execute-btn');
         var jobStopBtn = document.getElementById('job-stop-btn');
@@ -4052,12 +4064,70 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 });
         }
 
+        function fillJobSubagentOptions(selectedStem) {
+            if (!jobSubagentSelect) return;
+            var prev = (selectedStem != null && String(selectedStem).trim() !== '') ? String(selectedStem).trim() : '';
+            var list = (window.subAgentFiles && window.subAgentFiles.length) ? window.subAgentFiles : [];
+            jobSubagentSelect.innerHTML = '';
+            var o0 = document.createElement('option');
+            o0.value = '';
+            o0.textContent = 'Select sub-agent…';
+            jobSubagentSelect.appendChild(o0);
+            list.forEach(function (s) {
+                if (!s || !s.name) return;
+                var stem = s.title != null ? String(s.title) : s.name.replace(/\.md$/i, '');
+                var op = document.createElement('option');
+                op.value = stem;
+                op.textContent = stem;
+                if (prev && (stem === prev || s.name === prev)) {
+                    op.selected = true;
+                }
+                jobSubagentSelect.appendChild(op);
+            });
+            if (prev && !Array.prototype.some.call(jobSubagentSelect.options, function (o) { return o.value === prev; })) {
+                var ox = document.createElement('option');
+                ox.value = prev;
+                ox.textContent = prev + ' (not in list)';
+                ox.selected = true;
+                jobSubagentSelect.appendChild(ox);
+            }
+        }
+
+        function setJobPanelAssigneeVisibility() {
+            if (!jobAssigneeType || !jobSubagentSelect) return;
+            var isSub = jobAssigneeType.value === 'sub_agent';
+            jobSubagentSelect.style.display = isSub ? 'block' : 'none';
+        }
+
+        function buildJobFileContentForPanel() {
+            var body = jobContentInput ? jobContentInput.value : '';
+            var t = (jobAssigneeType && jobAssigneeType.value) ? jobAssigneeType.value : 'main';
+            var sub = (jobSubagentSelect && jobSubagentSelect.value) ? jobSubagentSelect.value.trim() : '';
+            if (typeof window.MemoryGraphBuildJobFile === 'function') {
+                return window.MemoryGraphBuildJobFile(t, sub, body);
+            }
+            if (t === 'sub_agent' && sub) {
+                return '---\nassignee: sub_agent\nsubAgent: ' + sub + '\n---\n\n' + body;
+            }
+            return body;
+        }
+
+        if (jobAssigneeType) {
+            jobAssigneeType.addEventListener('change', setJobPanelAssigneeVisibility);
+        }
+
         function loadJobIntoPanel(name) {
             fetch('api_jobs.php?action=get&name=' + encodeURIComponent(name))
                 .then(function (res) { return res.json(); })
                 .then(function (job) {
                     if (!window.currentOpenedJob || window.currentOpenedJob.name !== job.name) return;
-                    if (jobContentInput) jobContentInput.value = job.content || '';
+                    var body = (job.body != null) ? String(job.body) : (job.content || '');
+                    if (jobContentInput) jobContentInput.value = body;
+                    if (jobAssigneeType) {
+                        jobAssigneeType.value = (job.runAssignee === 'sub_agent' || job.runAssignee === 'sub') ? 'sub_agent' : 'main';
+                    }
+                    fillJobSubagentOptions(job.subAgent || '');
+                    setJobPanelAssigneeVisibility();
                     infoEl.innerHTML = '<p class="mb-1"><strong>Job:</strong> ' + escapeHtml(job.name) + '</p>';
                     if (jobStopBtn && typeof window.MemoryGraphIsJobRunning === 'function') {
                         jobStopBtn.disabled = !window.MemoryGraphIsJobRunning(job.name);
@@ -4923,12 +4993,13 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             jobSaveBtn.addEventListener('click', function () {
                 if (!window.currentOpenedJob || !jobContentInput) return;
                 jobSaveBtn.disabled = true;
+                var jobFullText = buildJobFileContentForPanel();
                 fetch('api_jobs.php?action=save', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         name: window.currentOpenedJob.name,
-                        content: jobContentInput.value
+                        content: jobFullText
                     })
                 }).then(function (res) {
                     return res.json();
@@ -4953,7 +5024,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         if (jobExecuteBtn) {
             jobExecuteBtn.addEventListener('click', function () {
                 if (!window.currentOpenedJob || !jobContentInput || typeof window.MemoryGraphRunJob !== 'function') return;
-                window.MemoryGraphRunJob(window.currentOpenedJob.name, jobContentInput.value, {
+                var runText = buildJobFileContentForPanel();
+                if (jobAssigneeType && jobAssigneeType.value === 'sub_agent' && jobSubagentSelect && !String(jobSubagentSelect.value || '').trim()) {
+                    if (infoEl) {
+                        infoEl.innerHTML = '<p class="mb-1"><strong>Job</strong></p><p class="is-error" style="color:var(--gold-bright, #c9a227);">Choose a sub-agent in “Run as”, or switch to Main agent.</p>';
+                    }
+                    return;
+                }
+                window.MemoryGraphRunJob(window.currentOpenedJob.name, runText, {
                     nodeId: window.currentOpenedJob.id
                 });
                 if (jobStopBtn) jobStopBtn.disabled = false;

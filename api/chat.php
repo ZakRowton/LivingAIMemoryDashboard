@@ -861,7 +861,14 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     $apiKey = (string) ($cfg['api_key'] ?? '');
     $messages = isset($arguments['messages']) && is_array($arguments['messages']) ? $arguments['messages'] : [];
     $prompt = (string) ($arguments['prompt'] ?? '');
-    if ($prompt !== '') {
+    $userContentOpt = $arguments['userContent'] ?? null;
+    if (is_array($userContentOpt) && memory_graph_is_openai_multimodal_user_content($userContentOpt)) {
+        $parts = memory_graph_clamp_multimodal_user_content(array_values($userContentOpt));
+        if ($prompt !== '') {
+            $parts[] = ['type' => 'text', 'text' => $prompt];
+        }
+        $messages[] = ['role' => 'user', 'content' => $parts];
+    } elseif ($prompt !== '') {
         $messages[] = ['role' => 'user', 'content' => $prompt];
     }
     if ($messages === []) {
@@ -2376,6 +2383,9 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
             'prompt' => (string) ($arguments['prompt'] ?? ''),
             'messages' => isset($arguments['messages']) && is_array($arguments['messages']) ? $arguments['messages'] : [],
         ];
+        if (!empty($arguments['userContent']) && is_array($arguments['userContent']) && memory_graph_is_openai_multimodal_user_content($arguments['userContent'])) {
+            $payload['userContent'] = array_values($arguments['userContent']);
+        }
         if ($cs !== '') {
             $payload['chatSessionId'] = $cs;
         }
@@ -3215,6 +3225,54 @@ function formatToolResultForModel(string $toolName, array $toolResult, bool $inl
     return $json;
 }
 
+/** True when content is a 0..n-1 indexed list of typed parts (OpenAI multimodal user/assistant messages). */
+function memory_graph_is_openai_multimodal_user_content(mixed $content): bool {
+    if (!is_array($content) || $content === []) {
+        return false;
+    }
+    $idx = 0;
+    foreach ($content as $k => $part) {
+        if ($k !== $idx || !is_array($part)) {
+            return false;
+        }
+        $t = $part['type'] ?? '';
+        if (!is_string($t) || $t === '') {
+            return false;
+        }
+        $idx++;
+    }
+
+    return $idx > 0;
+}
+
+/** Drop oversized data URLs so upstream JSON stays bounded. */
+function memory_graph_clamp_multimodal_user_content(array $parts, int $maxDataUrlBytes = 4500000): array {
+    $out = [];
+    foreach ($parts as $part) {
+        if (!is_array($part)) {
+            continue;
+        }
+        $type = (string) ($part['type'] ?? '');
+        if ($type === 'image_url' && isset($part['image_url']) && is_array($part['image_url'])) {
+            $url = (string) ($part['image_url']['url'] ?? '');
+            if (str_starts_with($url, 'data:') && strlen($url) > $maxDataUrlBytes) {
+                $out[] = ['type' => 'text', 'text' => '[Image omitted: attachment exceeds size limit for this request.]'];
+                continue;
+            }
+        }
+        if ($type === 'input_audio' && isset($part['input_audio']) && is_array($part['input_audio'])) {
+            $d = (string) ($part['input_audio']['data'] ?? '');
+            if (strlen($d) > 1200000) {
+                $out[] = ['type' => 'text', 'text' => '[Audio omitted: attachment too large.]'];
+                continue;
+            }
+        }
+        $out[] = $part;
+    }
+
+    return $out;
+}
+
 function normalizeConversation(array $messages, string $systemPrompt, string $providerType): array {
     $conversation = [];
     if ($providerType === 'openai' && $systemPrompt !== '') {
@@ -3226,14 +3284,16 @@ function normalizeConversation(array $messages, string $systemPrompt, string $pr
         }
         $role = $message['role'] ?? 'user';
         $content = $message['content'] ?? '';
-        if (!is_string($content)) {
-            $content = $content === null || $content === false ? '' : json_encode($content);
-        }
-        $content = (string) $content;
         if ($role === 'system') {
             continue;
         }
-        $entry = ['role' => $role, 'content' => $content];
+        if (is_array($content) && memory_graph_is_openai_multimodal_user_content($content)) {
+            $entry = ['role' => $role, 'content' => array_values($content)];
+        } elseif (!is_string($content)) {
+            $entry = ['role' => $role, 'content' => $content === null || $content === false ? '' : (string) json_encode($content)];
+        } else {
+            $entry = ['role' => $role, 'content' => (string) $content];
+        }
         if (isset($message['tool_calls']) && is_array($message['tool_calls'])) {
             $entry['tool_calls'] = $message['tool_calls'];
         }
@@ -3273,6 +3333,11 @@ function truncateConversationForContext(array $conversation): array {
             continue;
         }
         $content = $msg['content'] ?? '';
+        if (is_array($content) && memory_graph_is_openai_multimodal_user_content($content)) {
+            $msg = array_merge($msg, ['content' => memory_graph_clamp_multimodal_user_content(array_values($content))]);
+            $result[] = $msg;
+            continue;
+        }
         if (!is_string($content)) {
             $result[] = $msg;
             continue;
@@ -3305,11 +3370,13 @@ function sanitizeConversationForApi(array $conversation): array {
         }
         $role = $msg['role'] ?? 'user';
         $content = $msg['content'] ?? '';
-        if (!is_string($content)) {
-            $content = ($content === null || $content === false) ? '' : json_encode($content);
+        if (is_array($content) && memory_graph_is_openai_multimodal_user_content($content)) {
+            $entry = ['role' => $role, 'content' => memory_graph_clamp_multimodal_user_content(array_values($content))];
+        } elseif (!is_string($content)) {
+            $entry = ['role' => $role, 'content' => ($content === null || $content === false) ? '' : (string) json_encode($content)];
+        } else {
+            $entry = ['role' => $role, 'content' => (string) $content];
         }
-        $content = (string) $content;
-        $entry = ['role' => $role, 'content' => $content];
         if (isset($msg['tool_calls']) && is_array($msg['tool_calls'])) {
             $entry['tool_calls'] = $msg['tool_calls'];
         }
@@ -3513,6 +3580,45 @@ function requestOpenAiCompatible(array $provider, string $model, array $conversa
     return $result;
 }
 
+function memory_graph_gemini_parts_from_content(mixed $content): array {
+    if (is_string($content)) {
+        return [['text' => $content]];
+    }
+    if (!is_array($content) || !memory_graph_is_openai_multimodal_user_content($content)) {
+        return [['text' => '']];
+    }
+    $parts = [];
+    foreach ($content as $part) {
+        if (!is_array($part)) {
+            continue;
+        }
+        $type = (string) ($part['type'] ?? '');
+        if ($type === 'text' && isset($part['text'])) {
+            $parts[] = ['text' => (string) $part['text']];
+            continue;
+        }
+        if ($type === 'image_url' && isset($part['image_url']) && is_array($part['image_url'])) {
+            $url = (string) ($part['image_url']['url'] ?? '');
+            if (preg_match('#^data:([^;]+);base64,(.+)$#', $url, $m) === 1) {
+                $parts[] = ['inlineData' => ['mimeType' => (string) $m[1], 'data' => (string) $m[2]]];
+            }
+            continue;
+        }
+        if ($type === 'input_audio' && isset($part['input_audio']) && is_array($part['input_audio'])) {
+            $fmt = strtolower((string) ($part['input_audio']['format'] ?? 'wav'));
+            $mime = in_array($fmt, ['mp3', 'mpeg'], true) ? 'audio/mpeg' : ('audio/' . ($fmt !== '' ? $fmt : 'wav'));
+            $parts[] = ['inlineData' => ['mimeType' => $mime, 'data' => (string) ($part['input_audio']['data'] ?? '')]];
+            continue;
+        }
+        if ($type === 'input_video' && isset($part['input_video']) && is_array($part['input_video'])) {
+            $mime = (string) ($part['input_video']['mime_type'] ?? 'video/mp4');
+            $parts[] = ['inlineData' => ['mimeType' => $mime, 'data' => (string) ($part['input_video']['data'] ?? '')]];
+        }
+    }
+
+    return $parts !== [] ? $parts : [['text' => '']];
+}
+
 function requestGemini(array $provider, string $model, array $conversation, float $temperature, string $systemPrompt): array {
     $contents = [];
     foreach ($conversation as $message) {
@@ -3522,7 +3628,7 @@ function requestGemini(array $provider, string $model, array $conversation, floa
         }
         $contents[] = [
             'role' => $role === 'assistant' ? 'model' : 'user',
-            'parts' => [['text' => (string) ($message['content'] ?? '')]],
+            'parts' => memory_graph_gemini_parts_from_content($message['content'] ?? ''),
         ];
     }
     $payload = [
@@ -4045,6 +4151,9 @@ while (true) {
                         'name' => $toolResult['name'],
                         'content' => $toolResult['content'],
                         'nodeId' => $toolResult['nodeId'] ?? job_node_id($toolResult['name']),
+                        'runAssignee' => $toolResult['runAssignee'] ?? null,
+                        'subAgent' => $toolResult['subAgent'] ?? null,
+                        'subAgentNodeId' => $toolResult['subAgentNodeId'] ?? null,
                     ];
                 }
                 if (shouldRefreshGraphForToolResult($normalizedFunctionName, is_array($toolResult) ? $toolResult : [])) {
@@ -4145,6 +4254,9 @@ while (true) {
                     'name' => $toolResult['name'],
                     'content' => $toolResult['content'],
                     'nodeId' => $toolResult['nodeId'] ?? job_node_id($toolResult['name']),
+                    'runAssignee' => $toolResult['runAssignee'] ?? null,
+                    'subAgent' => $toolResult['subAgent'] ?? null,
+                    'subAgentNodeId' => $toolResult['subAgentNodeId'] ?? null,
                 ];
             }
             if (shouldRefreshGraphForToolResult($inlineToolCall['name'], is_array($toolResult) ? $toolResult : [])) {
@@ -4277,6 +4389,9 @@ while (true) {
                 'name' => $toolResult['name'],
                 'content' => $toolResult['content'],
                 'nodeId' => $toolResult['nodeId'] ?? job_node_id($toolResult['name']),
+                'runAssignee' => $toolResult['runAssignee'] ?? null,
+                'subAgent' => $toolResult['subAgent'] ?? null,
+                'subAgentNodeId' => $toolResult['subAgentNodeId'] ?? null,
             ];
         }
         if (shouldRefreshGraphForToolResult($inlineToolCall['name'], is_array($toolResult) ? $toolResult : [])) {
