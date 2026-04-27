@@ -2610,6 +2610,7 @@ function buildToolUsageInstruction(array $activeTools): string {
         "JOBS & AUTOMATION: Use job markdown tools and agent_cron / cron-related tools when the user wants repeatable work or schedules; persist intent in jobs/ or cron configuration instead of only describing steps in chat.\n" .
         ($toolList !== '' ? "Currently active tools include: " . $toolList . "\n" : '') .
         "When you are not calling a tool, answer normally.\n" .
+        "Do not end a turn with internal planning only (e.g. lines about what you \"should\" say or do, or restating the user's intent). Either call the next tool, emit the required JSON tool call, or write the direct user-facing answer.\n" .
         "CRITICAL - Do not stop prematurely: Use as many tool calls as needed to complete the task. Never respond with 'no tool calls', 'I have no tools to use', or similar - keep using tools until the task is complete, then give your final answer."
     );
 }
@@ -3139,6 +3140,7 @@ function sanitizeConversationForApi(array $conversation): array {
 
 /**
  * Extract visible assistant text from OpenAI-style chat message (handles string content and part arrays).
+ * Never prefers provider reasoning/thinking fields over user-facing content — those are not shown as the reply.
  */
 function openai_extract_assistant_message_text(?array $message): string {
     if (!is_array($message)) {
@@ -3147,48 +3149,24 @@ function openai_extract_assistant_message_text(?array $message): string {
     if (!empty($message['refusal']) && is_string($message['refusal'])) {
         return trim((string) $message['refusal']);
     }
-    // Some OpenAI-compatible / reasoning gateways expose prose only here.
-    if (isset($message['reasoning']) && is_string($message['reasoning']) && trim($message['reasoning']) !== '') {
-        return trim($message['reasoning']);
-    }
-    if (isset($message['reasoning_content']) && is_string($message['reasoning_content']) && trim($message['reasoning_content']) !== '') {
-        return trim($message['reasoning_content']);
-    }
-    if (isset($message['thinking']) && is_string($message['thinking']) && trim($message['thinking']) !== '') {
-        return trim($message['thinking']);
-    }
-    if (isset($message['output_text']) && is_string($message['output_text']) && trim($message['output_text']) !== '') {
-        return trim($message['output_text']);
-    }
     $rawContent = $message['content'] ?? null;
+    $fromContent = '';
     if (is_string($rawContent)) {
-        $t = trim($rawContent);
-        if ($t !== '') {
-            return $rawContent;
-        }
-        $rb = trim((string) ($message['reasoning_content'] ?? ''));
-        if ($rb !== '') {
-            return $rb;
-        }
-        $tk = trim((string) ($message['thinking'] ?? ''));
-        if ($tk !== '') {
-            return $tk;
-        }
-
-        return '';
-    }
-    if (is_array($rawContent)) {
+        $fromContent = trim($rawContent);
+    } elseif (is_array($rawContent)) {
         $assistantContent = '';
         foreach ($rawContent as $part) {
             if (!is_array($part)) {
                 continue;
             }
             $type = (string) ($part['type'] ?? '');
+            if ($type === 'reasoning' || $type === 'thinking' || $type === 'redacted_reasoning') {
+                continue;
+            }
             if (isset($part['text']) && (is_string($part['text']) || is_numeric($part['text']))) {
                 $assistantContent .= (string) $part['text'];
                 continue;
             }
-            // Nested text objects (some providers)
             if (isset($part['text']) && is_array($part['text']) && isset($part['text']['value']) && is_string($part['text']['value'])) {
                 $assistantContent .= $part['text']['value'];
                 continue;
@@ -3197,16 +3175,29 @@ function openai_extract_assistant_message_text(?array $message): string {
                 $assistantContent .= $part['content'];
                 continue;
             }
-            if (($type === 'text' || $type === 'output_text' || $type === 'input_text' || $type === 'reasoning') && isset($part['text'])) {
+            if (($type === 'text' || $type === 'output_text' || $type === 'input_text') && isset($part['text'])) {
                 $assistantContent .= is_scalar($part['text']) ? (string) $part['text'] : '';
             }
         }
-        return trim($assistantContent);
+        $fromContent = trim($assistantContent);
+    }
+    if ($fromContent !== '') {
+        return $fromContent;
+    }
+    if (!empty($message['tool_calls']) && is_array($message['tool_calls'])) {
+        return '';
+    }
+    if (isset($message['output_text']) && is_string($message['output_text']) && trim($message['output_text']) !== '') {
+        return trim($message['output_text']);
     }
     if ($rawContent === null || $rawContent === false) {
         return '';
     }
-    return (string) $rawContent;
+    if (!is_string($rawContent) && !is_array($rawContent)) {
+        $s = trim((string) $rawContent);
+        return $s !== '' ? $s : '';
+    }
+    return '';
 }
 
 function requestOpenAiCompatible(array $provider, string $model, array $conversation, float $temperature, array $tools, string $providerKey = ''): array {
