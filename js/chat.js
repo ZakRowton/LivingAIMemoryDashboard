@@ -1037,6 +1037,9 @@
         var userPayload = buildUserMessageForApi(text, attachmentParts);
         var historyLine = userTurnHistoryLine(text, summarizePartsForHistory(attachmentParts));
         messages.push({ role: 'user', content: userPayload });
+        getTurns().push({ role: 'user', content: historyLine });
+        saveSessionBundle();
+        renderSimpleChatThread();
         var requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
         lastGraphRefreshToken = '';
         inFlightMainRequestId = requestId;
@@ -1100,9 +1103,9 @@
                 if (!content) content = 'No text in response.';
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
                 showNotification(preview, historyLine, content);
-                getTurns().push({ role: 'user', content: historyLine });
                 getTurns().push({ role: 'assistant', content: content });
                 saveSessionBundle();
+                renderSimpleChatThread();
                 if (res && res.jobToRun && typeof window.MemoryGraphRunJob === 'function') {
                     var jobs = Array.isArray(res.jobToRun) ? res.jobToRun : [res.jobToRun];
                     jobs.forEach(function (job) {
@@ -1131,8 +1134,7 @@
                 }
                 var displayMsg = (msg && String(msg).trim()) || 'Request failed';
                 var errBody = 'Error: ' + displayMsg;
-                showNotification(displayMsg, text, errBody);
-                getTurns().push({ role: 'user', content: text });
+                showNotification(displayMsg, historyLine, errBody);
                 getTurns().push({ role: 'assistant', content: errBody });
                 saveSessionBundle();
                 renderSimpleChatThread();
