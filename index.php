@@ -2349,6 +2349,142 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         [data-theme="light"] .simple-activity-title {
             color: #6b5a2a;
         }
+        .simple-activity-tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid rgba(212, 175, 55, 0.14);
+            flex-shrink: 0;
+        }
+        .simple-activity-tab {
+            flex: 1;
+            margin: 0;
+            padding: 10px 8px;
+            border: none;
+            border-bottom: 2px solid transparent;
+            background: transparent;
+            color: var(--gold-dim);
+            font-family: 'Cinzel', serif;
+            font-size: 0.58rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+        }
+        .simple-activity-tab:hover {
+            color: #d4af37;
+            background: rgba(212, 175, 55, 0.06);
+        }
+        .simple-activity-tab.is-active {
+            color: #d4af37;
+            border-bottom-color: rgba(212, 175, 55, 0.65);
+            background: rgba(212, 175, 55, 0.05);
+        }
+        [data-theme="light"] .simple-activity-tab {
+            color: #7a6a42;
+        }
+        [data-theme="light"] .simple-activity-tab.is-active {
+            color: #5c4d24;
+            border-bottom-color: rgba(184, 150, 46, 0.55);
+            background: rgba(184, 150, 46, 0.08);
+        }
+        .simple-activity-body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .simple-activity-panel {
+            display: none;
+            flex: 1;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .simple-activity-panel.is-active {
+            display: flex;
+        }
+        .simple-activity-panel > .simple-activity-log {
+            min-height: 0;
+        }
+        .simple-chat-history-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.08);
+            flex-shrink: 0;
+        }
+        .simple-chat-history-toolbar .panel-action-btn {
+            font-size: 0.62rem;
+            padding: 5px 8px;
+        }
+        .simple-chat-history-list {
+            flex: 1;
+            min-height: 40px;
+            overflow-y: auto;
+            padding: 6px 8px 10px;
+            font-size: 0.72rem;
+            line-height: 1.35;
+            color: var(--gold-dim);
+        }
+        .simple-chat-history-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 8px 6px;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            border: 1px solid rgba(212, 175, 55, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+        }
+        [data-theme="light"] .simple-chat-history-row {
+            background: rgba(255, 255, 255, 0.45);
+            border-color: rgba(184, 150, 46, 0.15);
+        }
+        .simple-chat-history-row.is-current {
+            border-color: rgba(212, 175, 55, 0.35);
+            box-shadow: inset 0 0 0 1px rgba(212, 175, 55, 0.12);
+        }
+        .simple-chat-history-row-main {
+            flex: 1;
+            min-width: 0;
+        }
+        .simple-chat-history-meta {
+            font-size: 0.62rem;
+            opacity: 0.85;
+            margin-top: 2px;
+        }
+        .simple-chat-history-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .simple-chat-history-actions button {
+            font-family: 'Cinzel', serif;
+            font-size: 0.58rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 3px 6px;
+            border-radius: 4px;
+            border: 1px solid rgba(212, 175, 55, 0.25);
+            background: rgba(212, 175, 55, 0.08);
+            color: #d4af37;
+            cursor: pointer;
+        }
+        .simple-chat-history-actions button:hover {
+            background: rgba(212, 175, 55, 0.16);
+        }
+        .simple-chat-history-actions button.simple-chat-history-btn-danger {
+            border-color: rgba(200, 90, 70, 0.45);
+            color: #e8a090;
+            background: rgba(120, 40, 30, 0.15);
+        }
+        [data-theme="light"] .simple-chat-history-actions button.simple-chat-history-btn-danger {
+            color: #8b3a2a;
+            border-color: rgba(180, 80, 60, 0.35);
+            background: rgba(255, 230, 220, 0.5);
+        }
         .simple-activity-pulses {
             display: flex;
             flex-wrap: wrap;
@@ -2488,10 +2624,28 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 </div>
             </div>
         </main>
-        <aside class="simple-activity-col" aria-label="Agent activity">
-            <div class="simple-activity-title font-display">Activity</div>
+        <aside class="simple-activity-col" aria-label="Chat history and activity">
+            <div class="simple-activity-tabs font-display" role="tablist" aria-label="Side panel">
+                <button type="button" class="simple-activity-tab" role="tab" aria-selected="false" data-tab="history" id="simple-activity-tab-history">Chat History</button>
+                <button type="button" class="simple-activity-tab is-active" role="tab" aria-selected="true" data-tab="log" id="simple-activity-tab-log">Console Log</button>
+            </div>
             <div id="simple-activity-pulses" class="simple-activity-pulses"></div>
-            <div id="simple-activity-log" class="simple-activity-log"></div>
+            <div class="simple-activity-body">
+                <div id="simple-activity-panel-history" class="simple-activity-panel" role="tabpanel" aria-labelledby="simple-activity-tab-history">
+                    <div class="simple-chat-history-toolbar">
+                        <button type="button" id="simple-chat-history-new" class="panel-action-btn">New session</button>
+                        <button type="button" id="simple-chat-history-refresh" class="panel-action-btn">Refresh</button>
+                    </div>
+                    <div class="simple-chat-history-toolbar">
+                        <button type="button" id="simple-chat-history-delete-selected" class="panel-action-btn btn-stop" disabled>Delete selected</button>
+                        <button type="button" id="simple-chat-history-clear-legacy" class="panel-action-btn" title="Remove saved turns that have no session id">Clear legacy</button>
+                    </div>
+                    <div id="simple-chat-history-list" class="simple-chat-history-list font-serif" aria-live="polite"></div>
+                </div>
+                <div id="simple-activity-panel-log" class="simple-activity-panel is-active" role="tabpanel" aria-labelledby="simple-activity-tab-log">
+                    <div id="simple-activity-log" class="simple-activity-log"></div>
+                </div>
+            </div>
         </aside>
     </div>
 

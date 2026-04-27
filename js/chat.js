@@ -791,6 +791,9 @@
             .always(function () {
                 currentRequest = null;
                 if (typeof window.agentState !== 'undefined') window.agentState.setThinking(false);
+                if (typeof window.MemoryGraphRefreshSimpleChatHistoryList === 'function') {
+                    window.MemoryGraphRefreshSimpleChatHistoryList();
+                }
                 pollStatusSnapshot(requestId, true);
                 if (wasStopped) {
                     stopStatusPolling();
@@ -837,4 +840,49 @@
     });
 
     window.MemoryGraphExtractAssistantFromChatResponse = extractAssistantTextFromChatResponse;
+
+    function peekChatSessionId() {
+        try {
+            var s = sessionStorage.getItem(CHAT_SESSION_KEY);
+            return (s && String(s).trim()) ? String(s).trim() : '';
+        } catch (e) {
+            return '';
+        }
+    }
+    window.MemoryGraphPeekChatSessionId = peekChatSessionId;
+
+    window.MemoryGraphStartNewChatSession = function () {
+        var id = 'cs_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
+        try {
+            sessionStorage.setItem(CHAT_SESSION_KEY, id);
+        } catch (e) {}
+        chatTurns = [];
+        saveChatTurns([]);
+        renderSimpleChatThread();
+        if (typeof window.MemoryGraphRefreshSimpleChatHistoryList === 'function') {
+            window.MemoryGraphRefreshSimpleChatHistoryList();
+        }
+        return id;
+    };
+
+    window.MemoryGraphSetChatSessionId = function (sessionId) {
+        sessionId = String(sessionId || '').trim();
+        if (!sessionId) return;
+        try {
+            sessionStorage.setItem(CHAT_SESSION_KEY, sessionId);
+        } catch (e) {}
+    };
+
+    window.MemoryGraphReplaceSimpleChatTurns = function (turns) {
+        var raw = Array.isArray(turns) ? turns : [];
+        var out = [];
+        raw.forEach(function (t) {
+            if (t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string') {
+                out.push({ role: t.role, content: t.content });
+            }
+        });
+        chatTurns = out;
+        saveChatTurns(chatTurns);
+        renderSimpleChatThread();
+    };
 })();

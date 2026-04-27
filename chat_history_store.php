@@ -129,3 +129,139 @@ function get_chat_history(string $id): ?array {
     }
     return null;
 }
+
+/**
+ * Distinct browser chat sessions from persisted exchanges (newest activity first).
+ */
+function list_chat_sessions(int $limit = 100): array {
+    $data = read_chat_history_data();
+    $agg = [];
+    foreach ($data['exchanges'] ?? [] as $e) {
+        $sid = trim((string) ($e['sessionId'] ?? ''));
+        if ($sid === '') {
+            $sid = '';
+        }
+        $ts = (int) ($e['ts'] ?? 0);
+        if (!isset($agg[$sid])) {
+            $agg[$sid] = [
+                'sessionId' => $sid,
+                'exchangeCount' => 0,
+                'lastTs' => 0,
+                'firstTs' => PHP_INT_MAX,
+                'lastUserPreview' => '',
+            ];
+        }
+        $agg[$sid]['exchangeCount']++;
+        if ($ts >= $agg[$sid]['lastTs']) {
+            $agg[$sid]['lastTs'] = $ts;
+            $u = (string) ($e['user'] ?? '');
+            $agg[$sid]['lastUserPreview'] = strlen($u) > 120 ? substr($u, 0, 117) . '…' : $u;
+        }
+        if ($ts < $agg[$sid]['firstTs']) {
+            $agg[$sid]['firstTs'] = $ts;
+        }
+    }
+    $rows = array_values($agg);
+    usort($rows, function ($a, $b) {
+        return (int) ($b['lastTs'] ?? 0) <=> (int) ($a['lastTs'] ?? 0);
+    });
+    foreach ($rows as &$r) {
+        if (isset($r['firstTs']) && $r['firstTs'] === PHP_INT_MAX) {
+            $r['firstTs'] = 0;
+        }
+    }
+    unset($r);
+    if (count($rows) > $limit) {
+        $rows = array_slice($rows, 0, $limit);
+    }
+    return $rows;
+}
+
+/**
+ * Simple-chat turns (oldest first) rebuilt from server history for one session.
+ *
+ * @return list<array{role: string, content: string}>
+ */
+function list_chat_history_turns_for_session(string $sessionId, int $maxExchanges = 200): array {
+    $sessionId = trim($sessionId);
+    if ($sessionId === '') {
+        return [];
+    }
+    $data = read_chat_history_data();
+    $hits = [];
+    foreach ($data['exchanges'] ?? [] as $e) {
+        if (trim((string) ($e['sessionId'] ?? '')) !== $sessionId) {
+            continue;
+        }
+        $hits[] = $e;
+    }
+    usort($hits, function ($a, $b) {
+        return (int) ($a['ts'] ?? 0) <=> (int) ($b['ts'] ?? 0);
+    });
+    if (count($hits) > $maxExchanges) {
+        $hits = array_slice($hits, -$maxExchanges);
+    }
+    $turns = [];
+    foreach ($hits as $e) {
+        $turns[] = ['role' => 'user', 'content' => (string) ($e['user'] ?? '')];
+        $turns[] = ['role' => 'assistant', 'content' => (string) ($e['assistant'] ?? '')];
+    }
+    return $turns;
+}
+
+/**
+ * Remove all exchanges for a session. Returns number removed.
+ * Empty session id removes legacy rows (no sessionId stored).
+ */
+function delete_chat_history_for_session(string $sessionId): int {
+    $sessionId = trim($sessionId);
+    if ($sessionId === '') {
+        return delete_chat_history_unassigned();
+    }
+    $data = read_chat_history_data();
+    $exchanges = $data['exchanges'] ?? [];
+    $before = count($exchanges);
+    $data['exchanges'] = array_values(array_filter($exchanges, function ($e) use ($sessionId) {
+        return trim((string) ($e['sessionId'] ?? '')) !== $sessionId;
+    }));
+    write_chat_history_data($data);
+    return $before - count($data['exchanges']);
+}
+
+/**
+ * Remove one exchange by id or requestId.
+ */
+function delete_chat_history_entry(string $id): bool {
+    $id = trim($id);
+    if ($id === '') {
+        return false;
+    }
+    $data = read_chat_history_data();
+    $exchanges = $data['exchanges'] ?? [];
+    $found = false;
+    $data['exchanges'] = array_values(array_filter($exchanges, function ($e) use ($id, &$found) {
+        $match = (($e['id'] ?? '') === $id || ($e['requestId'] ?? '') === $id);
+        if ($match) {
+            $found = true;
+        }
+        return !$match;
+    }));
+    if ($found) {
+        write_chat_history_data($data);
+    }
+    return $found;
+}
+
+/**
+ * Remove exchanges with empty session id (legacy rows).
+ */
+function delete_chat_history_unassigned(): int {
+    $data = read_chat_history_data();
+    $exchanges = $data['exchanges'] ?? [];
+    $before = count($exchanges);
+    $data['exchanges'] = array_values(array_filter($exchanges, function ($e) {
+        return trim((string) ($e['sessionId'] ?? '')) !== '';
+    }));
+    write_chat_history_data($data);
+    return $before - count($data['exchanges']);
+}

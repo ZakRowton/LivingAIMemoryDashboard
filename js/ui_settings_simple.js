@@ -864,6 +864,205 @@
         buildPulseStrip($pulses, false);
         buildPulseStrip($toolbarPulses, true);
 
+        function updateSimpleChatHistoryDeleteSelectedBtn() {
+            var n = $('.simple-chat-history-cb:checked').length;
+            $('#simple-chat-history-delete-selected').prop('disabled', n === 0);
+        }
+
+        function refreshSimpleChatHistoryList() {
+            var $list = $('#simple-chat-history-list');
+            if (!$list.length) {
+                return;
+            }
+            if (!document.documentElement.classList.contains('mg-simple-ui')) {
+                return;
+            }
+            $list.html('<p class="simple-loading font-serif">Loading…</p>');
+            $.getJSON('api/chat_sessions.php', { action: 'list_sessions', limit: 80 })
+                .done(function (data) {
+                    if (!data || !data.ok) {
+                        $list.html('<p class="simple-warn font-serif">Could not load sessions.</p>');
+                        return;
+                    }
+                    var sessions = Array.isArray(data.sessions) ? data.sessions : [];
+                    var current = (typeof window.MemoryGraphPeekChatSessionId === 'function' && window.MemoryGraphPeekChatSessionId()) || '';
+                    $list.empty();
+                    if (!sessions.length) {
+                        $list.append($('<p class="simple-empty font-serif">').text('No saved chat sessions yet. Completed replies are stored here by browser session id.'));
+                        updateSimpleChatHistoryDeleteSelectedBtn();
+                        return;
+                    }
+                    sessions.forEach(function (s) {
+                        var sid = s.sessionId != null ? String(s.sessionId) : '';
+                        var count = parseInt(s.exchangeCount, 10) || 0;
+                        var lastTs = parseInt(s.lastTs, 10) || 0;
+                        var when = lastTs ? new Date(lastTs).toLocaleString() : '—';
+                        var title = sid === '' ? 'Legacy (no session id)' : sid;
+                        var preview = (s.lastUserPreview && String(s.lastUserPreview)) || '—';
+                        var $row = $('<div class="simple-chat-history-row font-serif">').attr('data-session-id', sid);
+                        if (sid !== '' && current && current === sid) {
+                            $row.addClass('is-current');
+                        }
+                        var $cb = $('<input type="checkbox" class="simple-chat-history-cb" aria-label="Select session">');
+                        var $main = $('<div class="simple-chat-history-row-main">');
+                        $main.append($('<div>').text(title).css({ wordBreak: 'break-all', fontSize: '0.68rem', color: 'var(--gold)' }));
+                        $main.append($('<div class="simple-chat-history-meta">').text(count + ' saved turn(s) · ' + when));
+                        if (preview !== '—') {
+                            $main.append($('<div class="simple-chat-history-meta">').text(preview));
+                        }
+                        var $act = $('<div class="simple-chat-history-actions">');
+                        var $btnLoad = $('<button type="button">').text('Load');
+                        if (sid === '') {
+                            $btnLoad.prop('disabled', true).attr('title', 'Cannot load legacy rows into the thread');
+                        } else {
+                            $btnLoad.addClass('simple-chat-history-load');
+                        }
+                        var $btnDel = $('<button type="button" class="simple-chat-history-btn-danger simple-chat-history-delete-one">').text('Delete');
+                        $act.append($btnLoad, $btnDel);
+                        $row.append($cb, $main, $act);
+                        $list.append($row);
+                    });
+                    updateSimpleChatHistoryDeleteSelectedBtn();
+                })
+                .fail(function () {
+                    $list.html('<p class="simple-warn font-serif">Could not load sessions.</p>');
+                });
+        }
+        window.MemoryGraphRefreshSimpleChatHistoryList = refreshSimpleChatHistoryList;
+
+        $('.simple-activity-tab').on('click', function () {
+            var tab = $(this).data('tab');
+            if (!tab) return;
+            $('.simple-activity-tab').removeClass('is-active').attr('aria-selected', 'false');
+            $(this).addClass('is-active').attr('aria-selected', 'true');
+            $('.simple-activity-panel').removeClass('is-active');
+            if (tab === 'history') {
+                $('#simple-activity-panel-history').addClass('is-active');
+                $('#simple-activity-panel-log').removeClass('is-active');
+                refreshSimpleChatHistoryList();
+            } else {
+                $('#simple-activity-panel-log').addClass('is-active');
+                $('#simple-activity-panel-history').removeClass('is-active');
+            }
+        });
+
+        $('#simple-chat-history-list').on('change', '.simple-chat-history-cb', updateSimpleChatHistoryDeleteSelectedBtn);
+
+        $('#simple-chat-history-new').on('click', function () {
+            if (typeof window.MemoryGraphStartNewChatSession !== 'function') return;
+            window.MemoryGraphStartNewChatSession();
+        });
+        $('#simple-chat-history-refresh').on('click', function () {
+            refreshSimpleChatHistoryList();
+        });
+        $('#simple-chat-history-delete-selected').on('click', function () {
+            var ids = [];
+            $('.simple-chat-history-cb:checked').each(function () {
+                var $r = $(this).closest('.simple-chat-history-row');
+                var sid = $r.attr('data-session-id');
+                if (sid === undefined || sid === null) sid = '';
+                ids.push(String(sid));
+            });
+            if (!ids.length) return;
+            var uniq = [];
+            var seenLegacy = false;
+            ids.forEach(function (id) {
+                if (id === '') {
+                    seenLegacy = true;
+                } else if (uniq.indexOf(id) === -1) {
+                    uniq.push(id);
+                }
+            });
+            var payloadIds = uniq.slice();
+            if (seenLegacy) {
+                payloadIds.push('');
+            }
+            if (!window.confirm('Delete ' + payloadIds.length + ' session(s) from saved server history? Your current thread is not removed unless it matches.')) {
+                return;
+            }
+            $.ajax({
+                url: 'api/chat_sessions.php',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ action: 'delete_sessions', sessionIds: payloadIds }),
+                credentials: 'same-origin'
+            })
+                .done(function (res) {
+                    if (res && res.error) {
+                        window.alert(res.error);
+                        return;
+                    }
+                    refreshSimpleChatHistoryList();
+                })
+                .fail(function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Request failed';
+                    window.alert(msg);
+                });
+        });
+        $('#simple-chat-history-clear-legacy').on('click', function () {
+            if (!window.confirm('Remove all saved chat turns that have no session id?')) return;
+            $.ajax({
+                url: 'api/chat_sessions.php',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ action: 'delete_session', sessionId: '' }),
+                credentials: 'same-origin'
+            })
+                .done(function () {
+                    refreshSimpleChatHistoryList();
+                })
+                .fail(function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Request failed';
+                    window.alert(msg);
+                });
+        });
+
+        $('#simple-chat-history-list').on('click', '.simple-chat-history-load', function () {
+            var $row = $(this).closest('.simple-chat-history-row');
+            var sid = $row.attr('data-session-id');
+            if (!sid) return;
+            $.getJSON('api/chat_sessions.php', { action: 'session_turns', session_id: sid })
+                .done(function (data) {
+                    if (!data || !data.ok) {
+                        window.alert((data && data.error) || 'Could not load session.');
+                        return;
+                    }
+                    var turns = Array.isArray(data.turns) ? data.turns : [];
+                    if (typeof window.MemoryGraphSetChatSessionId === 'function') {
+                        window.MemoryGraphSetChatSessionId(sid);
+                    }
+                    if (typeof window.MemoryGraphReplaceSimpleChatTurns === 'function') {
+                        window.MemoryGraphReplaceSimpleChatTurns(turns);
+                    }
+                    refreshSimpleChatHistoryList();
+                })
+                .fail(function () {
+                    window.alert('Could not load session.');
+                });
+        });
+
+        $('#simple-chat-history-list').on('click', '.simple-chat-history-delete-one', function () {
+            var $row = $(this).closest('.simple-chat-history-row');
+            var sid = $row.attr('data-session-id');
+            if (sid === undefined || sid === null) sid = '';
+            var label = sid === '' ? 'legacy chats (no session id)' : sid;
+            if (!window.confirm('Delete saved server history for:\n' + label + '?')) return;
+            $.ajax({
+                url: 'api/chat_sessions.php',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ action: 'delete_session', sessionId: sid }),
+                credentials: 'same-origin'
+            })
+                .done(function () {
+                    refreshSimpleChatHistoryList();
+                })
+                .fail(function (xhr) {
+                    var msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Request failed';
+                    window.alert(msg);
+                });
+        });
+
         $fab.on('click', function () {
             openSettings();
         });
