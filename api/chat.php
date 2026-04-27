@@ -925,9 +925,17 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
                 $rt['type'] = $chatType === 'gemini' ? 'gemini' : 'openai';
             }
             $displayTitle = pathinfo((string) ($meta['name'] ?? $name), PATHINFO_FILENAME);
-            $identity = 'You are a MemoryGraph Sub-Agent (“' . $displayTitle . '”, config file: ' . ($meta['name'] ?? $name) . '). '
-                . 'You run on the same host as Jarvis with the same capabilities: PHP tools, merged memory & rules, instructions, research files, MCP servers, jobs/cron, and dashboard web apps. '
-                . 'Use tools proactively when they help; you may call run_sub_agent_chat / wait_for_sub_agent_chat to coordinate with other sub-agents unless nesting limits apply.';
+            $panelOrigin = ($parentRid !== '' && strpos($parentRid, 'subagent_panel_') === 0);
+            if ($panelOrigin) {
+                $identity = 'You are a MemoryGraph Sub-Agent (“' . $displayTitle . '”, config file: ' . ($meta['name'] ?? $name) . '). '
+                    . 'You run on the same host as Jarvis with the same capabilities: PHP tools, merged memory & rules, instructions, research files, MCP servers, jobs/cron, and dashboard web apps. '
+                    . 'This session is the graph “Run” panel for YOU — do NOT call run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, or get_sub_agent_chat_result (that would recurse into yourself). '
+                    . 'You may still use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file to manage sub-agent configs. Use other tools proactively.';
+            } else {
+                $identity = 'You are a MemoryGraph Sub-Agent (“' . $displayTitle . '”, config file: ' . ($meta['name'] ?? $name) . '). '
+                    . 'You run on the same host as Jarvis with the same capabilities: PHP tools, merged memory & rules, instructions, research files, MCP servers, jobs/cron, and dashboard web apps. '
+                    . 'Use tools proactively when they help; you may call run_sub_agent_chat / wait_for_sub_agent_chat to coordinate with other sub-agents unless nesting limits apply.';
+            }
             $payload = [
                 'requestId' => $childId,
                 'chatSessionId' => (string) ($arguments['chatSessionId'] ?? ($GLOBALS['MEMORY_GRAPH_CHAT_SESSION_ID'] ?? '')),
@@ -939,6 +947,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
                 'skipCronPendingDelivery' => true,
                 'skipChatHistoryAppend' => true,
                 'subAgentIdentity' => $identity,
+                'suppressSubAgentChatTools' => $panelOrigin,
             ];
             if ($parentRid !== '' && strpos($parentRid, 'subagent_worker_') !== 0) {
                 $payload['parentStatusRequestId'] = $parentRid;
@@ -1007,7 +1016,8 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
 
     // Fallback: one-shot completion (no tool loop) when base URL is missing or provider is not a registered server key.
     $memoryRulesBlock = buildMemoryAndRulesSystemPromptSection();
-    $activeTools = loadToolRegistry();
+    $ridFallback = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? '');
+    $activeTools = memory_graph_filter_tools_for_sub_agent_panel(loadToolRegistry(), $ridFallback, ['suppressSubAgentChatTools' => ($ridFallback !== '' && strpos($ridFallback, 'subagent_panel_') === 0)]);
     $toolInstr = buildToolUsageInstruction($activeTools);
     $mergedSystem = trim(
         $systemPrompt . "\n\n"
@@ -1293,6 +1303,43 @@ function loadToolRegistry(): array {
     }
     $GLOBALS['MEMORY_GRAPH_LOADED_TOOL_REGISTRY'] = $tools;
     return $tools;
+}
+
+/** Nested sub-agent chat tools — not offered when already running inside the graph sub-agent panel (avoids self-loop). */
+function memory_graph_sub_agent_panel_blocked_tool_names(): array {
+    return ['run_sub_agent_chat', 'start_sub_agent_chat', 'wait_for_sub_agent_chat', 'get_sub_agent_chat_result'];
+}
+
+/**
+ * @param array<string, mixed> $tools
+ * @param array<string, mixed> $input
+ * @return array<string, mixed>
+ */
+function memory_graph_filter_tools_for_sub_agent_panel(array $tools, string $requestId, array $input): array {
+    $rid = trim($requestId);
+    $flag = !empty($input['suppressSubAgentChatTools']);
+    if (!$flag && ($rid === '' || strpos($rid, 'subagent_panel_') !== 0)) {
+        return $tools;
+    }
+    $blocked = array_fill_keys(memory_graph_sub_agent_panel_blocked_tool_names(), true);
+    $out = [];
+    foreach ($tools as $name => $def) {
+        $norm = normalizeToolName((string) $name);
+        if (isset($blocked[$norm])) {
+            continue;
+        }
+        $out[$name] = $def;
+    }
+
+    return $out;
+}
+
+/**
+ * @param array<string, mixed> $input
+ * @return array<string, mixed>
+ */
+function memory_graph_load_filtered_chat_tools(string $requestId, array $input): array {
+    return memory_graph_filter_tools_for_sub_agent_panel(loadToolRegistry(), $requestId, $input);
 }
 
 function buildExecutionStateForToolCall(string $toolName, array $arguments, array $activeTools): array {
@@ -2411,6 +2458,13 @@ function executeToolCall(string $toolName, array $arguments, array $activeTools,
 
 function executeToolCallInner(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     $normalizedName = normalizeToolName($toolName);
+    $panelRid = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? '');
+    if ($panelRid !== '' && strpos($panelRid, 'subagent_panel_') === 0
+        && in_array($normalizedName, memory_graph_sub_agent_panel_blocked_tool_names(), true)) {
+        return [
+            'error' => 'Sub-agent delegation tools (run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, get_sub_agent_chat_result) are disabled in the sub-agent side panel — you are already running as this sub-agent. Use other tools, or delegate from Jarvis main chat.',
+        ];
+    }
     if (in_array($normalizedName, ['run_sub_agent_chat', 'start_sub_agent_chat'], true)) {
         $sn = memory_graph_sub_agent_slug_from_tool_arguments($arguments);
         if ($sn === '') {
@@ -3570,7 +3624,7 @@ if ($instrFileMapped !== '') {
         $systemPrompt = trim($spm[$pmKey]);
     }
 }
-$activeTools = loadToolRegistry();
+$activeTools = memory_graph_load_filtered_chat_tools($requestId, $input);
 $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
 $memoryRulesBlock = buildMemoryAndRulesSystemPromptSection();
 $sessionCtx = $chatSessionIdInput !== ''
@@ -3824,7 +3878,7 @@ while (true) {
                 ];
                 if (shouldInvalidateToolRegistryCache($normalizedFunctionName, $toolResult)) {
                     clearMemoryGraphToolRegistryCache();
-                    $activeTools = loadToolRegistry();
+                    $activeTools = memory_graph_load_filtered_chat_tools($requestId, $input);
                     $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
                 }
                 if ($normalizedFunctionName === 'set_provider_model' && is_array($toolResult) && !empty($toolResult['ok'])) {
@@ -3923,7 +3977,7 @@ while (true) {
             ];
             if (shouldInvalidateToolRegistryCache($inlineToolCall['name'], $toolResult)) {
                 clearMemoryGraphToolRegistryCache();
-                $activeTools = loadToolRegistry();
+                $activeTools = memory_graph_load_filtered_chat_tools($requestId, $input);
                 $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
             }
             if ($inlineToolCall['name'] === 'set_provider_model' && is_array($toolResult) && !empty($toolResult['ok'])) {
@@ -4040,7 +4094,7 @@ while (true) {
         ];
         if (shouldInvalidateToolRegistryCache($inlineToolCall['name'], $toolResult)) {
             clearMemoryGraphToolRegistryCache();
-            $activeTools = loadToolRegistry();
+            $activeTools = memory_graph_load_filtered_chat_tools($requestId, $input);
             $openAiTools = $provider['type'] === 'openai' ? buildOpenAiTools($activeTools) : [];
         }
         if ($inlineToolCall['name'] === 'set_provider_model' && is_array($toolResult) && !empty($toolResult['ok'])) {
