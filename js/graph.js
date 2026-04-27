@@ -556,26 +556,31 @@
         var agentActive = !!(state && (state.isThinking || (state.isAgentRecentlyActive && state.isAgentRecentlyActive())));
         animateNode('agent', agentActive, t, 12, 0.22, 1.15);
         animateNode('tools', !!(state && (state.toolExecuting || state.gettingAvailTools || state.backgroundGettingAvailTools || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('tools')) || activeToolIds.length)), t, 12, 0.2, 1.2);
-        animateNode('memory', !!(state && (state.memoryToolExecuting || state.checkingMemory || state.backgroundCheckingMemory || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('memory')) || activeMemoryIds.length)), t, 12, 0.2, 1.2);
-        animateNode('instructions', !!(state && (state.instructionToolExecuting || state.checkingInstructions || state.backgroundCheckingInstructions || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('instructions')) || activeInstructionIds.length)), t, 12, 0.2, 1.2);
-        animateNode('research', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('research')) || activeResearchIds.length)), t, 12, 0.2, 1.2);
-        animateNode('rules', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('rules')) || activeRulesIds.length)), t, 12, 0.2, 1.2);
+        var memHub = performance.now() < (runtimeActivityByNodeId['memory'] || 0);
+        var researchHub = performance.now() < (runtimeActivityByNodeId['research'] || 0);
+        var rulesHub = performance.now() < (runtimeActivityByNodeId['rules'] || 0);
+        var instructionsHub = performance.now() < (runtimeActivityByNodeId['instructions'] || 0);
+        animateNode('memory', !!(state && (state.memoryToolExecuting || state.checkingMemory || state.backgroundCheckingMemory || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('memory')) || activeMemoryIds.length)) || memHub, t, 12, 0.2, 1.2);
+        animateNode('instructions', !!(state && (state.instructionToolExecuting || state.checkingInstructions || state.backgroundCheckingInstructions || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('instructions')) || activeInstructionIds.length)) || instructionsHub, t, 12, 0.2, 1.2);
+        animateNode('research', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('research')) || activeResearchIds.length)) || researchHub, t, 12, 0.2, 1.2);
+        animateNode('rules', !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('rules')) || activeRulesIds.length)) || rulesHub, t, 12, 0.2, 1.2);
         animateNode('mcps', !!(state && (state.mcpToolExecuting || state.checkingMcps || state.backgroundCheckingMcps || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('mcps')) || activeMcpIds.length)), t, 12, 0.2, 1.2);
         animateNode('jobs', !!(state && (state.jobExecuting || state.checkingJobs || state.backgroundCheckingJobs || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('jobs')) || activeJobIds.length)), t, 12, 0.2, 1.2);
         animateNode('sub_agents', subAgentsSectionActive, t, 12, 0.2, 1.2);
 
         Object.keys(nodeGroups).forEach(function (id) {
-            if (id.indexOf('tool_') === 0) animateNode(id, activeToolIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('memory_file_') === 0) animateNode(id, activeMemoryIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('instruction_file_') === 0) animateNode(id, activeInstructionIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('research_file_') === 0) animateNode(id, activeResearchIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('rules_file_') === 0) animateNode(id, activeRulesIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('mcp_server_') === 0) animateNode(id, activeMcpIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('job_file_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('job_cron_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            var rt = performance.now() < (runtimeActivityByNodeId[id] || 0);
+            if (id.indexOf('tool_') === 0) animateNode(id, activeToolIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('memory_file_') === 0) animateNode(id, activeMemoryIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('instruction_file_') === 0) animateNode(id, activeInstructionIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('research_file_') === 0) animateNode(id, activeResearchIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('rules_file_') === 0) animateNode(id, activeRulesIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('mcp_server_') === 0) animateNode(id, activeMcpIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('job_file_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('job_cron_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
             if (id.indexOf('sub_agent_file_') === 0) {
                 var recentSubIds = state && state.getRecentNodeIds ? state.getRecentNodeIds('sub_agent_file_') : [];
-                var subAgentPulse = activeSubAgentIds.indexOf(id) !== -1 || recentSubIds.indexOf(id) !== -1;
+                var subAgentPulse = activeSubAgentIds.indexOf(id) !== -1 || recentSubIds.indexOf(id) !== -1 || rt;
                 if (subAgentPulse) {
                     animateNode(id, true, t, 12, 0.22, 1.15);
                 } else {

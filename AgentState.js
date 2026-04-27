@@ -118,8 +118,8 @@ class AgentState {
         if (this.toolExecuting || this.gettingAvailTools || this.backgroundGettingAvailTools || this.isSectionRecentlyActive('tools')) sections.push('tools');
         if (this.memoryToolExecuting || this.checkingMemory || this.backgroundCheckingMemory || this.isSectionRecentlyActive('memory')) sections.push('memory');
         if (this.instructionToolExecuting || this.checkingInstructions || this.backgroundCheckingInstructions || this.isSectionRecentlyActive('instructions')) sections.push('instructions');
-        if (this.isSectionRecentlyActive('research')) sections.push('research');
-        if (this.isSectionRecentlyActive('rules')) sections.push('rules');
+        if (this.isSectionRecentlyActive('research') || (Array.isArray(this.activeResearchIds) && this.activeResearchIds.length)) sections.push('research');
+        if (this.isSectionRecentlyActive('rules') || (Array.isArray(this.activeRulesIds) && this.activeRulesIds.length)) sections.push('rules');
         if (this.isSectionRecentlyActive('categories')) sections.push('categories');
         if (this.mcpToolExecuting || this.checkingMcps || this.backgroundCheckingMcps || this.isSectionRecentlyActive('mcps')) sections.push('mcps');
         if (this.jobExecuting || this.checkingJobs || this.backgroundCheckingJobs || this.isSectionRecentlyActive('jobs')) sections.push('jobs');
@@ -185,6 +185,31 @@ class AgentState {
         if (data.checkingMcps || details.mcps || mcpIds.length) { this.markSectionActivity('mcps'); this.markNodeActivity(mcpIds); }
         if (data.checkingJobs || details.jobs || jobIds.length) { this.markSectionActivity('jobs'); this.markNodeActivity(jobIds); }
         if (this.subAgentsToolExecuting) { this.markSectionActivity('sub_agents'); this.markNodeActivity(subAgentIds); }
+        if (memoryIds.length > 0) {
+            var mHold2 = this.memoryFileAccessHoldMs;
+            var mUntil2 = this.nowMs() + Math.max(0, parseInt(mHold2, 10) || 3200);
+            memoryIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('memory_file_') === 0) this.recentNodeActivityUntil[nodeId] = mUntil2;
+            }, this);
+        }
+        if (instructionIds.length > 0) {
+            var iUntil2 = this.nowMs() + Math.max(0, parseInt(this.memoryFileAccessHoldMs, 10) || 3200);
+            instructionIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('instruction_file_') === 0) this.recentNodeActivityUntil[nodeId] = iUntil2;
+            }, this);
+        }
+        if (researchIds.length > 0) {
+            var rUntil2 = this.nowMs() + Math.max(0, parseInt(this.memoryFileAccessHoldMs, 10) || 3200);
+            researchIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('research_file_') === 0) this.recentNodeActivityUntil[nodeId] = rUntil2;
+            }, this);
+        }
+        if (rulesIds.length > 0) {
+            var uUntil2 = this.nowMs() + Math.max(0, parseInt(this.memoryFileAccessHoldMs, 10) || 3200);
+            rulesIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('rules_file_') === 0) this.recentNodeActivityUntil[nodeId] = uUntil2;
+            }, this);
+        }
         if (data.thinking || data.isThinking) { this.recentAgentActivityUntil = this.holdUntil(); this.markNodeActivity(['agent']); }
         this.dispatchGraphActivity();
     }
@@ -246,10 +271,31 @@ class AgentState {
         if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(jobIds); }
         if (this.subAgentsToolExecuting) { this.markSectionActivity('sub_agents'); this.markNodeActivity(subAgentIds); }
         if (memoryIds.length > 0) {
-            var durationMs = this.memoryFileAccessHoldMs;
-            var until = this.nowMs() + Math.max(0, parseInt(durationMs, 10) || 3200);
+            var mHold = this.memoryFileAccessHoldMs;
+            var mUntil = this.nowMs() + Math.max(0, parseInt(mHold, 10) || 3200);
             memoryIds.forEach(function (nodeId) {
-                if (nodeId && nodeId.indexOf('memory_file_') === 0) this.recentNodeActivityUntil[nodeId] = until;
+                if (nodeId && nodeId.indexOf('memory_file_') === 0) this.recentNodeActivityUntil[nodeId] = mUntil;
+            }, this);
+        }
+        if (instructionIds.length > 0) {
+            var iHold = this.memoryFileAccessHoldMs;
+            var iUntil = this.nowMs() + Math.max(0, parseInt(iHold, 10) || 3200);
+            instructionIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('instruction_file_') === 0) this.recentNodeActivityUntil[nodeId] = iUntil;
+            }, this);
+        }
+        if (researchIds.length > 0) {
+            var rHold = this.memoryFileAccessHoldMs;
+            var rUntil = this.nowMs() + Math.max(0, parseInt(rHold, 10) || 3200);
+            researchIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('research_file_') === 0) this.recentNodeActivityUntil[nodeId] = rUntil;
+            }, this);
+        }
+        if (rulesIds.length > 0) {
+            var uHold = this.memoryFileAccessHoldMs;
+            var uUntil = this.nowMs() + Math.max(0, parseInt(uHold, 10) || 3200);
+            rulesIds.forEach(function (nodeId) {
+                if (nodeId && nodeId.indexOf('rules_file_') === 0) this.recentNodeActivityUntil[nodeId] = uUntil;
             }, this);
         }
         if (subAgentIds.length > 0 || details.sub_agents) {
@@ -303,8 +349,22 @@ class AgentState {
         if (this.subAgentsToolExecuting) { this.markSectionActivity('sub_agents'); this.markNodeActivity(this.activeSubAgentIds.concat(this.backgroundActiveSubAgentIds)); }
         this.dispatchGraphActivity();
     }
-    setActiveResearchIds(activeResearchIds) { this.activeResearchIds = Array.isArray(activeResearchIds) ? activeResearchIds : []; this.dispatchGraphActivity(); }
-    setActiveRulesIds(activeRulesIds) { this.activeRulesIds = Array.isArray(activeRulesIds) ? activeRulesIds : []; this.dispatchGraphActivity(); }
+    setActiveResearchIds(activeResearchIds) {
+        this.activeResearchIds = Array.isArray(activeResearchIds) ? activeResearchIds : [];
+        if (this.activeResearchIds.length) {
+            this.markSectionActivity('research', this.memoryFileAccessHoldMs);
+            this.markNodeActivity(this.activeResearchIds, this.memoryFileAccessHoldMs);
+        }
+        this.dispatchGraphActivity(this.memoryFileAccessHoldMs);
+    }
+    setActiveRulesIds(activeRulesIds) {
+        this.activeRulesIds = Array.isArray(activeRulesIds) ? activeRulesIds : [];
+        if (this.activeRulesIds.length) {
+            this.markSectionActivity('rules', this.memoryFileAccessHoldMs);
+            this.markNodeActivity(this.activeRulesIds, this.memoryFileAccessHoldMs);
+        }
+        this.dispatchGraphActivity(this.memoryFileAccessHoldMs);
+    }
     setActiveCategoryIds(activeCategoryIds) { this.activeCategoryIds = Array.isArray(activeCategoryIds) ? activeCategoryIds : []; if (this.activeCategoryIds.length) { this.markSectionActivity('categories'); this.markNodeActivity(this.activeCategoryIds); } this.dispatchGraphActivity(); }
     setBackgroundActiveCategoryIds(backgroundActiveCategoryIds) { this.backgroundActiveCategoryIds = Array.isArray(backgroundActiveCategoryIds) ? backgroundActiveCategoryIds : []; if (this.backgroundActiveCategoryIds.length) { this.markSectionActivity('categories'); this.markNodeActivity(this.backgroundActiveCategoryIds); } this.dispatchGraphActivity(); }
     setBackgroundCheckingJobs(backgroundCheckingJobs) { this.backgroundCheckingJobs = !!backgroundCheckingJobs; this.jobExecuting = !!(this.backgroundCheckingJobs || this.checkingJobs || this.activeJobIds.length || this.backgroundJobIds.length); if (this.jobExecuting) { this.markSectionActivity('jobs'); this.markNodeActivity(this.backgroundJobIds); } this.dispatchGraphActivity(); }
