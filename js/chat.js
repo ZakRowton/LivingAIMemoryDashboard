@@ -38,6 +38,7 @@
         } catch (e2) {}
         return id;
     }
+    window.MemoryGraphGetChatSessionId = getOrCreateChatSessionId;
 
     function loadChatTurns() {
         try {

@@ -3,10 +3,13 @@
  * Multi-provider chat proxy with iterative tool execution.
  * Flow: model -> tool call -> tool result -> model ... until a final answer is returned.
  */
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: ' . ($_SERVER['HTTP_ORIGIN'] ?? '*'));
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+$memoryGraphChatLibraryOnly = defined('MEMORYGRAPH_CHAT_LIBRARY_ONLY') && MEMORYGRAPH_CHAT_LIBRARY_ONLY;
+if (!$memoryGraphChatLibraryOnly) {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Access-Control-Allow-Origin: ' . ($_SERVER['HTTP_ORIGIN'] ?? '*'));
+    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+}
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'env.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'provider_config.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'chat_history_store.php';
@@ -22,15 +25,17 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tool_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sub_agent_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'cron_pending.php';
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+if (!$memoryGraphChatLibraryOnly) {
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
+        http_response_code(204);
+        exit;
+    }
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['error' => 'Method not allowed']);
-    exit;
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'Method not allowed']);
+        exit;
+    }
 }
 
 // Long-running jobs (e.g. AI news) can exceed default 120s; allow up to 10 minutes
@@ -3246,6 +3251,7 @@ function mg_emit_upstream_llm_error_body(int $httpCode, string $rawBody): void {
     echo $rawBody;
 }
 
+if (!$memoryGraphChatLibraryOnly) {
 $input = json_decode(file_get_contents('php://input'), true);
 $input = is_array($input) ? $input : [];
 
@@ -3918,3 +3924,4 @@ if ($jsonOut === false) {
     $jsonOut = json_encode($response, $jsonFlags);
 }
 echo ($jsonOut !== false) ? $jsonOut : '{"error":"json_encode failed"}';
+} // end if (!$memoryGraphChatLibraryOnly) main chat HTTP handler

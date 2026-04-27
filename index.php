@@ -782,6 +782,32 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             text-shadow: 0 0 12px rgba(214, 219, 226, 0.14);
         }
         .node-widget-info { margin-top: 8px; }
+        .sub-agent-chat-panel .sub-agent-run-hint {
+            font-size: 0.8rem;
+            color: var(--gold-dim);
+            margin: 0 0 10px;
+            line-height: 1.45;
+        }
+        .sub-agent-run-response {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(214, 219, 226, 0.14);
+            background: rgba(0, 0, 0, 0.35);
+            font-size: 0.82rem;
+            line-height: 1.45;
+            color: #dce3ea;
+            max-height: 240px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: 'Playfair Display', Georgia, serif;
+        }
+        .sub-agent-run-response.is-error {
+            border-color: rgba(248, 113, 113, 0.35);
+            color: #fecaca;
+        }
+        .sub-agent-run-response:empty { display: none; }
         /* Agent Config styles (moved to node widget) */
         .provider-label {
             display: block;
@@ -2562,6 +2588,15 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" id="job-delete-btn" class="panel-action-btn btn-stop">Delete Job</button>
                 </div>
             </div>
+            <div id="sub-agent-chat-panel" class="sub-agent-chat-panel" style="display: none; margin-top: 15px;">
+                <p class="sub-agent-run-hint font-serif">Send a message to <strong id="sub-agent-chat-target-label">this sub-agent</strong> only. Uses the same tool loop as Jarvis when <code>MEMORYGRAPH_PUBLIC_BASE_URL</code> is configured.</p>
+                <label class="provider-label" for="sub-agent-prompt-input">Prompt</label>
+                <textarea id="sub-agent-prompt-input" class="provider-textarea" rows="5" placeholder="Your instructions for this sub-agent…"></textarea>
+                <div class="panel-action-btn-row" style="margin-top: 10px;">
+                    <button type="button" id="sub-agent-send-btn" class="panel-action-btn">Send to sub-agent</button>
+                </div>
+                <div id="sub-agent-run-response" class="sub-agent-run-response" role="status" aria-live="polite"></div>
+            </div>
             <div id="cron-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Schedule &amp; runs</label>
                 <pre id="cron-detail-pre" class="provider-textarea" style="min-height:120px;max-height:220px;overflow:auto;font-family:'Courier New',monospace;font-size:0.78rem;"></pre>
@@ -2906,6 +2941,11 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         var mcpsParentPanel = document.getElementById('mcps-parent-panel');
         var mcpConfig = document.getElementById('mcp-config-panel');
         var jobConfig = document.getElementById('job-config-panel');
+        var subAgentChatPanel = document.getElementById('sub-agent-chat-panel');
+        var subAgentPromptInput = document.getElementById('sub-agent-prompt-input');
+        var subAgentSendBtn = document.getElementById('sub-agent-send-btn');
+        var subAgentRunResponse = document.getElementById('sub-agent-run-response');
+        var subAgentChatTargetLabel = document.getElementById('sub-agent-chat-target-label');
         var cronConfig = document.getElementById('cron-config-panel');
         var cronDetailPre = document.getElementById('cron-detail-pre');
         var cronMessagePreview = document.getElementById('cron-message-preview');
@@ -2966,6 +3006,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         window.currentOpenedJob = null;
         window.currentOpenedCron = null;
         window.currentOpenedNodeId = null;
+        window.currentOpenedSubAgent = null;
 
         function escapeHtml(s) {
             if (!s) return '';
@@ -2988,6 +3029,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (mcpConfig) mcpConfig.style.display = 'none';
             if (jobConfig) jobConfig.style.display = 'none';
             if (cronConfig) cronConfig.style.display = 'none';
+            if (subAgentChatPanel) subAgentChatPanel.style.display = 'none';
             window.currentOpenedTool = null;
             window.currentOpenedMemory = null;
             window.currentOpenedInstruction = null;
@@ -2996,6 +3038,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             window.currentOpenedMcp = null;
             window.currentOpenedJob = null;
             window.currentOpenedCron = null;
+            window.currentOpenedSubAgent = null;
         }
 
         function hideExecutionWidget() {
@@ -3513,10 +3556,26 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     var safeHref = dashUrl.replace(/"/g, '%22');
                     linkHtml = '<p class="mb-1"><a class="font-serif" href="' + safeHref + '" target="_blank" rel="noopener noreferrer">Sub-agent link</a></p>';
                 }
+                titleEl.textContent = 'Sub-Agent';
                 infoEl.innerHTML = '<p class="mb-1"><strong>Sub-Agent:</strong> ' + escapeHtml(subName) + '</p>'
                     + '<p class="mb-1 text-muted" style="font-size:0.85rem">Provider: ' + escapeHtml(provider || '(unset)') + ' | Model: ' + escapeHtml(model || '(unset)') + '</p>'
                     + '<p class="mb-1 text-muted" style="font-size:0.82rem">Uses the same tools, memory, research, instructions, rules, and MCP as Jarvis when <code>MEMORYGRAPH_PUBLIC_BASE_URL</code> is set (see sub-agent config).</p>'
                     + linkHtml;
+                if (subAgentChatPanel) {
+                    subAgentChatPanel.style.display = 'block';
+                    if (subAgentPromptInput) subAgentPromptInput.value = '';
+                    if (subAgentRunResponse) {
+                        subAgentRunResponse.textContent = '';
+                        subAgentRunResponse.classList.remove('is-error');
+                    }
+                    if (subAgentChatTargetLabel) {
+                        subAgentChatTargetLabel.textContent = subAgent && subAgent.title ? subAgent.title : (subName || 'this agent');
+                    }
+                    window.currentOpenedSubAgent = {
+                        nodeId: id,
+                        name: subName
+                    };
+                }
             } else if (id === 'tools') {
                 var tools = window.toolsData || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>Tools:</strong> ' + tools.length + ' available</p>';
@@ -3697,6 +3756,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             widget.setAttribute('aria-hidden', 'true');
             window.currentOpenedNodeId = null;
             window.currentOpenedCron = null;
+            window.currentOpenedSubAgent = null;
             hideExecutionWidget();
         }
 
@@ -4189,6 +4249,63 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     infoEl.innerHTML = '<p class="mb-1"><strong>MCP Server:</strong> ' + escapeHtml(err && err.message ? err.message : 'Failed to delete MCP server.') + '</p>';
                 }).finally(function () {
                     mcpDeleteBtn.disabled = false;
+                });
+            });
+        }
+        if (subAgentSendBtn) {
+            subAgentSendBtn.addEventListener('click', function () {
+                if (!window.currentOpenedSubAgent || !window.currentOpenedSubAgent.name) return;
+                var prompt = (subAgentPromptInput && subAgentPromptInput.value || '').trim();
+                if (!prompt) {
+                    if (subAgentRunResponse) {
+                        subAgentRunResponse.classList.add('is-error');
+                        subAgentRunResponse.textContent = 'Enter a prompt first.';
+                    }
+                    return;
+                }
+                var sid = (typeof window.MemoryGraphGetChatSessionId === 'function') ? window.MemoryGraphGetChatSessionId() : '';
+                subAgentSendBtn.disabled = true;
+                if (subAgentRunResponse) {
+                    subAgentRunResponse.classList.remove('is-error');
+                    subAgentRunResponse.textContent = 'Running…';
+                }
+                fetch('api/sub_agent_run.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: window.currentOpenedSubAgent.name,
+                        prompt: prompt,
+                        chatSessionId: sid
+                    })
+                }).then(function (res) {
+                    return res.text().then(function (t) {
+                        var j = null;
+                        try {
+                            j = t ? JSON.parse(t) : null;
+                        } catch (e) {}
+                        return { ok: res.ok, status: res.status, body: j, raw: t };
+                    });
+                }).then(function (out) {
+                    if (!subAgentRunResponse) return;
+                    var j = out.body;
+                    if (!out.ok || (j && j.error)) {
+                        subAgentRunResponse.classList.add('is-error');
+                        var msg = (j && j.error) ? String(j.error) : (out.raw || ('HTTP ' + out.status));
+                        subAgentRunResponse.textContent = msg;
+                        return;
+                    }
+                    if (j && typeof j.response === 'string' && j.response.trim()) {
+                        subAgentRunResponse.textContent = j.response;
+                        return;
+                    }
+                    subAgentRunResponse.textContent = JSON.stringify(j, null, 2);
+                }).catch(function (err) {
+                    if (subAgentRunResponse) {
+                        subAgentRunResponse.classList.add('is-error');
+                        subAgentRunResponse.textContent = (err && err.message) ? err.message : 'Request failed.';
+                    }
+                }).finally(function () {
+                    subAgentSendBtn.disabled = false;
                 });
             });
         }
