@@ -3852,6 +3852,8 @@ $chatSessionIdInput = isset($input['chatSessionId']) ? trim((string) $input['cha
 $GLOBALS['MEMORY_GRAPH_CHAT_SESSION_ID'] = $chatSessionIdInput;
 $messages = $input['messages'] ?? [];
 $providerKey = $input['provider'] ?? 'mercury';
+/** Same string the client selected / saved for instruction-file maps (before allowed-model coercion). */
+$requestedModelForMaps = isset($input['model']) ? trim((string) $input['model']) : '';
 $model = isset($input['model']) ? (string) $input['model'] : null;
 $systemPrompt = isset($input['systemPrompt']) ? (string) $input['systemPrompt'] : '';
 $temperature = isset($input['temperature']) ? (float) $input['temperature'] : 0.7;
@@ -3957,7 +3959,10 @@ if ($model !== null && $model !== '' && !in_array($model, $allowedModels, true))
     $model = $provider['defaultModel'] ?? '';
 }
 $modelId = ($model !== null && $model !== '') ? $model : ($provider['defaultModel'] ?? '');
-$pmKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $providerKey) . ':' . trim((string) $modelId);
+// Instruction / inline system-prompt maps are keyed by the UI model id the user chose — same id must be used for
+// lookup even when we coerce $modelId for the upstream API (allowedModels mismatch).
+$modelKeyForPromptMaps = ($requestedModelForMaps !== '') ? $requestedModelForMaps : (string) $modelId;
+$pmKey = preg_replace('/[^a-zA-Z0-9_\-]/', '', (string) $providerKey) . ':' . trim((string) $modelKeyForPromptMaps);
 $agentCfgForPrompt = get_agent_provider_config();
 $sifm = isset($agentCfgForPrompt['systemInstructionFilesByModel']) && is_array($agentCfgForPrompt['systemInstructionFilesByModel'])
     ? $agentCfgForPrompt['systemInstructionFilesByModel']

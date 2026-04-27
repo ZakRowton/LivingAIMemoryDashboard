@@ -3333,14 +3333,22 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
 
         function persistInstructionFileToServer(pv, mv, filename) {
-            if (!pv || !mv) return;
+            if (!pv) return;
+            var mvEff = (mv != null && String(mv).trim() !== '') ? String(mv).trim() : '';
+            if (!mvEff && modelSelect && modelSelect.value) {
+                mvEff = String(modelSelect.value).trim();
+            }
+            if (!mvEff && agentSelModel) {
+                mvEff = String(agentSelModel).trim();
+            }
+            if (!mvEff) return;
             fetch('api/agent_config.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     action: 'set_system_instruction_file',
                     provider: pv,
-                    model: mv,
+                    model: mvEff,
                     instructionFile: filename || ''
                 })
             }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
@@ -3435,6 +3443,13 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (modelSelect && data.currentModel) {
                 if (Array.prototype.some.call(modelSelect.options, function (o) { return o.value === data.currentModel; })) {
                     modelSelect.value = data.currentModel;
+                } else {
+                    var cm = data.currentModel;
+                    var opt = document.createElement('option');
+                    opt.value = cm;
+                    opt.textContent = cm;
+                    modelSelect.appendChild(opt);
+                    modelSelect.value = cm;
                 }
             }
             captureAgentSelection();
