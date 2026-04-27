@@ -1121,6 +1121,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             max-height: 260px;
             overflow-y: auto;
         }
+        .file-browser-list {
+            max-height: min(50vh, 420px);
+        }
         .tool-list-item {
             display: flex;
             align-items: center;
@@ -2954,7 +2957,11 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" id="tools-enable-all-btn" class="panel-action-btn">Enable All</button>
                     <button type="button" id="tools-disable-all-btn" class="panel-action-btn">Disable All</button>
                 </div>
-                <div id="tools-list-panel" class="tool-list-panel"></div>
+                <div id="tools-list-panel" class="tool-list-panel file-browser-list"></div>
+            </div>
+            <div id="memory-parent-panel" style="display: none; margin-top: 15px;">
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Click a file to view and edit. Delete removes it from disk.</p>
+                <div id="memory-list-panel" class="tool-list-panel file-browser-list"></div>
             </div>
             <div id="memory-config-panel" style="display: none; margin-top: 15px;">
                 <div class="form-check form-switch mb-3">
@@ -2968,6 +2975,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" id="memory-delete-btn" class="panel-action-btn btn-stop">Delete Memory</button>
                 </div>
             </div>
+            <div id="instructions-parent-panel" style="display: none; margin-top: 15px;">
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">System prompt files. Click to edit, or delete.</p>
+                <div id="instructions-list-panel" class="tool-list-panel file-browser-list"></div>
+            </div>
             <div id="instruction-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Instruction Contents</label>
                 <textarea id="instruction-content-input" class="provider-textarea" rows="10" placeholder="Instruction file contents..."></textarea>
@@ -2977,7 +2988,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 </div>
             </div>
             <div id="research-parent-panel" style="display: none; margin-top: 15px;">
-                <div id="research-list-panel" class="tool-list-panel"></div>
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Click to open; delete removes the file.</p>
+                <div id="research-list-panel" class="tool-list-panel file-browser-list"></div>
             </div>
             <div id="research-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Research Contents</label>
@@ -2988,7 +3000,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 </div>
             </div>
             <div id="rules-parent-panel" style="display: none; margin-top: 15px;">
-                <div id="rules-list-panel" class="tool-list-panel"></div>
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Click to open; delete removes the file.</p>
+                <div id="rules-list-panel" class="tool-list-panel file-browser-list"></div>
             </div>
             <div id="rules-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Rules Contents</label>
@@ -3004,7 +3017,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" id="mcps-enable-all-btn" class="panel-action-btn">Enable All</button>
                     <button type="button" id="mcps-disable-all-btn" class="panel-action-btn">Disable All</button>
                 </div>
-                <div id="mcps-list-panel" class="tool-list-panel"></div>
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Click a server to configure. Toggle enables/disables. Delete removes the config file.</p>
+                <div id="mcps-list-panel" class="tool-list-panel file-browser-list"></div>
             </div>
             <div id="mcp-config-panel" style="display: none; margin-top: 15px;">
                 <div class="form-check form-switch mb-3">
@@ -3040,6 +3054,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 </div>
                 <button type="button" id="mcp-delete-btn" class="panel-action-btn btn-stop">Delete MCP</button>
             </div>
+            <div id="jobs-parent-panel" style="display: none; margin-top: 15px;">
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Background job definitions (<code>jobs/*.md</code>). Click to edit, or delete.</p>
+                <div id="jobs-list-panel" class="tool-list-panel file-browser-list"></div>
+            </div>
             <div id="job-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label" for="job-assignee-type">Run as</label>
                 <div class="panel-action-btn-row" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
@@ -3060,6 +3078,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" id="job-delete-btn" class="panel-action-btn btn-stop">Delete Job</button>
                 </div>
             </div>
+            <div id="sub-agents-parent-panel" style="display: none; margin-top: 15px;">
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Sub-agent profiles. Click to open chat and config, or delete the file.</p>
+                <div id="sub-agents-list-panel" class="tool-list-panel file-browser-list"></div>
+            </div>
             <div id="sub-agent-chat-panel" class="sub-agent-chat-panel" style="display: none; margin-top: 15px;">
                 <p class="sub-agent-run-hint font-serif">Send a message to <strong id="sub-agent-chat-target-label">this sub-agent</strong> only. Uses the same tool loop as Jarvis when <code>MEMORYGRAPH_PUBLIC_BASE_URL</code> is configured.</p>
                 <div class="mg-chat-composer" id="sub-agent-chat-composer">
@@ -3073,6 +3095,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     </div>
                 </div>
                 <div id="sub-agent-run-response" class="sub-agent-run-response" role="status" aria-live="polite"></div>
+            </div>
+            <div id="categories-parent-panel" style="display: none; margin-top: 15px;">
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Custom graph categories. Click to see details, or delete.</p>
+                <div id="categories-list-panel" class="tool-list-panel file-browser-list"></div>
             </div>
             <div id="cron-config-panel" style="display: none; margin-top: 15px;">
                 <label class="provider-label">Schedule &amp; runs</label>
@@ -3478,7 +3504,17 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         var agentConfig = document.getElementById('agent-config-panel');
         var toolConfig = document.getElementById('tool-config-panel');
         var toolsParentPanel = document.getElementById('tools-parent-panel');
+        var memoryParentPanel = document.getElementById('memory-parent-panel');
+        var memoryListPanel = document.getElementById('memory-list-panel');
         var memoryConfig = document.getElementById('memory-config-panel');
+        var instructionsParentPanel = document.getElementById('instructions-parent-panel');
+        var instructionsListPanel = document.getElementById('instructions-list-panel');
+        var jobsParentPanel = document.getElementById('jobs-parent-panel');
+        var jobsListPanel = document.getElementById('jobs-list-panel');
+        var subAgentsParentPanel = document.getElementById('sub-agents-parent-panel');
+        var subAgentsListPanel = document.getElementById('sub-agents-list-panel');
+        var categoriesParentPanel = document.getElementById('categories-parent-panel');
+        var categoriesListPanel = document.getElementById('categories-list-panel');
         var instructionConfig = document.getElementById('instruction-config-panel');
         var instructionContentInput = document.getElementById('instruction-content-input');
         var instructionSaveBtn = document.getElementById('instruction-save-btn');
@@ -3565,7 +3601,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (agentConfig) agentConfig.style.display = 'none';
             if (toolConfig) toolConfig.style.display = 'none';
             if (toolsParentPanel) toolsParentPanel.style.display = 'none';
+            if (memoryParentPanel) memoryParentPanel.style.display = 'none';
             if (memoryConfig) memoryConfig.style.display = 'none';
+            if (instructionsParentPanel) instructionsParentPanel.style.display = 'none';
             if (instructionConfig) instructionConfig.style.display = 'none';
             if (researchParentPanel) researchParentPanel.style.display = 'none';
             if (researchConfig) researchConfig.style.display = 'none';
@@ -3573,7 +3611,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (rulesConfig) rulesConfig.style.display = 'none';
             if (mcpsParentPanel) mcpsParentPanel.style.display = 'none';
             if (mcpConfig) mcpConfig.style.display = 'none';
+            if (jobsParentPanel) jobsParentPanel.style.display = 'none';
             if (jobConfig) jobConfig.style.display = 'none';
+            if (subAgentsParentPanel) subAgentsParentPanel.style.display = 'none';
+            if (categoriesParentPanel) categoriesParentPanel.style.display = 'none';
             if (cronConfig) cronConfig.style.display = 'none';
             if (subAgentChatPanel) subAgentChatPanel.style.display = 'none';
             window.currentOpenedTool = null;
@@ -3688,6 +3729,198 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 });
         }
 
+        function refreshCategoryData() {
+            return fetch('api_categories.php?action=list')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    window.categoryNodes = data.categories || [];
+                    return window.categoryNodes;
+                });
+        }
+
+        function refreshInstructionData() {
+            return fetch('api_instructions.php?action=list')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    window.instructionFiles = data.instructions || [];
+                    return window.instructionFiles;
+                });
+        }
+
+        function addFileListRowWithDelete(listEl, displayName, onOpen, deleteApiUrl, deleteBody, afterDelete) {
+            if (!listEl) return;
+            var row = document.createElement('div');
+            row.className = 'tool-list-item';
+            var nameWrap = document.createElement('div');
+            nameWrap.style.flex = '1';
+            nameWrap.style.minWidth = '0';
+            var openBtn = document.createElement('button');
+            openBtn.type = 'button';
+            openBtn.className = 'tool-list-name';
+            openBtn.style.width = '100%';
+            openBtn.style.textAlign = 'left';
+            openBtn.style.background = 'none';
+            openBtn.style.border = 'none';
+            openBtn.style.cursor = 'pointer';
+            openBtn.textContent = displayName;
+            openBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                onOpen();
+            });
+            nameWrap.appendChild(openBtn);
+            var del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'panel-action-btn btn-stop';
+            del.setAttribute('aria-label', 'Delete');
+            del.style.padding = '4px 8px';
+            del.style.fontSize = '0.75rem';
+            del.style.flexShrink = '0';
+            del.textContent = 'Delete';
+            del.addEventListener('click', function (e) {
+                e.stopPropagation();
+                e.preventDefault();
+                if (!confirm('Delete ' + displayName + '? This cannot be undone.')) return;
+                fetch(deleteApiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(deleteBody)
+                })
+                    .then(function (res) {
+                        return res.json().then(function (j) {
+                            return { ok: res.ok, j: j };
+                        }).catch(function () {
+                            return { ok: res.ok, j: { error: res.statusText || 'Bad response' } };
+                        });
+                    })
+                    .then(function (out) {
+                        if (!out.ok || (out.j && out.j.error)) {
+                            throw new Error((out.j && out.j.error) ? String(out.j.error) : 'Delete failed');
+                        }
+                        if (afterDelete) return afterDelete();
+                    })
+                    .catch(function (err) {
+                        alert((err && err.message) || 'Delete failed');
+                    });
+            });
+            row.appendChild(nameWrap);
+            row.appendChild(del);
+            listEl.appendChild(row);
+        }
+
+        function renderMemoryList() {
+            if (!memoryListPanel) return;
+            var files = window.memoryFiles || [];
+            memoryListPanel.innerHTML = '';
+            files.forEach(function (m) {
+                addFileListRowWithDelete(
+                    memoryListPanel,
+                    m.title || m.name,
+                    function () { openWidget(m.title || m.name, m.nodeId); },
+                    'api_memory.php?action=delete',
+                    { name: m.name },
+                    function () {
+                        return refreshMemoryData()
+                            .then(function () { renderMemoryList(); refreshGraph(); });
+                    }
+                );
+            });
+            if (!files.length) {
+                memoryListPanel.innerHTML = '<div class="running-job-empty">No memory files.</div>';
+            }
+        }
+
+        function renderInstructionsList() {
+            if (!instructionsListPanel) return;
+            var files = window.instructionFiles || [];
+            instructionsListPanel.innerHTML = '';
+            files.forEach(function (f) {
+                addFileListRowWithDelete(
+                    instructionsListPanel,
+                    f.title || f.name,
+                    function () { openWidget(f.title || f.name, f.nodeId); },
+                    'api_instructions.php?action=delete',
+                    { name: f.name },
+                    function () {
+                        return refreshInstructionData()
+                            .then(function () { renderInstructionsList(); refreshGraph(); });
+                    }
+                );
+            });
+            if (!files.length) {
+                instructionsListPanel.innerHTML = '<div class="running-job-empty">No instruction files.</div>';
+            }
+        }
+
+        function renderJobsList() {
+            if (!jobsListPanel) return;
+            var files = window.jobFiles || [];
+            jobsListPanel.innerHTML = '';
+            files.forEach(function (j) {
+                addFileListRowWithDelete(
+                    jobsListPanel,
+                    j.title || j.name,
+                    function () { openWidget(j.title || j.name, j.nodeId); },
+                    'api_jobs.php?action=delete',
+                    { name: j.name },
+                    function () {
+                        return refreshJobsData()
+                            .then(function () { renderJobsList(); refreshGraph(); });
+                    }
+                );
+            });
+            if (!files.length) {
+                jobsListPanel.innerHTML = '<div class="running-job-empty">No job files.</div>';
+            }
+        }
+
+        function renderSubAgentsList() {
+            if (!subAgentsListPanel) return;
+            var list = window.subAgentFiles || [];
+            subAgentsListPanel.innerHTML = '';
+            list.forEach(function (s) {
+                addFileListRowWithDelete(
+                    subAgentsListPanel,
+                    s.title || s.name,
+                    function () { openWidget(s.title || s.name, s.nodeId); },
+                    'api_sub_agents.php?action=delete',
+                    { name: s.name },
+                    function () {
+                        return fetch('api_sub_agents.php?action=list')
+                            .then(function (r) { return r.json(); })
+                            .then(function (d) {
+                                window.subAgentFiles = d.subAgents || [];
+                            })
+                            .then(function () { renderSubAgentsList(); refreshGraph(); });
+                    }
+                );
+            });
+            if (!list.length) {
+                subAgentsListPanel.innerHTML = '<div class="running-job-empty">No sub-agent files.</div>';
+            }
+        }
+
+        function renderCategoriesList() {
+            if (!categoriesListPanel) return;
+            var list = window.categoryNodes || [];
+            categoriesListPanel.innerHTML = '';
+            list.forEach(function (c) {
+                addFileListRowWithDelete(
+                    categoriesListPanel,
+                    c.title || c.name,
+                    function () { openWidget(c.title || c.name, c.nodeId); },
+                    'api_categories.php?action=delete',
+                    { name: c.name },
+                    function () {
+                        return refreshCategoryData()
+                            .then(function () { renderCategoriesList(); refreshGraph(); });
+                    }
+                );
+            });
+            if (!list.length) {
+                categoriesListPanel.innerHTML = '<div class="running-job-empty">No custom categories.</div>';
+            }
+        }
+
         function renderToolsList() {
             if (!toolsListPanel) return;
             var tools = window.toolsData || [];
@@ -3696,9 +3929,19 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 var row = document.createElement('div');
                 row.className = 'tool-list-item';
 
-                var name = document.createElement('div');
+                var name = document.createElement('button');
+                name.type = 'button';
                 name.className = 'tool-list-name';
+                name.style.background = 'none';
+                name.style.border = 'none';
+                name.style.textAlign = 'left';
+                name.style.cursor = 'pointer';
+                name.style.flex = '1';
+                name.style.minWidth = '0';
                 name.textContent = tool.name;
+                name.addEventListener('click', function () {
+                    openWidget(tool.name, 'tool_' + tool.name);
+                });
 
                 var wrap = document.createElement('div');
                 wrap.className = 'form-check form-switch';
@@ -3735,6 +3978,37 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 wrap.appendChild(input);
                 row.appendChild(name);
                 row.appendChild(wrap);
+                if (!tool.builtin) {
+                    var tdel = document.createElement('button');
+                    tdel.type = 'button';
+                    tdel.className = 'panel-action-btn btn-stop';
+                    tdel.style.padding = '4px 8px';
+                    tdel.style.fontSize = '0.75rem';
+                    tdel.style.flexShrink = '0';
+                    tdel.textContent = 'Delete';
+                    tdel.addEventListener('click', function (e) {
+                        e.stopPropagation();
+                        if (!confirm('Delete tool "' + tool.name + '"? This cannot be undone.')) return;
+                        fetch('api_tools.php?action=delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: tool.name })
+                        })
+                            .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+                            .then(function (out) {
+                                if (out.j && out.j.error) throw new Error(out.j.error);
+                                return refreshToolsData();
+                            })
+                            .then(function () {
+                                renderToolsList();
+                                refreshGraph();
+                            })
+                            .catch(function (err) {
+                                alert((err && err.message) || 'Delete failed');
+                            });
+                    });
+                    row.appendChild(tdel);
+                }
                 toolsListPanel.appendChild(row);
             });
         }
@@ -3824,6 +4098,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 left.style.padding = '0';
                 left.style.textAlign = 'left';
                 left.style.cursor = 'pointer';
+                left.style.flex = '1';
+                left.style.minWidth = '0';
                 left.textContent = server.title || server.name;
                 left.addEventListener('click', function () {
                     openWidget(server.title || server.name, server.nodeId);
@@ -3858,9 +4134,39 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     });
                 });
 
+                var mcpDel = document.createElement('button');
+                mcpDel.type = 'button';
+                mcpDel.className = 'panel-action-btn btn-stop';
+                mcpDel.style.padding = '4px 8px';
+                mcpDel.style.fontSize = '0.75rem';
+                mcpDel.style.flexShrink = '0';
+                mcpDel.textContent = 'Delete';
+                mcpDel.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    if (!confirm('Delete MCP server "' + (server.name || '') + '"?')) return;
+                    fetch('api_mcps.php?action=delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: server.name })
+                    })
+                        .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+                        .then(function (out) {
+                            if (out.j && out.j.error) throw new Error(out.j.error);
+                            return refreshMcpData();
+                        })
+                        .then(function () {
+                            renderMcpList();
+                            refreshGraph();
+                        })
+                        .catch(function (err) {
+                            alert((err && err.message) || 'Delete failed');
+                        });
+                });
+
                 wrap.appendChild(input);
                 row.appendChild(left);
                 row.appendChild(wrap);
+                row.appendChild(mcpDel);
                 mcpsListPanel.appendChild(row);
             });
             if (!servers.length) {
@@ -3873,23 +4179,17 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             var files = window.researchFiles || [];
             researchListPanel.innerHTML = '';
             files.forEach(function (r) {
-                var row = document.createElement('div');
-                row.className = 'tool-list-item';
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'tool-list-name';
-                btn.style.background = 'none';
-                btn.style.border = 'none';
-                btn.style.padding = '0';
-                btn.style.textAlign = 'left';
-                btn.style.cursor = 'pointer';
-                btn.style.width = '100%';
-                btn.textContent = r.title || r.name;
-                btn.addEventListener('click', function () {
-                    openWidget(r.title || r.name, r.nodeId);
-                });
-                row.appendChild(btn);
-                researchListPanel.appendChild(row);
+                addFileListRowWithDelete(
+                    researchListPanel,
+                    r.title || r.name,
+                    function () { openWidget(r.title || r.name, r.nodeId); },
+                    'api_research.php?action=delete',
+                    { name: r.name },
+                    function () {
+                        return refreshResearchData()
+                            .then(function () { renderResearchList(); refreshGraph(); });
+                    }
+                );
             });
             if (!files.length) {
                 researchListPanel.innerHTML = '<div class="running-job-empty">No research files.</div>';
@@ -3901,23 +4201,17 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             var files = window.rulesFiles || [];
             rulesListPanel.innerHTML = '';
             files.forEach(function (r) {
-                var row = document.createElement('div');
-                row.className = 'tool-list-item';
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'tool-list-name';
-                btn.style.background = 'none';
-                btn.style.border = 'none';
-                btn.style.padding = '0';
-                btn.style.textAlign = 'left';
-                btn.style.cursor = 'pointer';
-                btn.style.width = '100%';
-                btn.textContent = r.title || r.name;
-                btn.addEventListener('click', function () {
-                    openWidget(r.title || r.name, r.nodeId);
-                });
-                row.appendChild(btn);
-                rulesListPanel.appendChild(row);
+                addFileListRowWithDelete(
+                    rulesListPanel,
+                    r.title || r.name,
+                    function () { openWidget(r.title || r.name, r.nodeId); },
+                    'api_rules.php?action=delete',
+                    { name: r.name },
+                    function () {
+                        return refreshRulesData()
+                            .then(function () { renderRulesList(); refreshGraph(); });
+                    }
+                );
             });
             if (!files.length) {
                 rulesListPanel.innerHTML = '<div class="running-job-empty">No rules files.</div>';
@@ -4144,11 +4438,72 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             hideAllPanels();
 
             if (id === 'agent') {
+                titleEl.textContent = 'Agent';
                 infoEl.innerHTML = '<p class="mb-1"><strong>Reference:</strong> Jarvis Settings</p>';
                 if (agentConfig) agentConfig.style.display = 'block';
+            } else if (id === 'memory') {
+                titleEl.textContent = 'Memory';
+                if (memoryParentPanel) {
+                    memoryParentPanel.style.display = 'block';
+                }
+                infoEl.innerHTML = '<p class="mb-1">Loading file list…</p>';
+                refreshMemoryData().then(function () {
+                    if (window.currentOpenedNodeId !== 'memory') return;
+                    var mem = window.memoryFiles || [];
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Memory files:</strong> ' + mem.length + '</p>';
+                    renderMemoryList();
+                });
+            } else if (id === 'instructions') {
+                titleEl.textContent = 'Instructions';
+                if (instructionsParentPanel) {
+                    instructionsParentPanel.style.display = 'block';
+                }
+                infoEl.innerHTML = '<p class="mb-1">Loading file list…</p>';
+                refreshInstructionData().then(function () {
+                    if (window.currentOpenedNodeId !== 'instructions') return;
+                    var arr = window.instructionFiles || [];
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Instruction files:</strong> ' + arr.length + '</p>';
+                    renderInstructionsList();
+                });
+            } else if (id === 'jobs') {
+                titleEl.textContent = 'Jobs';
+                if (jobsParentPanel) {
+                    jobsParentPanel.style.display = 'block';
+                }
+                infoEl.innerHTML = '<p class="mb-1">Loading file list…</p>';
+                refreshJobsData().then(function () {
+                    if (window.currentOpenedNodeId !== 'jobs') return;
+                    var jf = window.jobFiles || [];
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Job files:</strong> ' + jf.length + '</p>';
+                    renderJobsList();
+                });
+            } else if (id === 'categories') {
+                titleEl.textContent = 'Categories';
+                if (categoriesParentPanel) {
+                    categoriesParentPanel.style.display = 'block';
+                }
+                infoEl.innerHTML = '<p class="mb-1">Loading…</p>';
+                refreshCategoryData().then(function () {
+                    if (window.currentOpenedNodeId !== 'categories') return;
+                    var cl = window.categoryNodes || [];
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Categories:</strong> ' + cl.length + '</p>';
+                    renderCategoriesList();
+                });
             } else if (id === 'sub_agents') {
-                var subAgents = window.subAgentFiles || [];
-                infoEl.innerHTML = '<p class="mb-1"><strong>Sub-Agents:</strong> ' + subAgents.length + ' configuration files</p>';
+                titleEl.textContent = 'Sub-Agents';
+                if (subAgentsParentPanel) {
+                    subAgentsParentPanel.style.display = 'block';
+                }
+                infoEl.innerHTML = '<p class="mb-1">Loading…</p>';
+                fetch('api_sub_agents.php?action=list')
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        window.subAgentFiles = d.subAgents || [];
+                        if (window.currentOpenedNodeId !== 'sub_agents') return;
+                        var sa = window.subAgentFiles || [];
+                        infoEl.innerHTML = '<p class="mb-1"><strong>Sub-Agents:</strong> ' + sa.length + ' configuration files</p>';
+                        renderSubAgentsList();
+                    });
             } else if (id && id.indexOf('sub_agent_file_') === 0) {
                 var subAgent = (window.subAgentFiles || []).find(function (s) { return s.nodeId === id; });
                 var subName = subAgent ? subAgent.name : refName;
@@ -4181,6 +4536,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     };
                 }
             } else if (id === 'tools') {
+                titleEl.textContent = 'Tools';
                 var tools = window.toolsData || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>Tools:</strong> ' + tools.length + ' available</p>';
                 if (toolsParentPanel) {
@@ -4188,6 +4544,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     renderToolsList();
                 }
             } else if (id === 'research') {
+                titleEl.textContent = 'Research';
                 var research = window.researchFiles || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>Research:</strong> ' + research.length + ' files</p>';
                 if (researchParentPanel) {
@@ -4195,6 +4552,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     renderResearchList();
                 }
             } else if (id === 'rules') {
+                titleEl.textContent = 'Rules';
                 var rules = window.rulesFiles || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>Rules:</strong> ' + rules.length + ' files</p>';
                 if (rulesParentPanel) {
@@ -4202,12 +4560,20 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     renderRulesList();
                 }
             } else if (id === 'mcps') {
+                titleEl.textContent = 'MCPs';
                 var servers = window.mcpServers || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>MCP Servers:</strong> ' + servers.length + ' configured</p>';
                 if (mcpsParentPanel) {
                     mcpsParentPanel.style.display = 'block';
                     renderMcpList();
                 }
+            } else if (id && id.indexOf('category_') === 0) {
+                titleEl.textContent = 'Category';
+                var catn = (window.categoryNodes || []).find(function (c) { return c && c.nodeId === id; });
+                var ctitle = (catn && (catn.title || catn.name)) ? (catn.title || catn.name) : refName;
+                var cdesc = (catn && catn.description) ? String(catn.description) : '';
+                infoEl.innerHTML = '<p class="mb-1"><strong>' + escapeHtml(ctitle) + '</strong></p>'
+                    + (cdesc ? '<p class="text-muted" style="font-size:0.85rem">' + escapeHtml(cdesc) + '</p>' : '<p class="text-muted" style="font-size:0.8rem">Custom category (see <code>api_categories.php</code>).</p>');
             } else if (id && id.indexOf('tool_') === 0) {
                 var toolName = id.replace('tool_', '');
                 var tool = (window.toolsData || []).find(function(t) { return t.name === toolName; });
