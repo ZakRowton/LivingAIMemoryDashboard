@@ -943,9 +943,12 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
             if ($apiKey !== '') {
                 $rt['apiKey'] = $apiKey;
             }
-            if ($chatType !== '') {
-                $rt['type'] = $chatType === 'gemini' ? 'gemini' : 'openai';
-            }
+            // Do not set $rt['type'] from sub-agent `chat_type` for registered provider keys. The
+            // registry already defines the wire format (e.g. gemini → endpointBase). A mismatch
+            // (e.g. provider: gemini + chat_type: openai) would override type to "openai" in the
+            // inner request without an OpenAI `endpoint`, and curl would fail with
+            // "URL rejected: Malformed input to a URL function". `chat_type` only applies when
+            // using a custom endpoint + api_key without a known provider (see $provider = null).
             $displayTitle = pathinfo((string) ($meta['name'] ?? $name), PATHINFO_FILENAME);
             $panelOrigin = ($parentRid !== '' && strpos($parentRid, 'subagent_panel_') === 0);
             if ($panelOrigin) {
