@@ -2565,7 +2565,16 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 'gemini-3-flash', 'gemini-3-pro',
                 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview'
             ]
-        }
+        },
+        openrouter: { name: 'OpenRouter', models: ['google/gemma-4-31b-it:free'] },
+        nvidia_nim: { name: 'NVIDIA NIM', models: [
+            'deepseek-ai/deepseek-v4-flash',
+            'deepseek-ai/deepseek-v4-pro',
+            'nvidia/nemotron-voicechat',
+            'z-ai/glm-4.7',
+            'minimaxai/minimax-m2.7',
+            'mistralai/devstral-2-123b-instruct-2512'
+        ] }
     };
     (function () {
         var providerSelect = document.getElementById('provider-select');
@@ -2584,6 +2593,19 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         function captureAgentSelection() {
             agentSelProvider = providerSelect ? providerSelect.value : '';
             agentSelModel = modelSelect ? modelSelect.value : '';
+        }
+
+        function persistAgentSelectionToServer(pv, mv) {
+            if (!pv) return;
+            fetch('api/agent_config.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'set_selection',
+                    provider: pv,
+                    model: mv || ''
+                })
+            }).catch(function () {});
         }
 
         function persistSystemPromptToServer(pv, mv, text) {
@@ -2666,6 +2688,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 }
                 syncModelSelect();
                 captureAgentSelection();
+                persistAgentSelectionToServer(agentSelProvider, agentSelModel);
                 if (systemPromptInput) {
                     var k = agentPromptKey(agentSelProvider, agentSelModel);
                     systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
@@ -2681,6 +2704,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     persistSystemPromptToServer(agentSelProvider, agentSelModel, systemPromptInput.value);
                 }
                 captureAgentSelection();
+                persistAgentSelectionToServer(agentSelProvider, agentSelModel);
                 if (systemPromptInput) {
                     var k = agentPromptKey(agentSelProvider, agentSelModel);
                     systemPromptInput.value = Object.prototype.hasOwnProperty.call(window.MEMORY_GRAPH_SYSTEM_PROMPTS, k)
@@ -3334,8 +3358,26 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             hideAllPanels();
 
             if (id === 'agent') {
-                infoEl.innerHTML = '<p class="mb-1"><strong>Reference:</strong> Agent Settings</p>';
+                infoEl.innerHTML = '<p class="mb-1"><strong>Reference:</strong> Jarvis Settings</p>';
                 if (agentConfig) agentConfig.style.display = 'block';
+            } else if (id === 'sub_agents') {
+                var subAgents = window.subAgentFiles || [];
+                infoEl.innerHTML = '<p class="mb-1"><strong>Sub-Agents:</strong> ' + subAgents.length + ' configuration files</p>';
+            } else if (id && id.indexOf('sub_agent_file_') === 0) {
+                var subAgent = (window.subAgentFiles || []).find(function (s) { return s.nodeId === id; });
+                var subName = subAgent ? subAgent.name : refName;
+                var provider = subAgent ? (subAgent.provider || '') : '';
+                var model = subAgent ? (subAgent.model || '') : '';
+                var dashUrl = subAgent && subAgent.dashboard_url ? String(subAgent.dashboard_url).trim() : '';
+                var linkHtml = '';
+                if (dashUrl && /^https?:\/\//i.test(dashUrl)) {
+                    var safeHref = dashUrl.replace(/"/g, '%22');
+                    linkHtml = '<p class="mb-1"><a class="font-serif" href="' + safeHref + '" target="_blank" rel="noopener noreferrer">Sub-agent link</a></p>';
+                }
+                infoEl.innerHTML = '<p class="mb-1"><strong>Sub-Agent:</strong> ' + escapeHtml(subName) + '</p>'
+                    + '<p class="mb-1 text-muted" style="font-size:0.85rem">Provider: ' + escapeHtml(provider || '(unset)') + ' | Model: ' + escapeHtml(model || '(unset)') + '</p>'
+                    + '<p class="mb-1 text-muted" style="font-size:0.82rem">Uses the same tools, memory, research, instructions, rules, and MCP as Jarvis when <code>MEMORYGRAPH_PUBLIC_BASE_URL</code> is set (see sub-agent config).</p>'
+                    + linkHtml;
             } else if (id === 'tools') {
                 var tools = window.toolsData || [];
                 infoEl.innerHTML = '<p class="mb-1"><strong>Tools:</strong> ' + tools.length + ' available</p>';

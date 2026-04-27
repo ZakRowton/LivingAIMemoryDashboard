@@ -494,6 +494,15 @@ function memory_graph_resolve_sub_agent_provider_key(string $raw, array $provide
     return $k;
 }
 
+function memory_graph_sub_agent_public_base_url(): string {
+    $u = trim((string) memory_graph_env('MEMORYGRAPH_PUBLIC_BASE_URL', ''));
+    return rtrim($u, '/');
+}
+
+/**
+ * Run a sub-agent through the same api/chat.php pipeline (tools, merged memory/rules, MCP, etc.).
+ * Requires MEMORYGRAPH_PUBLIC_BASE_URL so the server can POST to itself (needed for multi-step tool loops).
+ */
 function memory_graph_execute_sub_agent_completion(array $providers, array $arguments): array {
     $name = (string) ($arguments['name'] ?? $arguments['subAgent'] ?? '');
     if ($name === '') {
@@ -541,8 +550,12 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     if ($endpoint !== '' && ($provider['type'] ?? 'openai') === 'gemini') {
         $provider['endpointBase'] = $endpoint;
     }
-    if ($apiKey !== '') $provider['apiKey'] = $apiKey;
-    if ($model === '') $model = (string) ($provider['defaultModel'] ?? '');
+    if ($apiKey !== '') {
+        $provider['apiKey'] = $apiKey;
+    }
+    if ($model === '') {
+        $model = (string) ($provider['defaultModel'] ?? '');
+    }
     if ($model === '') {
         return ['error' => 'Sub-agent model is required'];
     }
@@ -550,9 +563,119 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
         $provider = memory_graph_alibaba_provider_runtime($provider);
     }
     $providerType = (string) ($provider['type'] ?? 'openai');
-    $conversation = normalizeConversation($messages, $systemPrompt, $providerType);
+
+    $base = memory_graph_sub_agent_public_base_url();
+    $registeredKey = isset($providers[$providerKey]) && is_array($providers[$providerKey]);
+    if ($base !== '' && $registeredKey) {
+        $depth = (int) ($GLOBALS['MEMORYGRAPH_SUB_AGENT_DEPTH'] ?? 0);
+        if ($depth >= 8) {
+            return ['error' => 'Sub-agent nesting depth exceeded (max 8).'];
+        }
+        $GLOBALS['MEMORYGRAPH_SUB_AGENT_DEPTH'] = $depth + 1;
+        try {
+            $url = $base . '/api/chat.php';
+            $parentRid = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? 'chat');
+            $childId = $parentRid . '_sub_' . bin2hex(random_bytes(4));
+            $rt = [];
+            if ($endpoint !== '') {
+                if (($provider['type'] ?? 'openai') === 'gemini') {
+                    $rt['endpointBase'] = $endpoint;
+                } else {
+                    $rt['endpoint'] = $endpoint;
+                }
+            }
+            if ($apiKey !== '') {
+                $rt['apiKey'] = $apiKey;
+            }
+            if ($chatType !== '') {
+                $rt['type'] = $chatType === 'gemini' ? 'gemini' : 'openai';
+            }
+            $displayTitle = pathinfo((string) ($meta['name'] ?? $name), PATHINFO_FILENAME);
+            $identity = 'You are a MemoryGraph Sub-Agent (“' . $displayTitle . '”, config file: ' . ($meta['name'] ?? $name) . '). '
+                . 'You run on the same host as Jarvis with the same capabilities: PHP tools, merged memory & rules, instructions, research files, MCP servers, jobs/cron, and dashboard web apps. '
+                . 'Use tools proactively when they help; you may call run_sub_agent_chat / wait_for_sub_agent_chat to coordinate with other sub-agents unless nesting limits apply.';
+            $payload = [
+                'requestId' => $childId,
+                'chatSessionId' => (string) ($arguments['chatSessionId'] ?? ($GLOBALS['MEMORY_GRAPH_CHAT_SESSION_ID'] ?? '')),
+                'provider' => $providerKey,
+                'model' => $model,
+                'systemPrompt' => $systemPrompt,
+                'temperature' => $temperature,
+                'messages' => $messages,
+                'skipCronPendingDelivery' => true,
+                'skipChatHistoryAppend' => true,
+                'subAgentIdentity' => $identity,
+            ];
+            if ($rt !== []) {
+                $payload['subAgentProviderRuntime'] = $rt;
+            }
+            $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($body === false) {
+                return ['error' => 'Failed to encode sub-agent chat payload'];
+            }
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => $body,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 20,
+                CURLOPT_TIMEOUT => 580,
+            ]);
+            $raw = curl_exec($ch);
+            $cerr = curl_error($ch);
+            $chc = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($raw === false || $raw === '') {
+                return [
+                    'error' => 'Sub-agent internal HTTP failed (check MEMORYGRAPH_PUBLIC_BASE_URL reaches this app from PHP): ' . ($cerr !== '' ? $cerr : 'empty response'),
+                    'httpCode' => $chc,
+                ];
+            }
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                return ['error' => 'Sub-agent response was not JSON', 'httpCode' => $chc, 'preview' => substr($raw, 0, 400)];
+            }
+            if (!empty($decoded['error'])) {
+                $em = $decoded['error'];
+                if (!is_string($em)) {
+                    $em = json_encode($em);
+                }
+
+                return ['error' => 'Sub-agent chat error: ' . $em, 'httpCode' => $chc];
+            }
+            $msg = $decoded['choices'][0]['message'] ?? null;
+            $assistant = openai_extract_assistant_message_text(is_array($msg) ? $msg : null);
+            $usage = isset($decoded['usage']) && is_array($decoded['usage']) ? $decoded['usage'] : null;
+
+            return [
+                'ok' => true,
+                'subAgent' => $meta['name'] ?? $name,
+                'provider' => $providerKey,
+                'provider_config' => $providerKeyRaw,
+                'model' => $model,
+                'response' => $assistant,
+                'usage' => $usage,
+                'via' => 'internal_full_chat',
+            ];
+        } finally {
+            $GLOBALS['MEMORYGRAPH_SUB_AGENT_DEPTH'] = $depth;
+        }
+    }
+
+    // Fallback: one-shot completion (no tool loop) when base URL is missing or provider is not a registered server key.
+    $memoryRulesBlock = buildMemoryAndRulesSystemPromptSection();
+    $activeTools = loadToolRegistry();
+    $toolInstr = buildToolUsageInstruction($activeTools);
+    $mergedSystem = trim(
+        $systemPrompt . "\n\n"
+        . ($memoryRulesBlock !== '' ? $memoryRulesBlock . "\n\n" : '')
+        . $toolInstr
+        . "\n\n[Sub-agent simple mode: MEMORYGRAPH_PUBLIC_BASE_URL is not set or provider is endpoint-only — tool calls are not executed in this fallback.]"
+    );
+    $conversation = normalizeConversation($messages, $mergedSystem, $providerType);
     $result = $providerType === 'gemini'
-        ? requestGemini($provider, $model, $conversation, $temperature, $systemPrompt)
+        ? requestGemini($provider, $model, $conversation, $temperature, $mergedSystem)
         : requestOpenAiCompatible($provider, $model, $conversation, $temperature, [], $providerKey);
     if (isset($result['error'])) {
         return $result;
@@ -565,6 +688,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     } else {
         $assistant = openai_extract_assistant_message_text($data['choices'][0]['message'] ?? null);
     }
+
     return [
         'ok' => true,
         'subAgent' => $meta['name'] ?? $name,
@@ -573,6 +697,8 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
         'model' => $model,
         'response' => $assistant,
         'usage' => is_array($data) ? ($data['usage'] ?? null) : null,
+        'via' => 'simple_one_shot',
+        'note' => $base === '' ? 'Set MEMORYGRAPH_PUBLIC_BASE_URL so sub-agents can use the full tool/MCP/memory loop.' : 'Full tool loop requires a registered provider key in agent config (not endpoint-only).',
     ];
 }
 
@@ -2723,6 +2849,7 @@ $model = isset($input['model']) ? (string) $input['model'] : null;
 $systemPrompt = isset($input['systemPrompt']) ? (string) $input['systemPrompt'] : '';
 $temperature = isset($input['temperature']) ? (float) $input['temperature'] : 0.7;
 $requestId = sanitizeRequestId(isset($input['requestId']) ? (string) $input['requestId'] : null);
+$GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] = $requestId;
 
 $status = [
     'requestId' => $requestId,
@@ -2782,6 +2909,14 @@ if (!isset($providers[$providerKey])) {
 }
 
 $provider = $providers[$providerKey];
+if (!empty($input['subAgentProviderRuntime']) && is_array($input['subAgentProviderRuntime'])) {
+    $ov = $input['subAgentProviderRuntime'];
+    foreach (['endpoint', 'endpointBase', 'apiKey', 'type', 'defaultModel'] as $rk) {
+        if (isset($ov[$rk]) && (string) $ov[$rk] !== '') {
+            $provider[$rk] = $ov[$rk];
+        }
+    }
+}
 if ($providerKey === 'alibaba') {
     $provider = memory_graph_alibaba_provider_runtime($provider);
 }
@@ -2813,8 +2948,16 @@ if (!$skipCronPendingDelivery) {
         $cronPendingBlock = $pack['block'];
     }
 }
+$subAgentIdentityPrefix = '';
+if (!empty($input['subAgentIdentity']) && is_string($input['subAgentIdentity'])) {
+    $subAgentIdentityPrefix = trim($input['subAgentIdentity']);
+    if ($subAgentIdentityPrefix !== '') {
+        $subAgentIdentityPrefix .= "\n\n";
+    }
+}
 $effectiveSystemPrompt = trim(
-    ($systemPrompt !== '' ? $systemPrompt . "\n\n" : '')
+    $subAgentIdentityPrefix
+    . ($systemPrompt !== '' ? $systemPrompt . "\n\n" : '')
     . ($cronPendingBlock !== '' ? $cronPendingBlock . "\n\n" : '')
     . ($memoryRulesBlock !== '' ? $memoryRulesBlock . "\n\n" : '')
     . ($sessionCtx !== '' ? $sessionCtx . "\n\n" : '')
@@ -3259,7 +3402,7 @@ if (trim($finalContent) === '') {
 $memoryGraphMeta['assistant_body'] = (string) $finalContent;
 
 $wroteChatTranscriptMemory = false;
-if ($initialUserContent !== '' && trim($finalContent) !== '' && empty($memoryGraphMeta['empty_assistant'])) {
+if ($initialUserContent !== '' && trim($finalContent) !== '' && empty($memoryGraphMeta['empty_assistant']) && empty($input['skipChatHistoryAppend'])) {
     append_chat_exchange($requestId, $initialUserContent, $finalContent, $chatSessionIdInput);
     $trMeta = append_session_chat_transcript($chatSessionIdInput, $initialUserContent, $finalContent, $requestId);
     if (!empty($trMeta['name'])) {

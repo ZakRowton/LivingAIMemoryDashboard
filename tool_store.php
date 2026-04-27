@@ -1190,6 +1190,130 @@ function get_builtin_tools(): array {
         ],
         'code' => "// Built-in tool\n// Retrieves one chat exchange.",
     ], [
+        'name' => 'list_sub_agent_files',
+        'description' => 'List all sub-agent markdown configuration files from sub-agents/.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in tool\n// Lists sub-agent config markdown files.",
+    ], [
+        'name' => 'read_sub_agent_file',
+        'description' => 'Read one sub-agent markdown configuration file (provider/model/system prompt/API settings).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'Sub-agent file name, with or without .md'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Reads a sub-agent config file.",
+    ], [
+        'name' => 'create_sub_agent_file',
+        'description' => 'Create a new sub-agent config markdown file. Provide either content (markdown) or config object.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'content' => ['type' => 'string'],
+                'config' => ['type' => 'object'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Creates a sub-agent config file.",
+    ], [
+        'name' => 'update_sub_agent_file',
+        'description' => 'Update an existing sub-agent config markdown file. Provide content or config.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'content' => ['type' => 'string'],
+                'config' => ['type' => 'object'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Updates a sub-agent config file.",
+    ], [
+        'name' => 'delete_sub_agent_file',
+        'description' => 'Delete a sub-agent markdown configuration file by name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Deletes a sub-agent config file.",
+    ], [
+        'name' => 'run_sub_agent_chat',
+        'description' => 'Run a sub-agent through the same MemoryGraph chat engine as Jarvis: active PHP tools, merged memory & rules, instructions, research, MCP, jobs, and web apps (requires MEMORYGRAPH_PUBLIC_BASE_URL and a registered provider key in the sub-agent config). Optional dashboard_url / link in the sub-agent markdown for UI. Returns response text plus usage when available.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'prompt' => ['type' => 'string'],
+                'messages' => ['type' => 'array', 'items' => ['type' => 'object']],
+                'chatSessionId' => ['type' => 'string', 'description' => 'Optional: browser chat session id for list_chat_history alignment.'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Runs one sub-agent chat completion.",
+    ], [
+        'name' => 'start_sub_agent_chat',
+        'description' => 'Queue a sub-agent chat task and return a taskId. Execution uses the same full chat pipeline as run_sub_agent_chat when MEMORYGRAPH_PUBLIC_BASE_URL is set.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'prompt' => ['type' => 'string'],
+                'messages' => ['type' => 'array', 'items' => ['type' => 'object']],
+                'chatSessionId' => ['type' => 'string'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in tool\n// Creates a queued sub-agent task.",
+    ], [
+        'name' => 'get_sub_agent_chat_result',
+        'description' => 'Read sub-agent task status/result by taskId.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'taskId' => ['type' => 'string'],
+            ],
+            'required' => ['taskId'],
+        ],
+        'code' => "// Built-in tool\n// Reads queued sub-agent task result.",
+    ], [
+        'name' => 'wait_for_sub_agent_chat',
+        'description' => 'Wait for or execute a queued sub-agent task and return final status/result.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'taskId' => ['type' => 'string'],
+            ],
+            'required' => ['taskId'],
+        ],
+        'code' => "// Built-in tool\n// Resolves a sub-agent task to completion.",
+    ], [
         'name' => 'add_provider',
         'description' => 'Add a new AI provider. Provide key, display name, endpoint (or endpointBase for Gemini-type), type (openai or gemini), defaultModel, and envVar (the .env variable name for the API key).',
         'active' => true,
