@@ -1079,6 +1079,11 @@
                 if (res && res.web_app && typeof window.MemoryGraphOpenWebApp === 'function') {
                     window.MemoryGraphOpenWebApp(res.web_app);
                 }
+                if (res && res.memory_graph && Array.isArray(res.memory_graph.memory_file_node_ids) && res.memory_graph.memory_file_node_ids.length) {
+                    if (typeof window.agentState !== 'undefined' && typeof window.agentState.markMemoryFileNodesActive === 'function') {
+                        window.agentState.markMemoryFileNodesActive(res.memory_graph.memory_file_node_ids);
+                    }
+                }
                 var content = extractAssistantTextFromChatResponse(res);
                 if (!content && typeof res === 'string') content = res;
                 if (!content && res && res.choices && res.choices[0] && res.choices[0].message) {

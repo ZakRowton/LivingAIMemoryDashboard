@@ -4493,7 +4493,20 @@ memory_graph_status_append_activity($status, 'complete', 'Run finished · ' . st
 
 clearStatusFlags($status);
 clearCurrentExecutionStatus($status, $requestId);
+// tool runs set lastEventExpiresAtMs ~5.5s from that moment; long post-tool LLM work can expire it before
+// the client polls again. Refresh the window so chat_status.php still exposes lastActive* / lastExecution* for graph animation.
+$status['lastEventExpiresAtMs'] = (int) round(microtime(true) * 1000) + 10000;
 writeStatus($requestId, $status);
+
+$memoryFileNodeIdsForClient = [];
+if (!empty($status['lastActiveMemoryIds']) && is_array($status['lastActiveMemoryIds'])) {
+    foreach ($status['lastActiveMemoryIds'] as $mid) {
+        if (is_string($mid) && strpos($mid, 'memory_file_') === 0) {
+            $memoryFileNodeIdsForClient[] = $mid;
+        }
+    }
+    $memoryFileNodeIdsForClient = array_values(array_unique($memoryFileNodeIdsForClient));
+}
 
 $finalContent = normalizeAssistantFormatting((string) $finalContent);
 if (trim($finalContent) === '') {
@@ -4503,6 +4516,9 @@ if (trim($finalContent) === '') {
 }
 
 $memoryGraphMeta['assistant_body'] = (string) $finalContent;
+if (!empty($memoryFileNodeIdsForClient)) {
+    $memoryGraphMeta['memory_file_node_ids'] = $memoryFileNodeIdsForClient;
+}
 
 $wroteChatTranscriptMemory = false;
 if ($initialUserContent !== '' && trim($finalContent) !== '' && empty($memoryGraphMeta['empty_assistant']) && empty($input['skipChatHistoryAppend'])) {
