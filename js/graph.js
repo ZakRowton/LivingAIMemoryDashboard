@@ -157,7 +157,7 @@
             new THREE.MeshPhongMaterial({
                 color: 0x0c1016,
                 emissive: data.color,
-                emissiveIntensity: id === 'agent' ? 0.95 : 0.82,
+                emissiveIntensity: id === 'agent' ? 0.95 : (id.indexOf('sub_agent_file_') === 0 ? 0.9 : 0.82),
                 specular: 0xffffff,
                 shininess: 110
             })
@@ -185,7 +185,7 @@
             shellBaseColor: data.color,
             coreBaseColor: 0x0c1016,
             innerBaseColor: data.color,
-            activeHighlightColor: id === 'agent' ? 0xffffff : 0xfff3b0
+            activeHighlightColor: (id === 'agent' || id.indexOf('sub_agent_file_') === 0) ? 0xffffff : 0xfff3b0
         };
         nodeMeshesList.push(core);
 
@@ -195,13 +195,15 @@
         }
     }
 
-    function createEdge(fromId, toId) {
+    function createEdge(fromId, toId, kind) {
         if (!nodeGroups[fromId] || !nodeGroups[toId]) return;
         var a = nodeGroups[fromId].position;
         var b = nodeGroups[toId].position;
+        var color = kind === 'subHub' ? 0x8fdf8a : 0xa9d4ff;
+        var opacity = kind === 'subHub' ? 0.26 : 0.5;
         edgeGroup.add(new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a.x, a.y, a.z), new THREE.Vector3(b.x, b.y, b.z)]),
-            new THREE.LineBasicMaterial({ color: 0xa9d4ff, transparent: true, opacity: 0.5 })
+            new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity })
         ));
     }
 
@@ -267,10 +269,20 @@
         mergeChildren(layoutChildren(categoryNodes || [], positions.categories, 0.9, 0.85, 'sin', function (c) { return c.nodeId; }, 0xb0e4f8), 'categories');
         mergeChildren(layoutChildren(subAgents || [], positions.sub_agents, 0.92, 0.8, 'cos', function (s) { return s.nodeId; }, 0xc6f7a6), 'sub_agents');
 
+        var hubIdsForSubAgents = ['memory', 'tools', 'instructions', 'research', 'rules', 'mcps', 'jobs', 'categories'];
+        (subAgents || []).forEach(function (s) {
+            if (!s || !s.nodeId) return;
+            hubIdsForSubAgents.forEach(function (hubId) {
+                if (positions[hubId]) {
+                    edges.push({ from: s.nodeId, to: hubId, kind: 'subHub' });
+                }
+            });
+        });
+
         Object.keys(nodeData).forEach(function (id) {
             createNode(id, nodeData[id], positions[id] || [0, 0, 0]);
         });
-        edges.forEach(function (edge) { createEdge(edge.from, edge.to); });
+        edges.forEach(function (edge) { createEdge(edge.from, edge.to, edge.kind); });
     }
 
     function loadDynamicNodes() {
@@ -561,7 +573,14 @@
             if (id.indexOf('mcp_server_') === 0) animateNode(id, activeMcpIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('job_file_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
             if (id.indexOf('job_cron_') === 0) animateNode(id, activeJobIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
-            if (id.indexOf('sub_agent_file_') === 0) animateNode(id, activeSubAgentIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            if (id.indexOf('sub_agent_file_') === 0) {
+                var subAgentPulse = activeSubAgentIds.indexOf(id) !== -1;
+                if (subAgentPulse) {
+                    animateNode(id, true, t, 12, 0.22, 1.15);
+                } else {
+                    animateNode(id, false, t, 13, 0.24, 1.2);
+                }
+            }
             if (id.indexOf('category_') === 0) animateNode(id, activeCategoryIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
         });
 

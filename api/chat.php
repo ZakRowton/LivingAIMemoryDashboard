@@ -272,9 +272,79 @@ function sanitizeRequestId(?string $requestId): string {
     return $requestId !== '' ? $requestId : uniqid('chat_', true);
 }
 
+/**
+ * While a nested sub-agent chat runs, merge its live execution flags into the parent Jarvis request status
+ * so the main graph pulses tools / memory / etc. in sync (same as prompting Jarvis).
+ */
+function memory_graph_propagate_child_status_to_parent(string $childRequestId, array $childStatus): void {
+    $parentId = trim((string) ($GLOBALS['MEMORYGRAPH_PARENT_STATUS_REQUEST_ID'] ?? ''));
+    if ($parentId === '' || $parentId === $childRequestId) {
+        return;
+    }
+    if (strpos($parentId, 'subagent_worker_') === 0) {
+        return;
+    }
+    $subNode = trim((string) ($GLOBALS['MEMORYGRAPH_PARENT_SUB_AGENT_NODE_ID'] ?? ''));
+    $parentPath = statusDirPath() . DIRECTORY_SEPARATOR . $parentId . '.json';
+    $parentRaw = @file_get_contents($parentPath);
+    $parent = ($parentRaw !== false && $parentRaw !== '') ? json_decode($parentRaw, true) : [];
+    if (!is_array($parent)) {
+        $parent = [];
+    }
+    $union = static function ($a, $b): array {
+        $a = is_array($a) ? $a : [];
+        $b = is_array($b) ? $b : [];
+
+        return array_values(array_unique(array_merge($a, $b)));
+    };
+    $parent['activeToolIds'] = $union($parent['activeToolIds'] ?? [], $childStatus['activeToolIds'] ?? []);
+    $parent['activeMemoryIds'] = $union($parent['activeMemoryIds'] ?? [], $childStatus['activeMemoryIds'] ?? []);
+    $parent['activeInstructionIds'] = $union($parent['activeInstructionIds'] ?? [], $childStatus['activeInstructionIds'] ?? []);
+    $parent['activeResearchIds'] = $union($parent['activeResearchIds'] ?? [], $childStatus['activeResearchIds'] ?? []);
+    $parent['activeRulesIds'] = $union($parent['activeRulesIds'] ?? [], $childStatus['activeRulesIds'] ?? []);
+    $parent['activeMcpIds'] = $union($parent['activeMcpIds'] ?? [], $childStatus['activeMcpIds'] ?? []);
+    $parent['activeJobIds'] = $union($parent['activeJobIds'] ?? [], $childStatus['activeJobIds'] ?? []);
+    $parent['activeSubAgentIds'] = $union($parent['activeSubAgentIds'] ?? [], $childStatus['activeSubAgentIds'] ?? []);
+    if ($subNode !== '') {
+        $parent['activeSubAgentIds'] = $union($parent['activeSubAgentIds'] ?? [], [$subNode]);
+    }
+    $execFlags = [
+        'gettingAvailTools' => 'lastGettingAvailTools',
+        'checkingMemory' => 'lastCheckingMemory',
+        'checkingInstructions' => 'lastCheckingInstructions',
+        'checkingResearch' => 'lastCheckingResearch',
+        'checkingRules' => 'lastCheckingRules',
+        'checkingMcps' => 'lastCheckingMcps',
+        'checkingJobs' => 'lastCheckingJobs',
+    ];
+    foreach ($execFlags as $flag => $lastKey) {
+        if (!empty($childStatus[$flag])) {
+            $parent[$flag] = true;
+            $parent[$lastKey] = true;
+        }
+    }
+    if (!empty($childStatus['thinking'])) {
+        $parent['thinking'] = true;
+    }
+    $ped = isset($parent['executionDetailsByNode']) && is_array($parent['executionDetailsByNode']) ? $parent['executionDetailsByNode'] : [];
+    $ced = isset($childStatus['executionDetailsByNode']) && is_array($childStatus['executionDetailsByNode']) ? $childStatus['executionDetailsByNode'] : [];
+    foreach ($ced as $k => $v) {
+        $ped[$k] = $v;
+    }
+    $parent['executionDetailsByNode'] = $ped;
+    $parent['lastExecutionDetailsByNode'] = $ped;
+    $nowMs = (int) round(microtime(true) * 1000) + 5500;
+    $parent['lastEventExpiresAtMs'] = max((int) ($parent['lastEventExpiresAtMs'] ?? 0), (int) ($childStatus['lastEventExpiresAtMs'] ?? 0), $nowMs);
+    if (!isset($parent['requestId'])) {
+        $parent['requestId'] = $parentId;
+    }
+    @file_put_contents($parentPath, json_encode($parent, JSON_PRETTY_PRINT));
+}
+
 function writeStatus(string $requestId, array $status): void {
     $path = statusDirPath() . DIRECTORY_SEPARATOR . $requestId . '.json';
     file_put_contents($path, json_encode($status, JSON_PRETTY_PRINT));
+    memory_graph_propagate_child_status_to_parent($requestId, $status);
 }
 
 function clearStatusFlags(array &$status): void {
@@ -767,8 +837,12 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
         $GLOBALS['MEMORYGRAPH_SUB_AGENT_DEPTH'] = $depth + 1;
         try {
             $url = $base . '/api/chat.php';
-            $parentRid = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? 'chat');
-            $childId = $parentRid . '_sub_' . bin2hex(random_bytes(4));
+            $parentRid = isset($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID']) && is_string($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'])
+                ? trim($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'])
+                : '';
+            $childId = $parentRid !== ''
+                ? ($parentRid . '_sub_' . bin2hex(random_bytes(4)))
+                : ('subchat_' . bin2hex(random_bytes(8)));
             $rt = [];
             if ($endpoint !== '') {
                 if (($provider['type'] ?? 'openai') === 'gemini') {
@@ -799,6 +873,13 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
                 'skipChatHistoryAppend' => true,
                 'subAgentIdentity' => $identity,
             ];
+            if ($parentRid !== '' && strpos($parentRid, 'subagent_worker_') !== 0) {
+                $payload['parentStatusRequestId'] = $parentRid;
+                $subNodeId = trim((string) ($meta['nodeId'] ?? ''));
+                if ($subNodeId !== '') {
+                    $payload['parentSubAgentNodeId'] = $subNodeId;
+                }
+            }
             if ($rt !== []) {
                 $payload['subAgentProviderRuntime'] = $rt;
             }
@@ -3313,6 +3394,18 @@ $systemPrompt = isset($input['systemPrompt']) ? (string) $input['systemPrompt'] 
 $temperature = isset($input['temperature']) ? (float) $input['temperature'] : 0.7;
 $requestId = sanitizeRequestId(isset($input['requestId']) ? (string) $input['requestId'] : null);
 $GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] = $requestId;
+$GLOBALS['MEMORYGRAPH_PARENT_STATUS_REQUEST_ID'] = '';
+$GLOBALS['MEMORYGRAPH_PARENT_SUB_AGENT_NODE_ID'] = '';
+$parentStatusRid = isset($input['parentStatusRequestId']) ? trim((string) $input['parentStatusRequestId']) : '';
+$parentStatusRid = preg_replace('/[^a-zA-Z0-9_\-]/', '', $parentStatusRid);
+if ($parentStatusRid !== '' && strpos($parentStatusRid, 'subagent_worker_') !== 0) {
+    $GLOBALS['MEMORYGRAPH_PARENT_STATUS_REQUEST_ID'] = $parentStatusRid;
+    $GLOBALS['MEMORYGRAPH_PARENT_SUB_AGENT_NODE_ID'] = preg_replace(
+        '/[^a-zA-Z0-9_\-]/',
+        '',
+        (string) ($input['parentSubAgentNodeId'] ?? '')
+    );
+}
 
 $status = [
     'requestId' => $requestId,
