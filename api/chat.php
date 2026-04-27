@@ -3335,7 +3335,6 @@ function memory_graph_text_is_meta_thinking_only(string $s): bool {
         return false;
     }
     $stripped = preg_replace('/<think>[\s\S]*?<\/redacted_thinking>/i', '', $t);
-    $stripped = preg_replace('/<think>[\s\S]*?<\/redacted_thinking>/i', '', $stripped);
     $stripped = preg_replace('/<thinking>[\s\S]*?<\/thinking>/i', '', $stripped);
     $stripped = preg_replace('/<reasoning>[\s\S]*?<\/reasoning>/i', '', $stripped);
     $stripped = preg_replace('/<redacted[_-]?reasoning>[\s\S]*?<\/redacted[_-]?reasoning>/i', '', $stripped);
