@@ -309,7 +309,11 @@
         $queueList.empty();
         promptQueue.forEach(function (item, idx) {
             var $item = $('<div class="chat-queue-item" data-idx="' + idx + '">');
-            $('<span class="chat-queue-item-text">').text(item.text || '(empty)').appendTo($item);
+            var qlabel = (item.text && String(item.text).trim()) ? item.text : '(no text)';
+            if (item.parts && item.parts.length) {
+                qlabel += ' [+' + item.parts.length + ' attachment(s)]';
+            }
+            $('<span class="chat-queue-item-text">').text(qlabel).appendTo($item);
             var $actions = $('<div class="chat-queue-item-actions">');
             $('<button type="button" title="Edit">&#9998;</button>').on('click', function () {
                 $input.val(item.text).focus();
@@ -333,8 +337,9 @@
         });
     }
 
-    function addToQueue(text) {
-        promptQueue.push({ text: text, id: Date.now() + '_' + Math.random().toString(36).slice(2) });
+    function addToQueue(text, parts) {
+        var p = Array.isArray(parts) ? parts.slice() : [];
+        promptQueue.push({ text: text != null ? text : '', parts: p, id: Date.now() + '_' + Math.random().toString(36).slice(2) });
         renderQueue();
         setRequestUi(!!currentRequest);
     }
@@ -347,7 +352,7 @@
 
     function shiftNextFromQueue() {
         if (!promptQueue.length) return null;
-        return promptQueue.shift().text;
+        return promptQueue.shift();
     }
 
     function processNextInQueue() {
@@ -355,7 +360,9 @@
         renderQueue();
         setRequestUi(!!currentRequest);
         if (next) {
-            setTimeout(function () { sendMessageInternal(next); }, 100);
+            var nt = next.text != null ? next.text : '';
+            var np = next.parts || [];
+            setTimeout(function () { sendMessageInternal(nt, np); }, 100);
         }
     }
 
@@ -946,30 +953,85 @@
 
     window.MemoryGraphShowResponseModal = openResponseModal;
 
-    function sendMessage() {
-        var text = ($input.val() || '').trim();
-        if (!text) return;
-        $input.val('');
-        if (currentRequest) {
-            addToQueue(text);
-            return;
-        }
-        sendMessageInternal(text);
+    function summarizePartsForHistory(parts) {
+        if (!parts || !parts.length) return '';
+        return parts.map(function (p) {
+            if (!p || typeof p !== 'object') return 'part';
+            if (p.type === 'image_url') return 'image';
+            if (p.type === 'input_audio') return 'audio';
+            if (p.type === 'input_video') return 'video';
+            if (p.type === 'text') return 'text';
+            return String(p.type || 'file');
+        }).join(', ');
     }
 
-    function sendMessageInternal(text) {
+    function userTurnHistoryLine(text, partsSummary) {
+        var t = (text || '').trim();
+        if (partsSummary) {
+            return t ? (t + '\n\n[Attached: ' + partsSummary + ']') : ('[Attached: ' + partsSummary + ']');
+        }
+        return t;
+    }
+
+    function buildUserMessageForApi(text, parts) {
+        parts = parts || [];
+        if (!parts.length) {
+            return text || '';
+        }
+        var body = [];
+        var t = (text || '').trim();
+        if (t) {
+            body.push({ type: 'text', text: t });
+        }
+        parts.forEach(function (p) {
+            if (p) body.push(p);
+        });
+        if (!body.some(function (b) { return b && b.type === 'text'; })) {
+            body.unshift({ type: 'text', text: '(User message: see attached files.)' });
+        }
+        if (body.length === 1 && body[0].type === 'text') {
+            return body[0].text;
+        }
+        return body;
+    }
+
+    function sendMessage() {
+        var text = ($input.val() || '').trim();
+        var att = window.__mgMainChatAttachments;
+        var rawParts = (att && typeof att.getParts === 'function') ? att.getParts() : [];
+        var parts = Array.isArray(rawParts) ? rawParts.slice() : [];
+        if (!text && !parts.length) return;
+        $input.val('');
+        if (currentRequest) {
+            addToQueue(text, parts);
+            if (att && typeof att.clear === 'function') {
+                att.clear();
+            }
+            return;
+        }
+        sendMessageInternal(text, parts);
+    }
+
+    function sendMessageInternal(text, attachmentParts) {
         wasStopped = false;
+        attachmentParts = attachmentParts || [];
         setRequestUi(true);
 
         var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
         var chatSessionId = getOrCreateChatSessionId();
         var messages = [];
         getTurns().forEach(function (t) {
-            if (t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string') {
-                messages.push({ role: t.role, content: t.content });
+            if (t && (t.role === 'user' || t.role === 'assistant')) {
+                if (typeof t.content === 'string') {
+                    messages.push({ role: t.role, content: t.content });
+                } else if (Array.isArray(t.content)) {
+                    messages.push({ role: t.role, content: t.content });
+                }
             }
         });
-        messages.push({ role: 'user', content: text });
+        var userPayload = buildUserMessageForApi(text, attachmentParts);
+        var historyLine = userTurnHistoryLine(text, summarizePartsForHistory(attachmentParts));
+        messages.push({ role: 'user', content: userPayload });
         var requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
         lastGraphRefreshToken = '';
         inFlightMainRequestId = requestId;
@@ -1027,8 +1089,8 @@
                 }
                 if (!content) content = 'No text in response.';
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
-                showNotification(preview, text, content);
-                getTurns().push({ role: 'user', content: text });
+                showNotification(preview, historyLine, content);
+                getTurns().push({ role: 'user', content: historyLine });
                 getTurns().push({ role: 'assistant', content: content });
                 saveSessionBundle();
                 if (res && res.jobToRun && typeof window.MemoryGraphRunJob === 'function') {
@@ -1084,10 +1146,17 @@
                 if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
                 processNextInQueue();
                 focusChatInputSoon();
+                var mgAtt = window.__mgMainChatAttachments;
+                if (mgAtt && typeof mgAtt.clear === 'function') {
+                    mgAtt.clear();
+                }
             });
     }
 
     $(function () {
+        if (typeof window.MemoryGraphInitChatAttachments === 'function') {
+            window.MemoryGraphInitChatAttachments();
+        }
         renderSimpleChatThread();
         focusChatInputSoon();
     });

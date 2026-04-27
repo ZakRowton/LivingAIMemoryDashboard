@@ -32,10 +32,19 @@ $input = is_array($input) ? $input : [];
 $name = trim((string) ($input['name'] ?? ''));
 $prompt = trim((string) ($input['prompt'] ?? ''));
 $chatSessionId = isset($input['chatSessionId']) ? trim((string) $input['chatSessionId']) : '';
+$userContentProbe = $input['userContent'] ?? null;
+$hasUserContent = is_array($userContentProbe)
+    && $userContentProbe !== []
+    && memory_graph_is_openai_multimodal_user_content($userContentProbe);
 
-if ($name === '' || $prompt === '') {
+if ($name === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'name and prompt are required']);
+    echo json_encode(['error' => 'name is required']);
+    exit;
+}
+if ($prompt === '' && !$hasUserContent) {
+    http_response_code(400);
+    echo json_encode(['error' => 'prompt or attachments (userContent) are required']);
     exit;
 }
 
@@ -100,6 +109,9 @@ $args = [
     'prompt' => $prompt,
     'messages' => [],
 ];
+if ($hasUserContent) {
+    $args['userContent'] = array_values($userContentProbe);
+}
 if ($chatSessionId !== '') {
     $args['chatSessionId'] = $chatSessionId;
 }

@@ -368,6 +368,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             border-radius: 10px;
             padding: 6px 9px;
             box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
         }
         @media (max-width: 900px) {
             .chat-bar {
@@ -375,6 +378,119 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 width: 100%;
                 order: 2;
             }
+        }
+        .mg-chat-composer {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .mg-drop-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed rgba(214, 219, 226, 0.45);
+            border-radius: 8px;
+            background: rgba(5, 8, 12, 0.88);
+            color: var(--gold-light);
+            font-family: 'Cinzel', serif;
+            font-size: 0.75rem;
+            letter-spacing: 0.06em;
+            pointer-events: none;
+        }
+        .mg-chat-composer--drag .mg-drop-overlay { display: flex; }
+        .mg-attach-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            min-height: 0;
+        }
+        .mg-attach-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px 3px 10px;
+            border-radius: 999px;
+            font-size: 0.72rem;
+            color: var(--gold-light);
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(214, 219, 226, 0.18);
+            font-family: 'Playfair Display', Georgia, serif;
+        }
+        .mg-attach-chip-remove {
+            background: none;
+            border: none;
+            color: var(--gold-dim);
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+            padding: 0 2px;
+        }
+        .mg-attach-chip-remove:hover { color: #fecaca; }
+        .mg-attach-trigger {
+            flex-shrink: 0;
+            width: 34px;
+            height: 34px;
+            border-radius: 7px;
+            border: 1px solid rgba(214, 219, 226, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--gold);
+            font-family: 'Cinzel', serif;
+            font-size: 1.1rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .mg-attach-trigger:hover {
+            border-color: var(--gold);
+            box-shadow: 0 0 10px rgba(214, 219, 226, 0.12);
+        }
+        .mg-attach-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 12000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(3, 5, 8, 0.72);
+            backdrop-filter: blur(6px);
+        }
+        .mg-attach-modal-dialog {
+            width: min(420px, 100%);
+            background: var(--panel-bg);
+            border: 1px solid rgba(214, 219, 226, 0.22);
+            border-radius: 14px;
+            padding: 16px 18px 18px;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(214, 219, 226, 0.06);
+        }
+        .mg-attach-modal-header {
+            color: var(--gold);
+            font-size: 1.05rem;
+            margin-bottom: 8px;
+        }
+        .mg-attach-modal-drop {
+            margin-top: 10px;
+            padding: 28px 14px;
+            border: 2px dashed rgba(214, 219, 226, 0.28);
+            border-radius: 10px;
+            text-align: center;
+            color: var(--gold-light);
+            font-family: 'Playfair Display', Georgia, serif;
+            font-size: 0.88rem;
+            background: rgba(0, 0, 0, 0.28);
+        }
+        .mg-attach-modal-drop--active {
+            border-color: var(--gold);
+            background: rgba(214, 219, 226, 0.06);
+        }
+        .mg-attach-modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+            flex-wrap: wrap;
         }
         .chat-bar .input-wrap {
             display: flex;
@@ -2779,10 +2895,15 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 </div>
                 <div class="chat-queue-list" id="chat-queue-list"></div>
             </div>
-            <div class="input-wrap">
-                <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
-                <button type="button" class="btn-send" id="chat-send">Send</button>
-                <button type="button" class="btn-send btn-stop" id="chat-stop">Stop</button>
+            <div class="mg-chat-composer" id="main-chat-composer">
+                <div id="chat-drop-overlay" class="mg-drop-overlay" aria-hidden="true">Drop files to attach</div>
+                <div id="chat-attachment-strip" class="mg-attach-strip" aria-live="polite"></div>
+                <div class="input-wrap">
+                    <button type="button" class="mg-attach-trigger" id="chat-attach-btn" title="Add attachments" aria-label="Add attachments">＋</button>
+                    <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
+                    <button type="button" class="btn-send" id="chat-send">Send</button>
+                    <button type="button" class="btn-send btn-stop" id="chat-stop">Stop</button>
+                </div>
             </div>
         </div>
     </div>
@@ -2931,10 +3052,15 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             </div>
             <div id="sub-agent-chat-panel" class="sub-agent-chat-panel" style="display: none; margin-top: 15px;">
                 <p class="sub-agent-run-hint font-serif">Send a message to <strong id="sub-agent-chat-target-label">this sub-agent</strong> only. Uses the same tool loop as Jarvis when <code>MEMORYGRAPH_PUBLIC_BASE_URL</code> is configured.</p>
-                <label class="provider-label" for="sub-agent-prompt-input">Prompt</label>
-                <textarea id="sub-agent-prompt-input" class="provider-textarea" rows="5" placeholder="Your instructions for this sub-agent…"></textarea>
-                <div class="panel-action-btn-row" style="margin-top: 10px;">
-                    <button type="button" id="sub-agent-send-btn" class="panel-action-btn">Send to sub-agent</button>
+                <div class="mg-chat-composer" id="sub-agent-chat-composer">
+                    <div id="sub-agent-drop-overlay" class="mg-drop-overlay" aria-hidden="true">Drop files to attach</div>
+                    <div id="sub-agent-attachment-strip" class="mg-attach-strip" aria-live="polite"></div>
+                    <label class="provider-label" for="sub-agent-prompt-input">Prompt</label>
+                    <textarea id="sub-agent-prompt-input" class="provider-textarea" rows="5" placeholder="Your instructions for this sub-agent…"></textarea>
+                    <div class="panel-action-btn-row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+                        <button type="button" class="mg-attach-trigger" id="sub-agent-attach-btn" title="Add attachments" aria-label="Add attachments">＋</button>
+                        <button type="button" id="sub-agent-send-btn" class="panel-action-btn">Send to sub-agent</button>
+                    </div>
                 </div>
                 <div id="sub-agent-run-response" class="sub-agent-run-response" role="status" aria-live="polite"></div>
             </div>
@@ -2982,6 +3108,19 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <iframe id="web-app-modal-frame" class="web-app-modal-frame" title="Web app" sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-pointer-lock" allow="pointer-lock; fullscreen; autoplay; gamepad; accelerometer; gyroscope; microphone; camera; display-capture; xr-spatial-tracking"></iframe>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="mg-shared-attach-modal" class="mg-attach-modal" role="presentation" aria-hidden="true" style="display: none;">
+        <div class="mg-attach-modal-dialog" role="dialog" aria-labelledby="mg-shared-attach-title">
+            <div id="mg-shared-attach-title" class="mg-attach-modal-header font-display">Add attachments</div>
+            <p class="font-serif text-muted" style="font-size: 0.82rem; margin: 0; color: var(--gold-dim);">Images, audio, small video, or text files. Drag here or browse — you can also drag onto the chat bar.</p>
+            <div id="mg-shared-attach-drop" class="mg-attach-modal-drop">Drop files here</div>
+            <div class="mg-attach-modal-actions">
+                <button type="button" class="panel-action-btn" id="mg-shared-attach-browse">Browse files…</button>
+                <button type="button" class="panel-action-btn btn-stop" id="mg-shared-attach-close">Close</button>
+            </div>
+            <input type="file" id="mg-shared-attach-file" multiple accept="image/*,audio/*,video/*,.pdf,.txt,.csv,.json,.md,text/*" style="position:absolute;width:0;height:0;opacity:0;pointer-events:none" tabindex="-1" aria-hidden="true">
         </div>
     </div>
 
@@ -3312,6 +3451,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     </script>
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
+    <script src="js/chat-attachments.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/apps_panel.js"></script>
     <script src="js/ui_settings_simple.js"></script>
@@ -4650,19 +4790,43 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             subAgentSendBtn.addEventListener('click', function () {
                 if (!window.currentOpenedSubAgent || !window.currentOpenedSubAgent.name) return;
                 var prompt = (subAgentPromptInput && subAgentPromptInput.value || '').trim();
-                if (!prompt) {
+                var userContent = null;
+                var saAtt = window.__mgSubAgentAttachments;
+                if (saAtt && typeof saAtt.getParts === 'function') {
+                    var uparts = saAtt.getParts();
+                    if (uparts && uparts.length) userContent = uparts;
+                }
+                if (!prompt && (!userContent || !userContent.length)) {
                     if (subAgentRunResponse) {
                         subAgentRunResponse.classList.add('is-error');
-                        subAgentRunResponse.textContent = 'Enter a prompt first.';
+                        subAgentRunResponse.textContent = 'Enter a prompt or add attachments.';
                     }
                     return;
                 }
+                function subAgentTranscriptPrompt(pr, uc) {
+                    var sum = '';
+                    if (uc && uc.length) {
+                        sum = uc.map(function (p) {
+                            if (!p || typeof p !== 'object') return 'part';
+                            if (p.type === 'image_url') return 'image';
+                            if (p.type === 'input_audio') return 'audio';
+                            if (p.type === 'input_video') return 'video';
+                            if (p.type === 'text') return 'text';
+                            return String(p.type || 'file');
+                        }).join(', ');
+                    }
+                    var prt = (pr || '').trim();
+                    if (prt && sum) return prt + '\n\n[Attached: ' + sum + ']';
+                    if (prt) return prt;
+                    return sum ? ('[Attached: ' + sum + ']') : '';
+                }
+                var transcriptPrompt = subAgentTranscriptPrompt(prompt, userContent);
                 var subSid = '';
                 var inSimple = !!(document.documentElement && document.documentElement.classList && document.documentElement.classList.contains('mg-simple-ui'));
                 if (inSimple && typeof window.MemoryGraphCreateSubAgentSession === 'function') {
                     subSid = window.MemoryGraphCreateSubAgentSession(window.currentOpenedSubAgent.name);
                     if (subSid && typeof window.MemoryGraphAppendSubAgentTranscript === 'function') {
-                        window.MemoryGraphAppendSubAgentTranscript(subSid, prompt, '', {});
+                        window.MemoryGraphAppendSubAgentTranscript(subSid, transcriptPrompt, '', {});
                     }
                 } else {
                     subSid = (typeof window.MemoryGraphGetChatSessionId === 'function') ? window.MemoryGraphGetChatSessionId() : '';
@@ -4679,15 +4843,19 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 var fetchSubController = (typeof window.AbortController === 'function') ? new window.AbortController() : null;
                 var subFetchTimer = (typeof window.setTimeout === 'function' && window.AbortController)
                     ? window.setTimeout(function () { try { fetchSubController.abort(); } catch (e) {} }, 600000) : 0;
+                var subPayload = {
+                    name: window.currentOpenedSubAgent.name,
+                    prompt: prompt,
+                    chatSessionId: subSid,
+                    statusRequestId: statusReqId
+                };
+                if (userContent && userContent.length) {
+                    subPayload.userContent = userContent;
+                }
                 var fetchSubOpts = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: window.currentOpenedSubAgent.name,
-                        prompt: prompt,
-                        chatSessionId: subSid,
-                        statusRequestId: statusReqId
-                    })
+                    body: JSON.stringify(subPayload)
                 };
                 if (fetchSubController) {
                     fetchSubOpts.signal = fetchSubController.signal;
@@ -4744,6 +4912,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                         window.MemoryGraphStopAdhocStatusPoll();
                     }
                     subAgentSendBtn.disabled = false;
+                    var saClear = window.__mgSubAgentAttachments;
+                    if (saClear && typeof saClear.clear === 'function') {
+                        saClear.clear();
+                    }
                 });
             });
         }
