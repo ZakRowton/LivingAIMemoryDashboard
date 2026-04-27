@@ -1154,6 +1154,15 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             word-break: normal;
             overflow-wrap: anywhere;
         }
+        /* .panel-action-btn is globally width:100%; in a flex row that steals the row from the file name */
+        .tool-list-item .panel-action-btn {
+            width: auto;
+            min-width: 0;
+            max-width: none;
+            margin-top: 0;
+            flex: 0 0 auto;
+            align-self: flex-start;
+        }
         .execution-widget {
             position: fixed;
             right: 20px;
