@@ -19,6 +19,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'app_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_client.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tool_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sub_agent_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'cron_pending.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
@@ -138,19 +139,34 @@ function memory_graph_alibaba_should_retry_alternate_region(int $httpCode, strin
 /**
  * Single POST to OpenAI-compatible endpoint; returns same shape as requestOpenAiCompatible.
  */
-function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, array $payload): array {
+function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, array $payload, string $providerKeyForHeaders = ''): array {
     $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($body === false) {
         return ['error' => 'Failed to encode request JSON', 'httpCode' => 500];
+    }
+    $headers = [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $apiKey,
+    ];
+    $epLower = strtolower($endpoint);
+    if ($providerKeyForHeaders === 'openrouter' || strpos($epLower, 'openrouter.ai') !== false) {
+        $referer = function_exists('memory_graph_env')
+            ? trim((string) memory_graph_env('OPENROUTER_HTTP_REFERER', ''))
+            : '';
+        if ($referer === '' && function_exists('memory_graph_env')) {
+            $referer = trim((string) memory_graph_env('MEMORYGRAPH_PUBLIC_BASE_URL', ''));
+        }
+        if ($referer === '') {
+            $referer = 'https://localhost';
+        }
+        $headers[] = 'HTTP-Referer: ' . $referer;
+        $headers[] = 'X-Title: MemoryGraph';
     }
     $ch = curl_init($endpoint);
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $body,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $apiKey,
-        ],
+        CURLOPT_HTTPHEADER => $headers,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 600,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
@@ -172,6 +188,26 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
         return ['error' => 'Invalid provider response', 'httpCode' => 502];
     }
     return ['data' => $decoded, 'httpCode' => $httpCode];
+}
+
+function memory_graph_openrouter_chat_endpoint(): string {
+    $base = trim((string) memory_graph_env('OPENROUTER_ENDPOINT', 'https://openrouter.ai/api/v1'));
+    if ($base === '') $base = 'https://openrouter.ai/api/v1';
+    $base = rtrim($base, '/');
+    if (preg_match('#/chat/completions$#', $base) === 1) {
+        return $base;
+    }
+    return $base . '/chat/completions';
+}
+
+function memory_graph_nvidia_nim_chat_endpoint(): string {
+    $base = trim((string) memory_graph_env('NVIDIA_NIM_ENDPOINT', 'https://integrate.api.nvidia.com/v1'));
+    if ($base === '') $base = 'https://integrate.api.nvidia.com/v1';
+    $base = rtrim($base, '/');
+    if (preg_match('#/chat/completions$#', $base) === 1) {
+        return $base;
+    }
+    return $base . '/chat/completions';
 }
 
 $providers = [
@@ -198,6 +234,18 @@ $providers = [
         'apiKey' => memory_graph_env('GEMINI_API_KEY', ''),
         'type' => 'gemini',
         'defaultModel' => 'gemini-2.5-flash',
+    ],
+    'openrouter' => [
+        'endpoint' => memory_graph_openrouter_chat_endpoint(),
+        'apiKey' => memory_graph_env('OPENROUTER_API_KEY', ''),
+        'type' => 'openai',
+        'defaultModel' => trim((string) memory_graph_env('OPENROUTER_MODEL', 'google/gemma-4-31b-it:free')),
+    ],
+    'nvidia_nim' => [
+        'endpoint' => memory_graph_nvidia_nim_chat_endpoint(),
+        'apiKey' => memory_graph_env('NVIDIA_NIM_API_KEY', ''),
+        'type' => 'openai',
+        'defaultModel' => trim((string) memory_graph_env('NVIDIA_NIM_MODEL', 'deepseek-ai/deepseek-v4-flash')),
     ],
 ];
 $customProviders = get_custom_provider_definitions_for_chat();
@@ -372,6 +420,9 @@ function isMcpManagementToolName(string $toolName): bool {
         'remove_mcp_server_header',
         'set_mcp_server_active',
         'delete_mcp_server',
+        'create_sub_agent_file',
+        'update_sub_agent_file',
+        'delete_sub_agent_file',
     ], true);
 }
 
@@ -408,7 +459,121 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'remove_mcp_server_header',
         'set_mcp_server_active',
         'delete_mcp_server',
+        'create_sub_agent_file',
+        'update_sub_agent_file',
+        'delete_sub_agent_file',
     ], true);
+}
+
+function memory_graph_normalize_provider_slug(string $raw): string {
+    $k = strtolower(trim($raw));
+    $k = str_replace(['-', ' '], '_', $k);
+    $k = preg_replace('/[^a-z0-9_]/', '', $k);
+    $k = preg_replace('/_+/', '_', $k);
+    return trim((string) $k, '_');
+}
+
+/** Map sub-agent config provider string to a key in $providers (built-in + custom). */
+function memory_graph_resolve_sub_agent_provider_key(string $raw, array $providers): string {
+    $k = memory_graph_normalize_provider_slug($raw);
+    if ($k !== '' && isset($providers[$k])) {
+        return $k;
+    }
+    if ($k === 'open_router') {
+        $k = 'openrouter';
+    }
+    if ($k === 'nvidianim') {
+        $k = 'nvidia_nim';
+    }
+    if ($k === 'nvidia' && isset($providers['nvidia_nim'])) {
+        $k = 'nvidia_nim';
+    }
+    if ($k !== '' && isset($providers[$k])) {
+        return $k;
+    }
+    return $k;
+}
+
+function memory_graph_execute_sub_agent_completion(array $providers, array $arguments): array {
+    $name = (string) ($arguments['name'] ?? $arguments['subAgent'] ?? '');
+    if ($name === '') {
+        return ['error' => 'name is required'];
+    }
+    $meta = get_sub_agent_meta($name);
+    if ($meta === null) {
+        return ['error' => 'Sub-agent not found'];
+    }
+    $cfg = is_array($meta['config'] ?? null) ? $meta['config'] : [];
+    $providerKeyRaw = trim((string) ($cfg['provider'] ?? ''));
+    $providerKey = memory_graph_resolve_sub_agent_provider_key($providerKeyRaw, $providers);
+    $model = trim((string) ($cfg['model'] ?? ''));
+    $systemPrompt = (string) ($cfg['system_prompt'] ?? '');
+    $temperature = isset($cfg['temperature']) && is_numeric($cfg['temperature']) ? (float) $cfg['temperature'] : 0.7;
+    $chatType = strtolower(trim((string) ($cfg['chat_type'] ?? '')));
+    $endpoint = (string) ($cfg['endpoint'] ?? '');
+    $apiKey = (string) ($cfg['api_key'] ?? '');
+    $messages = isset($arguments['messages']) && is_array($arguments['messages']) ? $arguments['messages'] : [];
+    $prompt = (string) ($arguments['prompt'] ?? '');
+    if ($prompt !== '') {
+        $messages[] = ['role' => 'user', 'content' => $prompt];
+    }
+    if ($messages === []) {
+        return ['error' => 'prompt or messages is required'];
+    }
+
+    $provider = isset($providers[$providerKey]) && is_array($providers[$providerKey]) ? $providers[$providerKey] : null;
+    if ($provider === null && $endpoint !== '') {
+        $provider = [
+            'endpoint' => $endpoint,
+            'apiKey' => $apiKey,
+            'type' => ($chatType === 'gemini') ? 'gemini' : 'openai',
+            'defaultModel' => $model !== '' ? $model : 'default',
+        ];
+    }
+    if ($provider === null) {
+        return [
+            'error' => 'Invalid sub-agent provider: "' . $providerKeyRaw . '" (resolved: "' . $providerKey . '"). Use a built-in key like openrouter, nvidia_nim, gemini, mercury, featherless, alibaba, or set endpoint + api_key in the sub-agent file.',
+        ];
+    }
+    if ($endpoint !== '' && ($provider['type'] ?? 'openai') === 'openai') {
+        $provider['endpoint'] = $endpoint;
+    }
+    if ($endpoint !== '' && ($provider['type'] ?? 'openai') === 'gemini') {
+        $provider['endpointBase'] = $endpoint;
+    }
+    if ($apiKey !== '') $provider['apiKey'] = $apiKey;
+    if ($model === '') $model = (string) ($provider['defaultModel'] ?? '');
+    if ($model === '') {
+        return ['error' => 'Sub-agent model is required'];
+    }
+    if ($providerKey === 'alibaba') {
+        $provider = memory_graph_alibaba_provider_runtime($provider);
+    }
+    $providerType = (string) ($provider['type'] ?? 'openai');
+    $conversation = normalizeConversation($messages, $systemPrompt, $providerType);
+    $result = $providerType === 'gemini'
+        ? requestGemini($provider, $model, $conversation, $temperature, $systemPrompt)
+        : requestOpenAiCompatible($provider, $model, $conversation, $temperature, [], $providerKey);
+    if (isset($result['error'])) {
+        return $result;
+    }
+
+    $data = isset($result['data']) && is_array($result['data']) ? $result['data'] : $result;
+    $assistant = '';
+    if ($providerType === 'gemini') {
+        $assistant = (string) ($data['candidates'][0]['content']['parts'][0]['text'] ?? '');
+    } else {
+        $assistant = openai_extract_assistant_message_text($data['choices'][0]['message'] ?? null);
+    }
+    return [
+        'ok' => true,
+        'subAgent' => $meta['name'] ?? $name,
+        'provider' => $providerKey,
+        'provider_config' => $providerKeyRaw,
+        'model' => $model,
+        'response' => $assistant,
+        'usage' => is_array($data) ? ($data['usage'] ?? null) : null,
+    ];
 }
 
 function clearMemoryGraphToolRegistryCache(): void {
@@ -1146,6 +1311,7 @@ function executePhpTool(string $toolName, array $arguments): array {
 }
 
 function executeBuiltInTool(string $toolName, array $arguments, array $activeTools): array {
+    global $providers;
     if (in_array($toolName, ['list_available_tools', 'list_tools', 'get_tools'], true)) {
         $toolCallsPath = tool_registry_path();
         $rawJson = file_exists($toolCallsPath) ? (string) file_get_contents($toolCallsPath) : '{"tools":[]}';
@@ -1444,6 +1610,71 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
             return ['error' => 'Chat exchange not found', 'id' => $id];
         }
         return $exchange;
+    }
+    if ($toolName === 'list_sub_agent_files') {
+        return ['subAgents' => list_sub_agent_files_meta(false)];
+    }
+    if ($toolName === 'read_sub_agent_file') {
+        $name = (string) ($arguments['name'] ?? '');
+        $meta = get_sub_agent_meta($name);
+        if ($meta === null) return ['error' => 'Sub-agent not found'];
+        return $meta;
+    }
+    if ($toolName === 'create_sub_agent_file') {
+        $name = (string) ($arguments['name'] ?? '');
+        $content = (string) ($arguments['content'] ?? '');
+        if ($content === '' && isset($arguments['config']) && is_array($arguments['config'])) {
+            $content = sub_agent_markdown_from_config($arguments['config']);
+        }
+        return create_sub_agent_file($name, $content);
+    }
+    if ($toolName === 'update_sub_agent_file') {
+        $name = (string) ($arguments['name'] ?? '');
+        $content = (string) ($arguments['content'] ?? '');
+        if ($content === '' && isset($arguments['config']) && is_array($arguments['config'])) {
+            $content = sub_agent_markdown_from_config($arguments['config']);
+        }
+        return update_sub_agent_file($name, $content);
+    }
+    if ($toolName === 'delete_sub_agent_file') {
+        return delete_sub_agent_file_by_name((string) ($arguments['name'] ?? ''));
+    }
+    if ($toolName === 'run_sub_agent_chat') {
+        return memory_graph_execute_sub_agent_completion($providers, $arguments);
+    }
+    if ($toolName === 'start_sub_agent_chat') {
+        $taskId = 'subtask_' . time() . '_' . mt_rand(1000, 99999);
+        $payload = [
+            'name' => (string) ($arguments['name'] ?? ''),
+            'prompt' => (string) ($arguments['prompt'] ?? ''),
+            'messages' => isset($arguments['messages']) && is_array($arguments['messages']) ? $arguments['messages'] : [],
+        ];
+        create_sub_agent_task($taskId, $payload);
+        return ['ok' => true, 'taskId' => $taskId, 'status' => 'queued'];
+    }
+    if ($toolName === 'get_sub_agent_chat_result') {
+        $taskId = (string) ($arguments['taskId'] ?? '');
+        if ($taskId === '') return ['error' => 'taskId is required'];
+        $task = get_sub_agent_task($taskId);
+        if ($task === null) return ['error' => 'Task not found'];
+        return $task;
+    }
+    if ($toolName === 'wait_for_sub_agent_chat') {
+        $taskId = (string) ($arguments['taskId'] ?? '');
+        if ($taskId === '') return ['error' => 'taskId is required'];
+        $task = get_sub_agent_task($taskId);
+        if ($task === null) return ['error' => 'Task not found'];
+        $status = (string) ($task['status'] ?? 'queued');
+        if ($status === 'queued' || $status === 'running') {
+            update_sub_agent_task($taskId, ['status' => 'running']);
+            $payload = is_array($task['payload'] ?? null) ? $task['payload'] : [];
+            $result = memory_graph_execute_sub_agent_completion($providers, $payload);
+            if (isset($result['error'])) {
+                return update_sub_agent_task($taskId, ['status' => 'failed', 'error' => $result['error']]);
+            }
+            return update_sub_agent_task($taskId, ['status' => 'done', 'result' => $result, 'error' => null]);
+        }
+        return $task;
     }
     if ($toolName === 'add_provider') {
         $key = (string) ($arguments['key'] ?? $arguments['providerKey'] ?? '');
@@ -2369,7 +2600,7 @@ function requestOpenAiCompatible(array $provider, string $model, array $conversa
         $apiKey = memory_graph_alibaba_sanitize_api_key($apiKey);
     }
 
-    $result = memory_graph_openai_compatible_post($endpoint, $apiKey, $payload);
+    $result = memory_graph_openai_compatible_post($endpoint, $apiKey, $payload, $providerKey);
 
     if ($providerKey === 'alibaba' && isset($result['error'])) {
         $raw = isset($result['raw']) ? (string) $result['raw'] : '';
@@ -2377,7 +2608,7 @@ function requestOpenAiCompatible(array $provider, string $model, array $conversa
         if (memory_graph_alibaba_should_retry_alternate_region($hc, $raw)) {
             $alt = memory_graph_alibaba_toggle_endpoint($endpoint);
             if ($alt !== $endpoint) {
-                $result = memory_graph_openai_compatible_post($alt, $apiKey, $payload);
+                $result = memory_graph_openai_compatible_post($alt, $apiKey, $payload, $providerKey);
             }
         }
     }
