@@ -2418,6 +2418,89 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             font-size: 0.62rem;
             padding: 5px 8px;
         }
+        .simple-open-sessions-tabs {
+            display: none;
+            flex-wrap: wrap;
+            gap: 5px;
+            padding: 4px 8px 8px;
+            max-height: 100px;
+            overflow-y: auto;
+            border-bottom: 1px solid rgba(214, 219, 226, 0.06);
+        }
+        .simple-open-sessions-tabs.is-visible {
+            display: flex;
+        }
+        .simple-open-sess-tab {
+            font-size: 0.6rem;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(212, 175, 55, 0.2);
+            background: rgba(0, 0, 0, 0.25);
+            color: var(--gold-dim);
+            cursor: pointer;
+            max-width: 11rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .simple-open-sess-tab:hover {
+            border-color: rgba(212, 175, 55, 0.4);
+            color: #e8d5a0;
+        }
+        .simple-open-sess-tab.is-active {
+            border-color: rgba(212, 175, 55, 0.45);
+            background: rgba(212, 175, 55, 0.1);
+            color: #d4af37;
+        }
+        .simple-open-sess-tab.is-sub {
+            font-style: italic;
+        }
+        [data-theme="light"] .simple-open-sess-tab {
+            background: rgba(255, 255, 255, 0.4);
+        }
+        .simple-chat-row--activity {
+            justify-content: center;
+        }
+        .simple-activity-bubble-wrap {
+            max-width: 100%;
+        }
+        .simple-activity-bubble {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.64rem;
+            line-height: 1.2;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(214, 219, 226, 0.12);
+            background: rgba(0, 0, 0, 0.2);
+        }
+        .simple-activity-bubble--ok {
+            border-color: rgba(80, 200, 120, 0.35);
+            color: #a8e0c0;
+        }
+        .simple-activity-bubble--fail {
+            border-color: rgba(220, 90, 80, 0.45);
+            color: #f0b0a8;
+        }
+        .simple-activity-bubble-ico--ok {
+            color: #5fd48a;
+            font-weight: 700;
+        }
+        .simple-activity-bubble-ico--fail {
+            color: #e86a5a;
+            font-weight: 700;
+        }
+        .simple-activity-bubble--mcp {
+            border-color: rgba(140, 180, 255, 0.25);
+            background: rgba(30, 50, 80, 0.3);
+        }
+        .simple-activity-bubble-mcp-pill {
+            color: #b8d0ff;
+        }
+        [data-theme="light"] .simple-activity-bubble {
+            background: rgba(255, 255, 255, 0.5);
+        }
         .simple-chat-history-list {
             flex: 1;
             min-height: 40px;
@@ -2637,6 +2720,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                         <button type="button" id="simple-chat-history-new" class="panel-action-btn">New session</button>
                         <button type="button" id="simple-chat-history-refresh" class="panel-action-btn">Refresh</button>
                     </div>
+                    <div id="simple-open-sessions-tabs" class="simple-open-sessions-tabs" role="tablist" aria-label="Open chat sessions" hidden="hidden"></div>
                     <div class="simple-chat-history-toolbar">
                         <button type="button" id="simple-chat-history-delete-selected" class="panel-action-btn btn-stop" disabled>Delete selected</button>
                         <button type="button" id="simple-chat-history-clear-legacy" class="panel-action-btn" title="Remove saved turns that have no session id">Clear legacy</button>
@@ -4573,26 +4657,42 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     }
                     return;
                 }
-                var sid = (typeof window.MemoryGraphGetChatSessionId === 'function') ? window.MemoryGraphGetChatSessionId() : '';
+                var subSid = '';
+                var inSimple = !!(document.documentElement && document.documentElement.classList && document.documentElement.classList.contains('mg-simple-ui'));
+                if (inSimple && typeof window.MemoryGraphCreateSubAgentSession === 'function') {
+                    subSid = window.MemoryGraphCreateSubAgentSession(window.currentOpenedSubAgent.name);
+                    if (subSid && typeof window.MemoryGraphAppendSubAgentTranscript === 'function') {
+                        window.MemoryGraphAppendSubAgentTranscript(subSid, prompt, '', {});
+                    }
+                } else {
+                    subSid = (typeof window.MemoryGraphGetChatSessionId === 'function') ? window.MemoryGraphGetChatSessionId() : '';
+                }
                 var statusReqId = 'subagent_panel_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
                 if (typeof window.MemoryGraphStartAdhocStatusPoll === 'function') {
-                    window.MemoryGraphStartAdhocStatusPoll(statusReqId);
+                    window.MemoryGraphStartAdhocStatusPoll(statusReqId, inSimple ? subSid : '');
                 }
                 subAgentSendBtn.disabled = true;
                 if (subAgentRunResponse) {
                     subAgentRunResponse.classList.remove('is-error');
                     subAgentRunResponse.textContent = 'Running…';
                 }
-                fetch('api/sub_agent_run.php', {
+                var fetchSubController = (typeof window.AbortController === 'function') ? new window.AbortController() : null;
+                var subFetchTimer = (typeof window.setTimeout === 'function' && window.AbortController)
+                    ? window.setTimeout(function () { try { fetchSubController.abort(); } catch (e) {} }, 600000) : 0;
+                var fetchSubOpts = {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         name: window.currentOpenedSubAgent.name,
                         prompt: prompt,
-                        chatSessionId: sid,
+                        chatSessionId: subSid,
                         statusRequestId: statusReqId
                     })
-                }).then(function (res) {
+                };
+                if (fetchSubController) {
+                    fetchSubOpts.signal = fetchSubController.signal;
+                }
+                fetch('api/sub_agent_run.php', fetchSubOpts).then(function (res) {
                     return res.text().then(function (t) {
                         var j = null;
                         try {
@@ -4601,23 +4701,43 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                         return { ok: res.ok, status: res.status, body: j, raw: t };
                     });
                 }).then(function (out) {
+                    if (subFetchTimer) {
+                        try { clearTimeout(subFetchTimer); } catch (e) {}
+                    }
                     if (!subAgentRunResponse) return;
                     var j = out.body;
                     if (!out.ok || (j && j.error)) {
                         subAgentRunResponse.classList.add('is-error');
                         var msg = (j && j.error) ? String(j.error) : (out.raw || ('HTTP ' + out.status));
                         subAgentRunResponse.textContent = msg;
+                        if (inSimple && subSid && typeof window.MemoryGraphAppendSubAgentTranscript === 'function') {
+                            window.MemoryGraphAppendSubAgentTranscript(subSid, '', 'Error: ' + msg, { showNotification: true });
+                        }
                         return;
                     }
                     if (j && typeof j.response === 'string' && j.response.trim()) {
                         subAgentRunResponse.textContent = j.response;
+                        if (inSimple && subSid && typeof window.MemoryGraphAppendSubAgentTranscript === 'function') {
+                            window.MemoryGraphAppendSubAgentTranscript(subSid, '', j.response, { showNotification: true });
+                        }
                         return;
                     }
-                    subAgentRunResponse.textContent = JSON.stringify(j, null, 2);
+                    var txt = JSON.stringify(j, null, 2);
+                    subAgentRunResponse.textContent = txt;
+                    if (inSimple && subSid && typeof window.MemoryGraphAppendSubAgentTranscript === 'function') {
+                        window.MemoryGraphAppendSubAgentTranscript(subSid, '', txt, { showNotification: true });
+                    }
                 }).catch(function (err) {
+                    if (subFetchTimer) {
+                        try { clearTimeout(subFetchTimer); } catch (e) {}
+                    }
                     if (subAgentRunResponse) {
                         subAgentRunResponse.classList.add('is-error');
-                        subAgentRunResponse.textContent = (err && err.message) ? err.message : 'Request failed.';
+                        var em = (err && err.name === 'AbortError') ? 'Request timed out. Try a shorter prompt or run again from chat.' : ((err && err.message) ? err.message : 'Request failed.');
+                        subAgentRunResponse.textContent = em;
+                        if (inSimple && subSid && typeof window.MemoryGraphAppendSubAgentTranscript === 'function') {
+                            window.MemoryGraphAppendSubAgentTranscript(subSid, '', 'Error: ' + em, { showNotification: true });
+                        }
                     }
                 }).finally(function () {
                     if (typeof window.MemoryGraphStopAdhocStatusPoll === 'function') {

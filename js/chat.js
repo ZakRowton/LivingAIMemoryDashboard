@@ -23,44 +23,143 @@
     var currentRequest = null;
     var wasStopped = false;
     var lastGraphRefreshToken = '';
+    var lastAdhocGraphRefreshToken = '';
     var promptQueue = [];
-    var CHAT_TURNS_KEY = 'memoryGraphChatTurnsV1';
+    var BUNDLE_KEY = 'memoryGraphSessionsBundleV1';
+    var LEGACY_TURNS_KEY = 'memoryGraphChatTurnsV1';
     var CHAT_SESSION_KEY = 'memoryGraphChatSessionIdV1';
     var MAX_STORED_TURNS = 40;
+    var sessionBundle = null;
+    var inFlightMainRequestId = '';
+    var inFlightMainSessionId = '';
+    var adhocStatusTargetSessionId = '';
+    var lastActivityTailTBySession = {};
+    var LONG_CHAT_AJAX_MS = 600000;
 
-    function getOrCreateChatSessionId() {
-        try {
-            var s = sessionStorage.getItem(CHAT_SESSION_KEY);
-            if (s && String(s).trim()) return String(s).trim();
-        } catch (e) {}
-        var id = 'cs_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
-        try {
-            sessionStorage.setItem(CHAT_SESSION_KEY, id);
-        } catch (e2) {}
-        return id;
+    function newSessionId() {
+        return 'cs_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
     }
-    window.MemoryGraphGetChatSessionId = getOrCreateChatSessionId;
 
-    function loadChatTurns() {
+    function normalizeBundle(raw) {
+        if (!raw || !raw.sessions || typeof raw.sessions !== 'object' || !raw.activeId) return null;
+        if (!raw.sessions[raw.activeId]) {
+            var ids = Object.keys(raw.sessions);
+            if (ids.length) raw.activeId = ids[0];
+            else return null;
+        }
+        if (!Array.isArray(raw.order) || !raw.order.length) {
+            raw.order = Object.keys(raw.sessions);
+        }
+        return raw;
+    }
+
+    function loadSessionBundle() {
         try {
-            var raw = sessionStorage.getItem(CHAT_TURNS_KEY);
-            if (!raw) return [];
-            var arr = JSON.parse(raw);
-            return Array.isArray(arr) ? arr : [];
-        } catch (e) {
-            return [];
+            var s = sessionStorage.getItem(BUNDLE_KEY);
+            if (s) {
+                var b = JSON.parse(s);
+                b = normalizeBundle(b);
+                if (b) return b;
+            }
+        } catch (e) {}
+        var legacyTurns = [];
+        try {
+            var lr = sessionStorage.getItem(LEGACY_TURNS_KEY);
+            if (lr) {
+                var a = JSON.parse(lr);
+                if (Array.isArray(a)) legacyTurns = a;
+            }
+        } catch (e2) {}
+        var sid = '';
+        try {
+            sid = (sessionStorage.getItem(CHAT_SESSION_KEY) || '').trim();
+        } catch (e3) {}
+        if (!sid) sid = newSessionId();
+        return {
+            activeId: sid,
+            order: [sid],
+            sessions: (function () {
+                var o = {};
+                o[sid] = { label: 'Main', isSub: false, turns: filterPersistTurns(legacyTurns) };
+                return o;
+            })()
+        };
+    }
+
+    function filterPersistTurns(arr) {
+        var out = [];
+        (Array.isArray(arr) ? arr : []).forEach(function (t) {
+            if (!t || !t.role) return;
+            if (t.role === 'user' || t.role === 'assistant') {
+                if (typeof t.content === 'string') out.push({ role: t.role, content: t.content });
+            } else if (t.role === 'activity' && t.actKind && typeof t.label === 'string') {
+                out.push({ role: 'activity', actKind: t.actKind, label: t.label });
+            }
+        });
+        if (out.length > MAX_STORED_TURNS) out = out.slice(-MAX_STORED_TURNS);
+        return out;
+    }
+
+    function saveSessionBundle() {
+        try {
+            Object.keys(sessionBundle.sessions).forEach(function (k) {
+                var sess = sessionBundle.sessions[k];
+                if (!sess || !Array.isArray(sess.turns)) return;
+                if (sess.turns.length > MAX_STORED_TURNS) {
+                    sess.turns = sess.turns.slice(-MAX_STORED_TURNS);
+                }
+            });
+            sessionStorage.setItem(BUNDLE_KEY, JSON.stringify(sessionBundle));
+            try {
+                sessionStorage.setItem(CHAT_SESSION_KEY, sessionBundle.activeId);
+            } catch (e) {}
+        } catch (e2) {}
+    }
+
+    sessionBundle = loadSessionBundle();
+
+    function getTurns() {
+        return sessionBundle.sessions[sessionBundle.activeId].turns;
+    }
+
+    function getActiveSessionId() {
+        return sessionBundle.activeId;
+    }
+
+    function emitOpenSessionsChanged() {
+        try {
+            document.dispatchEvent(new CustomEvent('memoryGraphOpenSessionsChanged'));
+        } catch (e) {}
+        if (typeof window.MemoryGraphRefreshOpenSessionTabs === 'function') {
+            window.MemoryGraphRefreshOpenSessionTabs();
         }
     }
 
-    function saveChatTurns(turns) {
-        try {
-            var t = turns.slice();
-            if (t.length > MAX_STORED_TURNS) t = t.slice(-MAX_STORED_TURNS);
-            sessionStorage.setItem(CHAT_TURNS_KEY, JSON.stringify(t));
-        } catch (e) {}
+    function ensureSessionEntry(sessionId, label, isSub) {
+        sessionId = String(sessionId || '').trim();
+        if (!sessionId) return;
+        if (!sessionBundle.sessions[sessionId]) {
+            sessionBundle.sessions[sessionId] = {
+                label: label != null && String(label).trim() ? String(label).trim() : sessionId,
+                isSub: !!isSub,
+                turns: []
+            };
+            if (sessionBundle.order.indexOf(sessionId) === -1) {
+                sessionBundle.order.push(sessionId);
+            }
+        }
     }
 
-    var chatTurns = loadChatTurns();
+    function getOrCreateChatSessionId() {
+        if (!getActiveSessionId() || !sessionBundle.sessions[sessionBundle.activeId]) {
+            var id = newSessionId();
+            sessionBundle.activeId = id;
+            ensureSessionEntry(id, 'Main', false);
+        }
+        saveSessionBundle();
+        return sessionBundle.activeId;
+    }
+    window.MemoryGraphGetChatSessionId = getOrCreateChatSessionId;
 
     function focusChatInputSoon() {
         setTimeout(function () {
@@ -74,16 +173,104 @@
         }, 180);
     }
 
+    function toolDetailLooksFailed(d) {
+        if (d == null) return false;
+        if (typeof d !== 'object') return false;
+        if (d.error) return true;
+        if (d.ok === false) return true;
+        return false;
+    }
+
+    function firstLineToolNameFromMessage(msg) {
+        if (!msg || typeof msg !== 'string') return '';
+        var s = msg.split('→')[0] || msg;
+        s = s.split('\n')[0];
+        return s.replace(/^\s+|\s+$/g, '').slice(0, 120);
+    }
+
+    function appendActivityBubblesToSession(targetSessionId, status) {
+        if (!targetSessionId || !status || !document.documentElement.classList.contains('mg-simple-ui')) return;
+        var al = Array.isArray(status.activityLog) ? status.activityLog : [];
+        if (!al.length) return;
+        var lastT = lastActivityTailTBySession[targetSessionId] || 0;
+        var maxT = lastT;
+        var changed = false;
+        al.forEach(function (entry) {
+            if (!entry) return;
+            var ts = entry.t != null ? parseInt(entry.t, 10) : 0;
+            if (ts <= lastT) return;
+            if (ts > maxT) maxT = ts;
+            var typ = String(entry.type || '');
+            var detail = entry.detail;
+            if (typ === 'tool_result') {
+                var ok = !toolDetailLooksFailed(detail);
+                getTurnsForSession(targetSessionId).push({
+                    role: 'activity',
+                    actKind: ok ? 'toolOk' : 'toolErr',
+                    label: firstLineToolNameFromMessage(entry.message)
+                });
+                changed = true;
+            } else if (typ === 'tool_call' && detail && typeof detail === 'object' && detail.mcp_parallel) {
+                getTurnsForSession(targetSessionId).push({ role: 'activity', actKind: 'mcp', label: String(entry.message || 'MCP tool').split('\n')[0].slice(0, 120) });
+                changed = true;
+            }
+        });
+        if (maxT > lastT) {
+            lastActivityTailTBySession[targetSessionId] = maxT;
+        }
+        if (changed) {
+            saveSessionBundle();
+            if (getActiveSessionId() === targetSessionId) {
+                renderSimpleChatThread();
+            }
+        }
+    }
+
+    function getTurnsForSession(sid) {
+        ensureSessionEntry(sid, sid, false);
+        return sessionBundle.sessions[sid].turns;
+    }
+
     function renderSimpleChatThread() {
         var $thread = $('#simple-chat-thread');
         if (!$thread.length) return;
         $thread.empty();
+        var chatTurns = getTurns();
         if (!chatTurns.length) {
             $thread.append($('<p class="simple-chat-empty font-serif">').text('Message the assistant below. Your conversation is kept for this browser session.'));
             return;
         }
         chatTurns.forEach(function (t) {
-            if (!t || (t.role !== 'user' && t.role !== 'assistant') || typeof t.content !== 'string') return;
+            if (!t) return;
+            if (t.role === 'activity' && t.actKind && t.label) {
+                var $rowA = $('<div class="simple-chat-row simple-chat-row--activity">');
+                var $wrap = $('<div class="simple-activity-bubble-wrap">');
+                var $b = $('<span class="simple-activity-bubble" role="status">');
+                if (t.actKind === 'mcp') {
+                    $b.addClass('simple-activity-bubble--mcp');
+                    $b.append($('<span class="simple-activity-bubble-mcp-pill">').text(t.label));
+                } else {
+                    if (t.actKind === 'toolErr') {
+                        $b.addClass('simple-activity-bubble--fail');
+                    } else {
+                        $b.addClass('simple-activity-bubble--ok');
+                    }
+                    var $icon = $('<span class="simple-activity-bubble-ico" aria-hidden="true">');
+                    if (t.actKind === 'toolErr') {
+                        $icon.addClass('simple-activity-bubble-ico--fail');
+                        $icon.text('✕');
+                    } else {
+                        $icon.addClass('simple-activity-bubble-ico--ok');
+                        $icon.text('✓');
+                    }
+                    $b.append($icon, $('<span class="simple-activity-bubble-lbl">').text(t.label));
+                }
+                $rowA.append($wrap.append($b));
+                $thread.append($rowA);
+                return;
+            }
+            if (t.role !== 'user' && t.role !== 'assistant') return;
+            if (typeof t.content !== 'string') return;
             var $row = $('<div class="simple-chat-row simple-chat-row--' + t.role + '">');
             var $bubble = $('<div class="simple-chat-bubble">');
             if (t.role === 'assistant' && /^error:\s/i.test(t.content.trim())) {
@@ -214,18 +401,20 @@
         if (typeof window.MemoryGraphUpdateExecutionPanel === 'function') window.MemoryGraphUpdateExecutionPanel();
     }
 
-    function applyStatusSnapshot(status) {
-        if (status && status.fileExists === false) return;
-        var executionDetails = status && status.executionDetailsByNode ? status.executionDetailsByNode : {};
-        var inferredToolIds = Array.isArray(status.activeToolIds) ? status.activeToolIds.slice() : [];
-        var inferredMemoryIds = Array.isArray(status.activeMemoryIds) ? status.activeMemoryIds.slice() : [];
-        var inferredInstructionIds = Array.isArray(status.activeInstructionIds) ? status.activeInstructionIds.slice() : [];
-        var inferredResearchIds = Array.isArray(status.activeResearchIds) ? status.activeResearchIds.slice() : [];
-        var inferredRulesIds = Array.isArray(status.activeRulesIds) ? status.activeRulesIds.slice() : [];
-        var inferredMcpIds = Array.isArray(status.activeMcpIds) ? status.activeMcpIds.slice() : [];
-        var inferredJobIds = Array.isArray(status.activeJobIds) ? status.activeJobIds.slice() : [];
-        var inferredSubAgentIds = Array.isArray(status.activeSubAgentIds) ? status.activeSubAgentIds.slice() : [];
-
+    function inferStatusGraphState(status) {
+        var st = status || {};
+        if (st.fileExists === false) {
+            return null;
+        }
+        var executionDetails = st.executionDetailsByNode ? st.executionDetailsByNode : {};
+        var inferredToolIds = Array.isArray(st.activeToolIds) ? st.activeToolIds.slice() : [];
+        var inferredMemoryIds = Array.isArray(st.activeMemoryIds) ? st.activeMemoryIds.slice() : [];
+        var inferredInstructionIds = Array.isArray(st.activeInstructionIds) ? st.activeInstructionIds.slice() : [];
+        var inferredResearchIds = Array.isArray(st.activeResearchIds) ? st.activeResearchIds.slice() : [];
+        var inferredRulesIds = Array.isArray(st.activeRulesIds) ? st.activeRulesIds.slice() : [];
+        var inferredMcpIds = Array.isArray(st.activeMcpIds) ? st.activeMcpIds.slice() : [];
+        var inferredJobIds = Array.isArray(st.activeJobIds) ? st.activeJobIds.slice() : [];
+        var inferredSubAgentIds = Array.isArray(st.activeSubAgentIds) ? st.activeSubAgentIds.slice() : [];
         Object.keys(executionDetails).forEach(function (key) {
             if (key.indexOf('tool_') === 0 && inferredToolIds.indexOf(key) === -1) inferredToolIds.push(key);
             if (key.indexOf('memory_file_') === 0 && inferredMemoryIds.indexOf(key) === -1) inferredMemoryIds.push(key);
@@ -236,52 +425,106 @@
             if ((key.indexOf('job_file_') === 0 || key.indexOf('job_cron_') === 0) && inferredJobIds.indexOf(key) === -1) inferredJobIds.push(key);
             if (key.indexOf('sub_agent_file_') === 0 && inferredSubAgentIds.indexOf(key) === -1) inferredSubAgentIds.push(key);
         });
-
-        var inferredCheckingMcps = !!(status.checkingMcps || inferredMcpIds.length || executionDetails.mcps);
-        var inferredToolExecution = !!(status.gettingAvailTools || inferredToolIds.length || executionDetails.tools);
-        var inferredMemoryExecution = !!(status.checkingMemory || inferredMemoryIds.length || executionDetails.memory);
-        var inferredInstructionExecution = !!(status.checkingInstructions || inferredInstructionIds.length || executionDetails.instructions);
-        var inferredResearchExecution = !!(status.checkingResearch || inferredResearchIds.length || executionDetails.research);
-        var inferredRulesExecution = !!(status.checkingRules || inferredRulesIds.length || executionDetails.rules);
-        var inferredJobExecution = !!(status.checkingJobs || inferredJobIds.length || executionDetails.jobs);
+        var inferredCheckingMcps = !!(st.checkingMcps || inferredMcpIds.length || executionDetails.mcps);
+        var inferredMemoryExecution = !!(st.checkingMemory || inferredMemoryIds.length || executionDetails.memory);
+        var inferredInstructionExecution = !!(st.checkingInstructions || inferredInstructionIds.length || executionDetails.instructions);
+        var inferredResearchExecution = !!(st.checkingResearch || inferredResearchIds.length || executionDetails.research);
+        var inferredRulesExecution = !!(st.checkingRules || inferredRulesIds.length || executionDetails.rules);
         var inferredSubAgentExecution = !!(inferredSubAgentIds.length || executionDetails.sub_agents);
-        var memoryActive = !!(status.checkingMemory || inferredMemoryIds.length > 0 || status.memoryToolExecuting || status.isAccessingMemoryFile);
-        var durationMs = (memoryActive && inferredMemoryIds.length > 0) || (inferredSubAgentExecution && inferredSubAgentIds.length > 0) ? 4500 : (status.thinking ? 2600 : 2200);
-        if (typeof window.agentState !== 'undefined' && typeof window.agentState.applySnapshotFromStatus === 'function') {
-            window.agentState.applySnapshotFromStatus({
-                thinking: !!status.thinking,
-                gettingAvailTools: !!status.gettingAvailTools,
-                checkingMemory: !!status.checkingMemory,
-                checkingInstructions: !!status.checkingInstructions,
-                checkingResearch: inferredResearchExecution,
-                checkingRules: inferredRulesExecution,
-                checkingMcps: inferredCheckingMcps,
-                checkingJobs: !!status.checkingJobs,
-                activeToolIds: inferredToolIds,
-                activeMemoryIds: inferredMemoryIds,
-                activeInstructionIds: inferredInstructionIds,
-                activeResearchIds: inferredResearchIds,
-                activeRulesIds: inferredRulesIds,
-                activeMcpIds: inferredMcpIds,
-                activeJobIds: inferredJobIds,
-                activeSubAgentIds: inferredSubAgentIds,
-                executionDetailsByNode: executionDetails,
-                isAccessingMemoryFile: !!(status.isAccessingMemoryFile || memoryActive),
-                durationMs: durationMs
-            });
+        var memoryActive = !!(st.checkingMemory || inferredMemoryIds.length > 0 || st.memoryToolExecuting || st.isAccessingMemoryFile);
+        var durationMs = (memoryActive && inferredMemoryIds.length > 0) || (inferredSubAgentExecution && inferredSubAgentIds.length > 0) ? 4500 : (st.thinking ? 2600 : 2200);
+        var snapshot = {
+            thinking: !!st.thinking,
+            gettingAvailTools: !!st.gettingAvailTools,
+            checkingMemory: !!st.checkingMemory,
+            checkingInstructions: !!st.checkingInstructions,
+            checkingResearch: inferredResearchExecution,
+            checkingRules: inferredRulesExecution,
+            checkingMcps: inferredCheckingMcps,
+            checkingJobs: !!st.checkingJobs,
+            activeToolIds: inferredToolIds,
+            activeMemoryIds: inferredMemoryIds,
+            activeInstructionIds: inferredInstructionIds,
+            activeResearchIds: inferredResearchIds,
+            activeRulesIds: inferredRulesIds,
+            activeMcpIds: inferredMcpIds,
+            activeJobIds: inferredJobIds,
+            activeSubAgentIds: inferredSubAgentIds,
+            executionDetailsByNode: executionDetails,
+            isAccessingMemoryFile: !!(st.isAccessingMemoryFile || memoryActive),
+            durationMs: durationMs
+        };
+        var background = {
+            checkingJobs: snapshot.checkingJobs,
+            gettingAvailTools: snapshot.gettingAvailTools,
+            checkingMemory: snapshot.checkingMemory,
+            checkingInstructions: snapshot.checkingInstructions,
+            checkingMcps: snapshot.checkingMcps,
+            activeToolIds: snapshot.activeToolIds,
+            activeMemoryIds: snapshot.activeMemoryIds,
+            activeInstructionIds: snapshot.activeInstructionIds,
+            activeMcpIds: snapshot.activeMcpIds,
+            activeSubAgentIds: snapshot.activeSubAgentIds,
+            activeJobIds: snapshot.activeJobIds,
+            activeResearchIds: snapshot.activeResearchIds,
+            activeRulesIds: snapshot.activeRulesIds,
+            executionDetailsByNode: executionDetails,
+            durationMs: durationMs
+        };
+        return { snapshot: snapshot, background: background, durationMs: durationMs };
+    }
+
+    function applyStatusSnapshot(status) {
+        var st = status || {};
+        if (st.fileExists === false) return;
+        var infl = inferStatusGraphState(st);
+        if (!infl) return;
+        if (inFlightMainSessionId) {
+            appendActivityBubblesToSession(inFlightMainSessionId, st);
         }
-        if (status.graphRefreshToken && status.graphRefreshToken !== lastGraphRefreshToken) {
-            lastGraphRefreshToken = status.graphRefreshToken;
+        if (typeof window.agentState !== 'undefined' && typeof window.agentState.applySnapshotFromStatus === 'function') {
+            window.agentState.applySnapshotFromStatus(infl.snapshot);
+        }
+        if (st.graphRefreshToken && st.graphRefreshToken !== lastGraphRefreshToken) {
+            lastGraphRefreshToken = st.graphRefreshToken;
             if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
         }
         if (typeof window.MemoryGraphUpdateExecutionPanel === 'function') window.MemoryGraphUpdateExecutionPanel();
         if (typeof window.SimpleUiLogFromStatus === 'function') {
-            window.SimpleUiLogFromStatus(status || {});
+            window.SimpleUiLogFromStatus(st);
         }
-        if (!status.thinking && !stopPollingTimeout) {
+        if (!st.thinking && !stopPollingTimeout) {
             stopPollingTimeout = setTimeout(function () {
                 stopStatusPolling();
             }, RECENT_ACTIVITY_HOLD_MS);
+        }
+    }
+
+    function applyAdhocStatusSnapshot(status) {
+        var st = status || {};
+        if (st.fileExists === false) return;
+        var infl = inferStatusGraphState(st);
+        if (!infl) return;
+        if (adhocStatusTargetSessionId) {
+            appendActivityBubblesToSession(adhocStatusTargetSessionId, st);
+        }
+        if (typeof window.agentState !== 'undefined' && window.agentState.applyBackgroundJobState) {
+            window.agentState.applyBackgroundJobState(infl.background);
+        }
+        if (st.graphRefreshToken && st.graphRefreshToken !== lastAdhocGraphRefreshToken) {
+            lastAdhocGraphRefreshToken = st.graphRefreshToken;
+            if (typeof window.MemoryGraphRefresh === 'function') window.MemoryGraphRefresh();
+        }
+        if (typeof window.MemoryGraphUpdateExecutionPanel === 'function') window.MemoryGraphUpdateExecutionPanel();
+        if (typeof window.MemoryGraphUpdateSimplePulsesFromStatus === 'function') {
+            var merged = {};
+            for (var k in st) {
+                if (Object.prototype.hasOwnProperty.call(st, k)) {
+                    merged[k] = st[k];
+                }
+            }
+            merged.thinking = false;
+            window.MemoryGraphUpdateSimplePulsesFromStatus(merged);
         }
     }
 
@@ -298,6 +541,15 @@
             });
     }
 
+    function pollAdhocStatusSnapshot(requestId) {
+        if (!requestId) return;
+        $.getJSON('api/chat_status.php', { request_id: requestId })
+            .done(function (status) {
+                applyAdhocStatusSnapshot(status || {});
+            })
+            .fail(function () {});
+    }
+
     function startStatusPolling(requestId) {
         stopStatusPolling();
         if (!requestId) return;
@@ -310,23 +562,33 @@
         }, 100);
     }
 
-    /** Poll graph execution status for sub-agent panel runs (parallel to main chat polling). */
-    window.MemoryGraphStartAdhocStatusPoll = function (requestId) {
+    /** Poll graph execution status for sub-agent panel runs: updates background graph state only (no main isThinking / snapshot fight). */
+    window.MemoryGraphStartAdhocStatusPoll = function (requestId, subSessionId) {
         if (!requestId) return;
+        if (typeof subSessionId === 'string' && subSessionId.trim() !== '') {
+            adhocStatusTargetSessionId = subSessionId.trim();
+            lastActivityTailTBySession[adhocStatusTargetSessionId] = lastActivityTailTBySession[adhocStatusTargetSessionId] || 0;
+        } else {
+            adhocStatusTargetSessionId = '';
+        }
         if (adhocStatusPollHandle) {
             clearInterval(adhocStatusPollHandle);
             adhocStatusPollHandle = null;
         }
-        pollStatusSnapshot(requestId, true);
+        pollAdhocStatusSnapshot(requestId);
         adhocStatusPollHandle = setInterval(function () {
-            pollStatusSnapshot(requestId, true);
-        }, 100);
+            pollAdhocStatusSnapshot(requestId);
+        }, 200);
     };
 
     window.MemoryGraphStopAdhocStatusPoll = function () {
         if (adhocStatusPollHandle) {
             clearInterval(adhocStatusPollHandle);
             adhocStatusPollHandle = null;
+        }
+        adhocStatusTargetSessionId = '';
+        if (typeof window.MemoryGraphResyncBackgroundGraphState === 'function') {
+            window.MemoryGraphResyncBackgroundGraphState();
         }
     };
 
@@ -691,7 +953,7 @@
         var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
         var chatSessionId = getOrCreateChatSessionId();
         var messages = [];
-        chatTurns.forEach(function (t) {
+        getTurns().forEach(function (t) {
             if (t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string') {
                 messages.push({ role: t.role, content: t.content });
             }
@@ -699,6 +961,9 @@
         messages.push({ role: 'user', content: text });
         var requestId = 'chat_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
         lastGraphRefreshToken = '';
+        inFlightMainRequestId = requestId;
+        inFlightMainSessionId = getActiveSessionId();
+        lastActivityTailTBySession[inFlightMainSessionId] = lastActivityTailTBySession[inFlightMainSessionId] || 0;
 
         if (typeof window.agentState !== 'undefined') window.agentState.setThinking(true);
         startStatusPolling(requestId);
@@ -706,6 +971,7 @@
         currentRequest = $.ajax({
             url: 'api/chat.php',
             method: 'POST',
+            timeout: LONG_CHAT_AJAX_MS,
             contentType: 'application/json',
             data: JSON.stringify({
                 requestId: requestId,
@@ -751,9 +1017,9 @@
                 if (!content) content = 'No text in response.';
                 var preview = content.length > 120 ? content.slice(0, 120) + '…' : content;
                 showNotification(preview, text, content);
-                chatTurns.push({ role: 'user', content: text });
-                chatTurns.push({ role: 'assistant', content: content });
-                saveChatTurns(chatTurns);
+                getTurns().push({ role: 'user', content: text });
+                getTurns().push({ role: 'assistant', content: content });
+                saveSessionBundle();
                 if (res && res.jobToRun && typeof window.MemoryGraphRunJob === 'function') {
                     var jobs = Array.isArray(res.jobToRun) ? res.jobToRun : [res.jobToRun];
                     jobs.forEach(function (job) {
@@ -783,13 +1049,15 @@
                 var displayMsg = (msg && String(msg).trim()) || 'Request failed';
                 var errBody = 'Error: ' + displayMsg;
                 showNotification(displayMsg, text, errBody);
-                chatTurns.push({ role: 'user', content: text });
-                chatTurns.push({ role: 'assistant', content: errBody });
-                saveChatTurns(chatTurns);
+                getTurns().push({ role: 'user', content: text });
+                getTurns().push({ role: 'assistant', content: errBody });
+                saveSessionBundle();
                 renderSimpleChatThread();
             })
             .always(function () {
                 currentRequest = null;
+                inFlightMainRequestId = '';
+                inFlightMainSessionId = '';
                 if (typeof window.agentState !== 'undefined') window.agentState.setThinking(false);
                 if (typeof window.MemoryGraphRefreshSimpleChatHistoryList === 'function') {
                     window.MemoryGraphRefreshSimpleChatHistoryList();
@@ -825,6 +1093,8 @@
             wasStopped = true;
             currentRequest.abort();
             currentRequest = null;
+            inFlightMainRequestId = '';
+            inFlightMainSessionId = '';
             if (typeof window.agentState !== 'undefined') window.agentState.setThinking(false);
             stopStatusPolling();
             setRequestUi(false);
@@ -842,23 +1112,21 @@
     window.MemoryGraphExtractAssistantFromChatResponse = extractAssistantTextFromChatResponse;
 
     function peekChatSessionId() {
-        try {
-            var s = sessionStorage.getItem(CHAT_SESSION_KEY);
-            return (s && String(s).trim()) ? String(s).trim() : '';
-        } catch (e) {
-            return '';
-        }
+        return getActiveSessionId() || '';
     }
     window.MemoryGraphPeekChatSessionId = peekChatSessionId;
 
     window.MemoryGraphStartNewChatSession = function () {
-        var id = 'cs_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
-        try {
-            sessionStorage.setItem(CHAT_SESSION_KEY, id);
-        } catch (e) {}
-        chatTurns = [];
-        saveChatTurns([]);
+        var id = newSessionId();
+        ensureSessionEntry(id, 'Main', false);
+        sessionBundle.sessions[id].turns = [];
+        sessionBundle.activeId = id;
+        if (sessionBundle.order.indexOf(id) === -1) {
+            sessionBundle.order.unshift(id);
+        }
+        saveSessionBundle();
         renderSimpleChatThread();
+        emitOpenSessionsChanged();
         if (typeof window.MemoryGraphRefreshSimpleChatHistoryList === 'function') {
             window.MemoryGraphRefreshSimpleChatHistoryList();
         }
@@ -868,21 +1136,87 @@
     window.MemoryGraphSetChatSessionId = function (sessionId) {
         sessionId = String(sessionId || '').trim();
         if (!sessionId) return;
+        ensureSessionEntry(sessionId, sessionId.slice(0, 20), false);
+        sessionBundle.activeId = sessionId;
+        if (sessionBundle.order.indexOf(sessionId) === -1) {
+            sessionBundle.order.push(sessionId);
+        }
+        saveSessionBundle();
+        emitOpenSessionsChanged();
+    };
+
+    window.MemoryGraphSwitchSession = function (sessionId) {
+        sessionId = String(sessionId || '').trim();
+        if (!sessionId || !sessionBundle.sessions[sessionId]) return;
+        sessionBundle.activeId = sessionId;
+        saveSessionBundle();
+        renderSimpleChatThread();
+        emitOpenSessionsChanged();
+    };
+
+    window.MemoryGraphGetOpenSessions = function () {
+        return sessionBundle.order.map(function (id) {
+            var s = sessionBundle.sessions[id] || { label: id, isSub: false, turns: [] };
+            return {
+                id: id,
+                label: s.label || id,
+                isSub: !!s.isSub,
+                active: id === sessionBundle.activeId
+            };
+        });
+    };
+
+    window.MemoryGraphCreateSubAgentSession = function (subAgentName) {
+        var id = 'cs_s_' + Date.now() + '_' + Math.random().toString(36).slice(2, 12);
+        var label = 'Sub' + (subAgentName ? ': ' + String(subAgentName).slice(0, 32) : '');
+        ensureSessionEntry(id, label, true);
+        sessionBundle.sessions[id].turns = [];
+        sessionBundle.activeId = id;
+        if (sessionBundle.order.indexOf(id) === -1) {
+            sessionBundle.order.push(id);
+        }
+        lastActivityTailTBySession[id] = 0;
+        saveSessionBundle();
         try {
-            sessionStorage.setItem(CHAT_SESSION_KEY, sessionId);
+            sessionStorage.setItem(CHAT_SESSION_KEY, id);
         } catch (e) {}
+        renderSimpleChatThread();
+        emitOpenSessionsChanged();
+        return id;
+    };
+
+    window.MemoryGraphAppendSubAgentTranscript = function (sessionId, userText, assistantText, opts) {
+        var sid = String(sessionId || '').trim();
+        if (!sid) return;
+        ensureSessionEntry(sid, 'Sub', true);
+        var t = getTurnsForSession(sid);
+        if (userText) t.push({ role: 'user', content: String(userText) });
+        if (assistantText && String(assistantText).trim() !== '') {
+            t.push({ role: 'assistant', content: String(assistantText) });
+        }
+        saveSessionBundle();
+        if (getActiveSessionId() === sid) {
+            renderSimpleChatThread();
+        }
+        if (opts && opts.showNotification) {
+            var c = String(assistantText || '').trim() || 'Done.';
+            var pre = c.length > 100 ? c.slice(0, 100) + '…' : c;
+            showNotification(pre, String(userText || ''), c);
+        }
+        if (typeof window.MemoryGraphRefreshSimpleChatHistoryList === 'function') {
+            window.MemoryGraphRefreshSimpleChatHistoryList();
+        }
     };
 
     window.MemoryGraphReplaceSimpleChatTurns = function (turns) {
         var raw = Array.isArray(turns) ? turns : [];
-        var out = [];
-        raw.forEach(function (t) {
-            if (t && (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string') {
-                out.push({ role: t.role, content: t.content });
-            }
-        });
-        chatTurns = out;
-        saveChatTurns(chatTurns);
+        var out = filterPersistTurns(raw);
+        var active = getActiveSessionId();
+        if (!sessionBundle.sessions[active]) {
+            ensureSessionEntry(active, 'Main', false);
+        }
+        sessionBundle.sessions[active].turns = out;
+        saveSessionBundle();
         renderSimpleChatThread();
     };
 })();

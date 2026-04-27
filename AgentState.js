@@ -118,8 +118,8 @@ class AgentState {
         if (this.toolExecuting || this.gettingAvailTools || this.backgroundGettingAvailTools || this.isSectionRecentlyActive('tools')) sections.push('tools');
         if (this.memoryToolExecuting || this.checkingMemory || this.backgroundCheckingMemory || this.isSectionRecentlyActive('memory')) sections.push('memory');
         if (this.instructionToolExecuting || this.checkingInstructions || this.backgroundCheckingInstructions || this.isSectionRecentlyActive('instructions')) sections.push('instructions');
-        if (this.isSectionRecentlyActive('research') || (Array.isArray(this.activeResearchIds) && this.activeResearchIds.length)) sections.push('research');
-        if (this.isSectionRecentlyActive('rules') || (Array.isArray(this.activeRulesIds) && this.activeRulesIds.length)) sections.push('rules');
+        if (this.isSectionRecentlyActive('research') || (Array.isArray(this.activeResearchIds) && this.activeResearchIds.length) || (Array.isArray(this.backgroundActiveResearchIds) && this.backgroundActiveResearchIds.length)) sections.push('research');
+        if (this.isSectionRecentlyActive('rules') || (Array.isArray(this.activeRulesIds) && this.activeRulesIds.length) || (Array.isArray(this.backgroundActiveRulesIds) && this.backgroundActiveRulesIds.length)) sections.push('rules');
         if (this.isSectionRecentlyActive('categories')) sections.push('categories');
         if (this.mcpToolExecuting || this.checkingMcps || this.backgroundCheckingMcps || this.isSectionRecentlyActive('mcps')) sections.push('mcps');
         if (this.jobExecuting || this.checkingJobs || this.backgroundCheckingJobs || this.isSectionRecentlyActive('jobs')) sections.push('jobs');
@@ -391,6 +391,8 @@ class AgentState {
         this.backgroundActiveToolIds = Array.isArray(data.activeToolIds) ? data.activeToolIds.slice() : [];
         this.backgroundActiveMemoryIds = Array.isArray(data.activeMemoryIds) ? data.activeMemoryIds.slice() : [];
         this.backgroundActiveInstructionIds = Array.isArray(data.activeInstructionIds) ? data.activeInstructionIds.slice() : [];
+        this.backgroundActiveResearchIds = Array.isArray(data.activeResearchIds) ? data.activeResearchIds.slice() : [];
+        this.backgroundActiveRulesIds = Array.isArray(data.activeRulesIds) ? data.activeRulesIds.slice() : [];
         this.backgroundActiveMcpIds = Array.isArray(data.activeMcpIds) ? data.activeMcpIds.slice() : [];
         this.backgroundActiveSubAgentIds = Array.isArray(data.activeSubAgentIds) ? data.activeSubAgentIds.slice() : [];
         this.backgroundExecutionDetailsByNode = data.executionDetailsByNode && typeof data.executionDetailsByNode === 'object' ? data.executionDetailsByNode : {};
@@ -403,6 +405,14 @@ class AgentState {
         if (this.subAgentsToolExecuting) {
             this.markSectionActivity('sub_agents');
             this.markNodeActivity(this.backgroundActiveSubAgentIds.concat(this.activeSubAgentIds));
+        }
+        if (this.backgroundActiveResearchIds.length) {
+            this.markSectionActivity('research', this.memoryFileAccessHoldMs);
+            this.markNodeActivity(this.backgroundActiveResearchIds, this.memoryFileAccessHoldMs);
+        }
+        if (this.backgroundActiveRulesIds.length) {
+            this.markSectionActivity('rules', this.memoryFileAccessHoldMs);
+            this.markNodeActivity(this.backgroundActiveRulesIds, this.memoryFileAccessHoldMs);
         }
         var durationMs = Math.max(this.activityHoldMs, parseInt(data.durationMs, 10) || 0) || 3200;
         this.dispatchGraphActivity(durationMs);

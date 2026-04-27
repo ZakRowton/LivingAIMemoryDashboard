@@ -144,6 +144,9 @@
             if (typeof window.MemoryGraphFocusChatInput === 'function') {
                 window.MemoryGraphFocusChatInput();
             }
+            if (typeof refreshOpenSessionTabStrip === 'function') {
+                refreshOpenSessionTabStrip();
+            }
         }
     }
 
@@ -378,6 +381,81 @@
             }
         }
     };
+
+    /** Pushes + node signal only (e.g. sub-agent panel run), without scribing to the text activity log. */
+    window.MemoryGraphUpdateSimplePulsesFromStatus = function (status) {
+        if (!document.documentElement.classList.contains('mg-simple-ui')) return;
+        var st = status || {};
+        var inf = inferActivityFromStatus(st);
+        var active = inf.active;
+        PULSE_SECTIONS.forEach(function (s) {
+            var el = document.querySelector('.simple-pulse-dot[data-pulse="' + s.id + '"]');
+            if (!el) return;
+            el.classList.toggle('is-live', !!active[s.id]);
+        });
+        if (typeof window.MemoryGraphSignalActivity === 'function') {
+            var nodeIds = inf.toolIds.concat(inf.memIds, inf.mcpIds);
+            var sections = [];
+            if (active.tools) sections.push('tools');
+            if (active.memory) sections.push('memory');
+            if (active.instructions) sections.push('instructions');
+            if (active.research) sections.push('research');
+            if (active.rules) sections.push('rules');
+            if (active.mcps) sections.push('mcps');
+            if (active.jobs) sections.push('jobs');
+            window.MemoryGraphSignalActivity({
+                sections: sections,
+                nodeIds: nodeIds,
+                durationMs: st.thinking ? 2600 : 2200
+            });
+        }
+    };
+
+    function refreshOpenSessionTabStrip() {
+        var $strip = $('#simple-open-sessions-tabs');
+        if (!$strip.length) return;
+        if (!document.documentElement.classList.contains('mg-simple-ui')) return;
+        if (typeof window.MemoryGraphGetOpenSessions !== 'function') {
+            $strip.removeClass('is-visible');
+            $strip.empty();
+            $strip.attr('hidden', 'hidden');
+            return;
+        }
+        var list = window.MemoryGraphGetOpenSessions() || [];
+        if (!list.length) {
+            $strip.removeClass('is-visible');
+            $strip.empty();
+            $strip.attr('hidden', 'hidden');
+            return;
+        }
+        $strip.addClass('is-visible');
+        $strip.removeAttr('hidden');
+        $strip.empty();
+        $strip.attr('role', 'tablist');
+        $strip.attr('aria-label', 'Open chat sessions');
+        list.forEach(function (s) {
+            if (!s || !s.id) return;
+            var b = $('<button type="button" class="simple-open-sess-tab font-serif" role="tab">');
+            b.text(s.label && String(s.label).length ? s.label : s.id);
+            b.attr('data-open-session-id', s.id);
+            b.attr('aria-selected', s.active ? 'true' : 'false');
+            if (s.isSub) {
+                b.addClass('is-sub');
+            }
+            if (s.active) {
+                b.addClass('is-active');
+            }
+            b.on('click', function () {
+                if (typeof window.MemoryGraphSwitchSession === 'function') {
+                    window.MemoryGraphSwitchSession(s.id);
+                }
+            });
+            $strip.append(b);
+        });
+    }
+
+    window.MemoryGraphRefreshOpenSessionTabs = refreshOpenSessionTabStrip;
+    document.addEventListener('memoryGraphOpenSessionsChanged', refreshOpenSessionTabStrip);
 
     window.SimpleUiLogFromStatus = function (status) {
         if (!document.documentElement.classList.contains('mg-simple-ui')) return;
@@ -1134,9 +1212,16 @@
                 })
                 .fail(function () {
                     $list.html('<p class="simple-warn font-serif">Could not load sessions.</p>');
+                })
+                .always(function () {
+                    if (typeof refreshOpenSessionTabStrip === 'function') {
+                        refreshOpenSessionTabStrip();
+                    }
                 });
         }
-        window.MemoryGraphRefreshSimpleChatHistoryList = refreshSimpleChatHistoryList;
+        window.MemoryGraphRefreshSimpleChatHistoryList = function () {
+            refreshSimpleChatHistoryList();
+        };
 
         $('.simple-activity-tab').on('click', function () {
             var tab = $(this).data('tab');
@@ -1148,6 +1233,9 @@
                 $('#simple-activity-panel-history').addClass('is-active');
                 $('#simple-activity-panel-log').removeClass('is-active');
                 refreshSimpleChatHistoryList();
+                if (typeof refreshOpenSessionTabStrip === 'function') {
+                    refreshOpenSessionTabStrip();
+                }
             } else {
                 $('#simple-activity-panel-log').addClass('is-active');
                 $('#simple-activity-panel-history').removeClass('is-active');

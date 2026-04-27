@@ -545,6 +545,7 @@
     window.MemoryGraphIsJobRunning = function (name) {
         return !!(jobs[name] && jobs[name].state === 'running');
     };
+    window.MemoryGraphResyncBackgroundGraphState = scheduleGraphStateSync;
 
     setInterval(function () {
         var hasCompleted = Object.keys(jobs).some(function (name) {
