@@ -17,6 +17,7 @@
     var $simpleMain;
     var currentSection = 'chat';
     var listCache = {};
+    var pendingSubAgentSelect = null;
     var logLines = [];
     var MAX_LOG = 450;
     var lastStatusSig = '';
@@ -75,6 +76,14 @@
         rules: { label: 'Rules', listUrl: 'api_rules.php?action=list', listKey: 'rules', getUrl: function (name) { return 'api_rules.php?action=get&name=' + encodeURIComponent(name); } },
         mcps: { label: 'MCP servers', listUrl: 'api_mcps.php?action=list', listKey: 'servers', getUrl: function (name) { return 'api_mcps.php?action=get&name=' + encodeURIComponent(name); } },
         jobs: { label: 'Jobs', listUrl: 'api_jobs.php?action=list', listKey: 'jobs', getUrl: function (name) { return 'api_jobs.php?action=get&name=' + encodeURIComponent(name); } },
+        sub_agents: {
+            label: 'Sub-agents',
+            listUrl: 'api_sub_agents.php?action=list',
+            listKey: 'subAgents',
+            getUrl: function (name) {
+                return 'api_sub_agents.php?action=read&name=' + encodeURIComponent(name);
+            }
+        },
         apps: { label: 'Web apps', listUrl: 'api/web_apps.php?action=list', listKey: 'apps', getUrl: function (name) { return 'api/web_apps.php?action=get&name=' + encodeURIComponent(name); } },
         scheduled: { label: 'Scheduled', listUrl: 'api/cron.php?action=list', listKey: 'jobs', getUrl: null }
     };
@@ -453,11 +462,31 @@
         }
     };
 
+    function appendSubAgentsNewButton() {
+        var $tb = $('<div class="panel-action-btn-row" style="margin-bottom:10px;">');
+        $tb.append($('<button type="button" class="panel-action-btn">').text('New sub-agent').on('click', function () {
+            var raw = window.prompt('Sub-agent file name (e.g. my_helper or my_helper.md, saved under sub-agents/):', '');
+            if (raw == null) return;
+            raw = String(raw).trim();
+            if (raw === '') return;
+            var base = raw.replace(/^[\\/]+/, '').split(/[\\/]/).pop() || raw;
+            if (base.toLowerCase().indexOf('.md') === -1) {
+                base += '.md';
+            }
+            $listCol.find('.simple-item-btn').removeClass('is-selected');
+            showDetail('sub_agents', { name: base, title: base.replace(/\.md$/i, ''), _isNew: true });
+        }));
+        $listCol.append($tb);
+    }
+
     function renderList(items, section) {
         if (!$listCol || !$listCol.length) return;
         $listCol.empty();
+        if (section === 'sub_agents') {
+            appendSubAgentsNewButton();
+        }
         if (!items || !items.length) {
-            $listCol.append($('<p class="simple-empty font-serif">').text('Nothing here yet.'));
+            $listCol.append($('<p class="simple-empty font-serif">').text(section === 'sub_agents' ? 'No sub-agent configs yet. Create one or add .md files under sub-agents/.' : 'Nothing here yet.'));
             return;
         }
         var ul = $('<ul class="simple-item-list font-serif">');
@@ -466,6 +495,9 @@
             var active = item.active !== false;
             var li = $('<li class="simple-item-row">');
             var btn = $('<button type="button" class="simple-item-btn">').text(name);
+            if (item.name) {
+                btn.attr('data-item-name', item.name);
+            }
             if (!active) {
                 btn.append($('<span class="simple-item-off">').text(' off'));
             }
@@ -514,6 +546,158 @@
                     openPanel(item.name, 'tool_' + item.name);
                 }).appendTo($detailCol);
             }
+            return;
+        }
+
+        if (section === 'sub_agents') {
+            var fileName = item.name || '';
+            if (!fileName && item.title) {
+                fileName = String(item.title).replace(/\s+/g, '_') + '.md';
+            }
+            var isNew = !!item._isNew;
+            if (!isNew && (item.provider || item.model)) {
+                meta.append($('<p>').text([item.provider, item.model].filter(Boolean).join(' · ')));
+            }
+            var newTemplate = '---\n' +
+                'provider: \n' +
+                'model: \n' +
+                'api_key: \n' +
+                'endpoint: \n' +
+                'chat_type: openai\n' +
+                'temperature: 0.7\n' +
+                'dashboard_url: \n' +
+                'system_prompt: \n' +
+                '---\n\n' +
+                'You are a helpful sub-agent. Stay concise.\n';
+            var $st = $('<p class="simple-app-save-status font-serif" role="status" style="margin-top:4px;">').hide();
+
+            var $ta = $('<textarea class="simple-web-app-editor font-serif" spellcheck="false" wrap="off" style="min-height: 260px;" aria-label="Sub-agent markdown">');
+            $detailCol.append(
+                $('<label class="simple-app-form-label font-display">').text('Config (.md)'),
+                $ta,
+                $st
+            );
+            var row = $('<div class="panel-action-btn-row" style="margin-top:10px;flex-wrap:wrap;gap:8px;">');
+            var $save = $('<button type="button" class="panel-action-btn">').text(isNew ? 'Create' : 'Save');
+            var $del = $('<button type="button" class="panel-action-btn btn-stop">').text('Delete');
+            if (isNew) {
+                $del.hide();
+            }
+            row.append($save, $del);
+            if (openPanel) {
+                row.append($('<button type="button" class="simple-open-panel-btn">').text('Open in graph panel').prop('disabled', isNew).on('click', function () {
+                    if (item.nodeId) {
+                        openPanel(item.title || fileName, item.nodeId);
+                    }
+                }));
+            }
+            $detailCol.append(row);
+
+            function setStatus(msg, isErr) {
+                if (!msg) {
+                    $st.hide().text('');
+                    return;
+                }
+                $st.text(msg).show().css('color', isErr ? '#f87171' : 'var(--gold-dim)');
+            }
+
+            if (isNew) {
+                $ta.val(newTemplate);
+                setStatus('New file — edit front-matter and system prompt, then Create.', false);
+            } else {
+                $ta.prop('disabled', true).val('Loading…');
+                $.getJSON('api_sub_agents.php?action=read&name=' + encodeURIComponent(fileName))
+                    .done(function (data) {
+                        if (data && data.error) {
+                            setStatus(data.error, true);
+                            $ta.val('').attr('placeholder', '');
+                            return;
+                        }
+                        var c = data && data.content;
+                        $ta.val(typeof c === 'string' ? c : '').prop('disabled', false);
+                        if (data && data.nodeId) {
+                            item.nodeId = data.nodeId;
+                        }
+                    })
+                    .fail(function () {
+                        setStatus('Could not load file.', true);
+                        $ta.val('').prop('disabled', false);
+                    });
+            }
+
+            $save.on('click', function () {
+                var text = $ta.val();
+                if (text == null || String(text).trim() === '') {
+                    setStatus('Content cannot be empty.', true);
+                    return;
+                }
+                $save.prop('disabled', true);
+                setStatus(isNew ? 'Creating…' : 'Saving…', false);
+                var payload = { action: isNew ? 'create' : 'update', name: fileName, content: String(text) };
+                $.ajax({
+                    url: 'api_sub_agents.php',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(payload),
+                    credentials: 'same-origin'
+                })
+                    .done(function (res) {
+                        if (res && res.error) {
+                            setStatus(res.error, true);
+                            return;
+                        }
+                        setStatus(isNew ? 'Created.' : 'Saved.', false);
+                        delete listCache.sub_agents;
+                        var savedName = (res && res.name) ? res.name : fileName;
+                        pendingSubAgentSelect = savedName;
+                        loadSectionList('sub_agents');
+                        if (typeof window.MemoryGraphRefresh === 'function') {
+                            window.MemoryGraphRefresh();
+                        }
+                    })
+                    .fail(function (xhr) {
+                        pendingSubAgentSelect = null;
+                        var msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Request failed';
+                        setStatus(String(msg), true);
+                    })
+                    .always(function () {
+                        $save.prop('disabled', false);
+                    });
+            });
+
+            $del.on('click', function () {
+                if (isNew || !window.confirm('Delete sub-agent "' + fileName + '"? This cannot be undone.')) {
+                    return;
+                }
+                $del.prop('disabled', true);
+                $save.prop('disabled', true);
+                $.ajax({
+                    url: 'api_sub_agents.php',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ action: 'delete', name: fileName }),
+                    credentials: 'same-origin'
+                })
+                    .done(function (res) {
+                        if (res && res.error) {
+                            setStatus(res.error, true);
+                            return;
+                        }
+                        $detailCol.empty();
+                        delete listCache.sub_agents;
+                        loadSectionList('sub_agents');
+                        if (typeof window.MemoryGraphRefresh === 'function') {
+                            window.MemoryGraphRefresh();
+                        }
+                    })
+                    .fail(function (xhr) {
+                        setStatus((xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Delete failed', true);
+                    })
+                    .always(function () {
+                        $del.prop('disabled', false);
+                        $save.prop('disabled', false);
+                    });
+            });
             return;
         }
 
@@ -817,6 +1001,18 @@
 
         if (section !== 'scheduled' && listCache[section]) {
             renderList(listCache[section], section);
+            if (section === 'sub_agents' && pendingSubAgentSelect) {
+                var want = pendingSubAgentSelect;
+                pendingSubAgentSelect = null;
+                setTimeout(function () {
+                    $listCol.find('.simple-item-btn').each(function () {
+                        if ($(this).attr('data-item-name') === want) {
+                            $(this).trigger('click');
+                            return false;
+                        }
+                    });
+                }, 0);
+            }
             return;
         }
 
@@ -829,6 +1025,18 @@
                     listCache[section] = arr;
                 }
                 renderList(arr, section);
+                if (section === 'sub_agents' && pendingSubAgentSelect) {
+                    var want2 = pendingSubAgentSelect;
+                    pendingSubAgentSelect = null;
+                    setTimeout(function () {
+                        $listCol.find('.simple-item-btn').each(function () {
+                            if ($(this).attr('data-item-name') === want2) {
+                                $(this).trigger('click');
+                                return false;
+                            }
+                        });
+                    }, 0);
+                }
             })
             .fail(function () {
                 $listCol.html('<p class="simple-warn">Failed to load list.</p>');

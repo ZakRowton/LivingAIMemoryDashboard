@@ -2600,6 +2600,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             <button type="button" class="simple-nav-btn" data-section="rules">Rules</button>
             <button type="button" class="simple-nav-btn" data-section="mcps">MCPs</button>
             <button type="button" class="simple-nav-btn" data-section="jobs">Jobs</button>
+            <button type="button" class="simple-nav-btn" data-section="sub_agents">Sub-agents</button>
             <button type="button" class="simple-nav-btn" data-section="apps">Apps</button>
             <div class="simple-nav-label simple-nav-label--spaced">Automation</div>
             <button type="button" class="simple-nav-btn" data-section="scheduled">Scheduled</button>
