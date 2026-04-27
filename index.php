@@ -2908,6 +2908,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             <li><span class="graph-legend-swatch" style="background:#e8a9b8; box-shadow:0 0 8px rgba(232,169,184,0.6);"></span> Rules</li>
             <li><span class="graph-legend-swatch" style="background:#6be38e; box-shadow:0 0 8px rgba(107,227,142,0.55);"></span> MCPs</li>
             <li><span class="graph-legend-swatch" style="background:#ff8f70; box-shadow:0 0 8px rgba(255,143,112,0.58);"></span> Jobs</li>
+            <li><span class="graph-legend-swatch" style="background:#e8c090; box-shadow:0 0 8px rgba(232,192,144,0.58);"></span> Sessions</li>
             <li><span class="graph-legend-swatch" style="background:#a0d4e8; box-shadow:0 0 8px rgba(160,212,232,0.6);"></span> Categories</li>
         </ul>
         <div class="graph-legend-categories-wrap" id="graph-legend-categories-wrap" style="display:none;">

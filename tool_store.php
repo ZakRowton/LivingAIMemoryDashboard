@@ -1190,6 +1190,122 @@ function get_builtin_tools(): array {
         ],
         'code' => "// Built-in tool\n// Retrieves one chat exchange.",
     ], [
+        'name' => 'list_chat_session_files',
+        'description' => 'List persistent chat session JSON archives in sessions/ (one graph node per file under the Sessions hub). Use for overview before read_chat_session_file or search_chat_sessions.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in\n// Lists sessions/*.json metadata.",
+    ], [
+        'name' => 'read_chat_session_file',
+        'description' => 'Read a sessions/*.json archive: full meta, turns, and optional references. Optional max_content_chars caps total serialized size (default 200000) for long histories.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'Session file name, with or without .json.'],
+                'max_content_chars' => ['type' => 'integer', 'description' => 'Max total JSON chars for the document (default 200000).'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Reads one session file.",
+    ], [
+        'name' => 'create_chat_session_file',
+        'description' => 'Create a new sessions/<name>.json. Optional meta: title, tags, summary, references (tools, memory_files, instruction_files, research_files, rules_files, mcp_servers, job_files, sub_agent_files — use real names; graph will link to those nodes). Optional turns: [{role, content}, ...].',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'Filename stem or full name; .json added if missing.'],
+                'title' => ['type' => 'string'],
+                'tags' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'summary' => ['type' => 'string'],
+                'references' => ['type' => 'object', 'description' => 'e.g. { "tools": ["x"], "memory_files": ["a.md"] } — see read_chat_session_file shape.'],
+                'turns' => ['type' => 'array', 'items' => ['type' => 'object']],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Creates a new session JSON file.",
+    ], [
+        'name' => 'append_chat_session_turns',
+        'description' => 'Append turns to an existing session file. turns: [{role: user|assistant|system, content: string}]. Optional meta_patch: title, summary, tags (merged), references (merged by category).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'turns' => ['type' => 'array', 'items' => ['type' => 'object']],
+                'meta_patch' => ['type' => 'object'],
+            ],
+            'required' => ['name', 'turns'],
+        ],
+        'code' => "// Built-in\n// Appends to session file.",
+    ], [
+        'name' => 'save_chat_session_file',
+        'description' => 'Replace entire sessions/<name>.json with the given document (must include meta + turns; same schema as read output).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'document' => ['type' => 'object', 'description' => 'Full { meta, turns } object.'],
+            ],
+            'required' => ['name', 'document'],
+        ],
+        'code' => "// Built-in\n// Overwrites session file.",
+    ], [
+        'name' => 'patch_chat_session_meta',
+        'description' => 'Patch title/summary/tags (merge) or set references merge; or replace all turns with replace_turns if provided.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'title' => ['type' => 'string'],
+                'summary' => ['type' => 'string'],
+                'tags' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'references' => ['type' => 'object'],
+                'replace_turns' => ['type' => 'array', 'items' => ['type' => 'object'], 'description' => 'If set, replaces turns entirely.'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Patches session meta/turns.",
+    ], [
+        'name' => 'delete_chat_session_file',
+        'description' => 'Delete a sessions/*.json file by name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Deletes session file.",
+    ], [
+        'name' => 'search_chat_sessions',
+        'description' => 'Find session files by optional tags (any match) and/or a text query (searches title, summary, and serialized turns). limit default 25.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'If non-empty, files must have at least one of these tags.'],
+                'query' => ['type' => 'string', 'description' => 'Loose text match in summary/title/turns.'],
+                'limit' => ['type' => 'integer'],
+            ],
+        ],
+        'code' => "// Built-in\n// Searches session archives by tag and text.",
+    ], [
         'name' => 'list_sub_agent_files',
         'description' => 'List all sub-agent markdown configuration files from sub-agents/.',
         'active' => true,
@@ -1267,6 +1383,7 @@ function get_builtin_tools(): array {
                 'prompt' => ['type' => 'string'],
                 'messages' => ['type' => 'array', 'items' => ['type' => 'object']],
                 'chatSessionId' => ['type' => 'string', 'description' => 'Optional: browser chat session id for list_chat_history alignment.'],
+                'userContent' => ['type' => 'array', 'description' => 'Optional: OpenAI-style multimodal parts [{type:text|image_url|input_audio,...}] merged with the user turn (same as main chat attachments).'],
             ],
             'required' => ['name'],
         ],
@@ -1283,6 +1400,7 @@ function get_builtin_tools(): array {
                 'prompt' => ['type' => 'string'],
                 'messages' => ['type' => 'array', 'items' => ['type' => 'object']],
                 'chatSessionId' => ['type' => 'string'],
+                'userContent' => ['type' => 'array', 'description' => 'Optional: multimodal attachment parts for the delegated prompt.'],
             ],
             'required' => ['name'],
         ],

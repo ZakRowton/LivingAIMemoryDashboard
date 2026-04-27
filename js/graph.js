@@ -34,7 +34,8 @@
         mcps: { label: 'MCPs', color: 0x6be38e, sub: true, radius: 0.42, glowScale: 1.82 },
         jobs: { label: 'Jobs', color: 0xff8f70, sub: true, radius: 0.42, glowScale: 1.82 },
         sub_agents: { label: 'Sub-Agents', color: 0xb6f28f, sub: true, radius: 0.42, glowScale: 1.82 },
-        categories: { label: 'Categories', color: 0xa0d4e8, sub: true, radius: 0.42, glowScale: 1.82 }
+        categories: { label: 'Categories', color: 0xa0d4e8, sub: true, radius: 0.42, glowScale: 1.82 },
+        sessions: { label: 'Sessions', color: 0xe8c090, sub: true, radius: 0.42, glowScale: 1.82 }
     };
     var staticEdges = [
         { from: 'agent', to: 'memory' },
@@ -45,7 +46,8 @@
         { from: 'agent', to: 'mcps' },
         { from: 'agent', to: 'jobs' },
         { from: 'agent', to: 'sub_agents' },
-        { from: 'agent', to: 'categories' }
+        { from: 'agent', to: 'categories' },
+        { from: 'agent', to: 'sessions' }
     ];
     var staticPositions = {
         agent: [0, 0, 0],
@@ -57,7 +59,8 @@
         mcps: [-8.1, -3.6, -4.8],
         jobs: [8.3, -2.9, 4.4],
         sub_agents: [0.3, 8.5, 3.8],
-        categories: [0, 7.2, -2.2]
+        categories: [0, 7.2, -2.2],
+        sessions: [-22.2, 13.8, 12.3]
     };
 
     var galaxyGroup = new THREE.Group();
@@ -157,7 +160,7 @@
             new THREE.MeshPhongMaterial({
                 color: 0x0c1016,
                 emissive: data.color,
-                emissiveIntensity: id === 'agent' ? 0.95 : (id.indexOf('sub_agent_file_') === 0 ? 0.9 : 0.82),
+                emissiveIntensity: id === 'agent' ? 0.95 : (id.indexOf('sub_agent_file_') === 0 || id.indexOf('session_file_') === 0 ? 0.9 : 0.82),
                 specular: 0xffffff,
                 shininess: 110
             })
@@ -185,7 +188,7 @@
             shellBaseColor: data.color,
             coreBaseColor: 0x0c1016,
             innerBaseColor: data.color,
-            activeHighlightColor: (id === 'agent' || id.indexOf('sub_agent_file_') === 0) ? 0xffffff : 0xfff3b0
+            activeHighlightColor: (id === 'agent' || id.indexOf('sub_agent_file_') === 0 || id.indexOf('session_file_') === 0) ? 0xffffff : 0xfff3b0
         };
         nodeMeshesList.push(core);
 
@@ -199,8 +202,8 @@
         if (!nodeGroups[fromId] || !nodeGroups[toId]) return;
         var a = nodeGroups[fromId].position;
         var b = nodeGroups[toId].position;
-        var color = kind === 'subHub' ? 0x8fdf8a : 0xa9d4ff;
-        var opacity = kind === 'subHub' ? 0.26 : 0.5;
+        var color = kind === 'subHub' ? 0x8fdf8a : (kind === 'sessionRef' ? 0xd4b878 : 0xa9d4ff);
+        var opacity = kind === 'subHub' ? 0.26 : (kind === 'sessionRef' ? 0.44 : 0.5);
         edgeGroup.add(new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a.x, a.y, a.z), new THREE.Vector3(b.x, b.y, b.z)]),
             new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity })
@@ -234,7 +237,7 @@
         return out;
     }
 
-    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, cronJobs, categoryNodes, subAgents) {
+    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, cronJobs, categoryNodes, subAgents, sessionFiles) {
         clearGraph();
         var nodeData = JSON.parse(JSON.stringify(staticNodeData));
         var positions = JSON.parse(JSON.stringify(staticPositions));
@@ -268,6 +271,16 @@
         mergeChildren(layoutChildren(jobsHub, positions.jobs, 0.92, 0.8, 'cos', function (job) { return job.nodeId; }, 0xff9f7f), 'jobs');
         mergeChildren(layoutChildren(categoryNodes || [], positions.categories, 0.9, 0.85, 'sin', function (c) { return c.nodeId; }, 0xb0e4f8), 'categories');
         mergeChildren(layoutChildren(subAgents || [], positions.sub_agents, 0.92, 0.8, 'cos', function (s) { return s.nodeId; }, 0xc6f7a6), 'sub_agents');
+        mergeChildren(layoutChildren(sessionFiles || [], positions.sessions, 0.92, 0.8, 'sin', function (s) { return s.nodeId; }, 0xe8c090), 'sessions');
+
+        (sessionFiles || []).forEach(function (s) {
+            if (!s || !s.nodeId || !Array.isArray(s.linkTargets)) return;
+            s.linkTargets.forEach(function (tid) {
+                if (tid && positions[tid] !== undefined && nodeData[tid] !== undefined) {
+                    edges.push({ from: s.nodeId, to: tid, kind: 'sessionRef' });
+                }
+            });
+        });
 
         var hubIdsForSubAgents = ['memory', 'tools', 'instructions', 'research', 'rules', 'mcps', 'jobs', 'categories'];
         (subAgents || []).forEach(function (s) {
@@ -302,7 +315,10 @@
             }).catch(function () { return { categories: [] }; }),
             fetch('api_sub_agents.php?action=list').then(function (res) {
                 return res.ok ? res.json() : { subAgents: [] };
-            }).catch(function () { return { subAgents: [] }; })
+            }).catch(function () { return { subAgents: [] }; }),
+            fetch('api_sessions.php?action=list').then(function (res) {
+                return res.ok ? res.json() : { sessions: [] };
+            }).catch(function () { return { sessions: [] }; })
         ]).then(function (results) {
             window.toolsData = (results[0] || {}).tools || [];
             window.memoryFiles = (results[1] || {}).memories || [];
@@ -314,7 +330,8 @@
             window.cronJobs = (results[7] || {}).jobs || [];
             window.categoryNodes = (results[8] || {}).categories || [];
             window.subAgentFiles = (results[9] || {}).subAgents || [];
-            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.cronJobs, window.categoryNodes, window.subAgentFiles);
+            window.sessionFiles = (results[10] || {}).sessions || [];
+            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.cronJobs, window.categoryNodes, window.subAgentFiles, window.sessionFiles);
             if (typeof window.MemoryGraphUpdateLegend === 'function') {
                 window.MemoryGraphUpdateLegend(window.categoryNodes || []);
             }

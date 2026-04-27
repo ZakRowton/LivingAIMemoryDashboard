@@ -23,6 +23,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_client.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tool_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sub_agent_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'session_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'cron_pending.php';
 
 if (!$memoryGraphChatLibraryOnly) {
@@ -615,6 +616,24 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'create_sub_agent_file',
         'update_sub_agent_file',
         'delete_sub_agent_file',
+        'create_chat_session_file',
+        'append_chat_session_turns',
+        'save_chat_session_file',
+        'patch_chat_session_meta',
+        'delete_chat_session_file',
+    ], true);
+}
+
+function isSessionToolName(string $toolName): bool {
+    return in_array($toolName, [
+        'list_chat_session_files',
+        'read_chat_session_file',
+        'create_chat_session_file',
+        'append_chat_session_turns',
+        'save_chat_session_file',
+        'patch_chat_session_meta',
+        'delete_chat_session_file',
+        'search_chat_sessions',
     ], true);
 }
 
@@ -1412,6 +1431,7 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
         ],
     ];
     $gettingAvailTools = in_array($normalizedFunctionName, ['list_available_tools', 'list_tools', 'get_tools'], true);
+    $checkingSessions = isSessionToolName($normalizedFunctionName);
     $checkingMemory = isMemoryToolName($normalizedFunctionName);
     $checkingInstructions = isInstructionToolName($normalizedFunctionName);
     $checkingResearch = isResearchToolName($normalizedFunctionName);
@@ -1421,6 +1441,12 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
 
     if ($gettingAvailTools) {
         $executionDetails['tools'] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingSessions) {
+        $executionDetails['sessions'] = [
             'toolName' => $normalizedFunctionName,
             'arguments' => $arguments,
         ];
@@ -1617,6 +1643,21 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
             'toolName' => $normalizedFunctionName,
             'arguments' => $arguments,
         ];
+    }
+    if ($checkingSessions) {
+        $nameArg = trim((string) ($arguments['name'] ?? ''));
+        if ($nameArg !== '') {
+            $sessionMeta = get_session_meta($nameArg);
+            if ($sessionMeta !== null) {
+                $snid = (string) ($sessionMeta['nodeId'] ?? '');
+                if ($snid !== '') {
+                    $executionDetails[$snid] = [
+                        'toolName' => $normalizedFunctionName,
+                        'arguments' => $arguments,
+                    ];
+                }
+            }
+        }
     }
     return [
         'gettingAvailTools' => $gettingAvailTools,
@@ -2339,6 +2380,119 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
         }
         return $exchange;
     }
+    if ($toolName === 'list_chat_session_files') {
+        return ['sessions' => list_session_files_meta(false)];
+    }
+    if ($toolName === 'read_chat_session_file') {
+        $name = (string) ($arguments['name'] ?? '');
+        $doc = read_session_document($name);
+        if ($doc === null) {
+            return ['error' => 'Session file not found'];
+        }
+        $max = isset($arguments['max_content_chars']) ? (int) $arguments['max_content_chars'] : 200000;
+        $max = max(2000, min(500000, $max));
+        $flags = JSON_UNESCAPED_UNICODE;
+        if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+            $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+        }
+        $truncated = false;
+        $origTurns = $doc['turns'] ?? [];
+        $turns = is_array($origTurns) ? $origTurns : [];
+        while (is_array($doc) && $turns !== [] && strlen((string) json_encode($doc, $flags)) > $max) {
+            array_shift($turns);
+            $doc['turns'] = $turns;
+            $truncated = true;
+        }
+        if (is_array($doc) && strlen((string) json_encode($doc, $flags)) > $max) {
+            $doc['turns'] = [
+                [
+                    'role' => 'system',
+                    'content' => 'Session data too large for a single read; use search_chat_sessions + append with smaller scope or re-read with tool support.',
+                ],
+            ];
+            $truncated = true;
+        }
+
+        return [
+            'name' => normalize_session_filename($name),
+            'document' => $doc,
+            'truncated' => $truncated,
+        ];
+    }
+    if ($toolName === 'create_chat_session_file') {
+        $name = (string) ($arguments['name'] ?? '');
+        $initial = null;
+        if (
+            array_key_exists('title', $arguments) || array_key_exists('tags', $arguments) || array_key_exists('summary', $arguments) || array_key_exists('references', $arguments) || (isset($arguments['turns']) && is_array($arguments['turns']))
+        ) {
+            $initial = [];
+            if (
+                array_key_exists('title', $arguments) || array_key_exists('summary', $arguments) || array_key_exists('tags', $arguments) || array_key_exists('references', $arguments)
+            ) {
+                $initial['meta'] = [];
+            }
+            if (array_key_exists('title', $arguments)) {
+                $initial['meta'] = $initial['meta'] ?? [];
+                $initial['meta']['title'] = (string) $arguments['title'];
+            }
+            if (array_key_exists('summary', $arguments)) {
+                $initial['meta'] = $initial['meta'] ?? [];
+                $initial['meta']['summary'] = (string) $arguments['summary'];
+            }
+            if (isset($arguments['tags']) && is_array($arguments['tags'])) {
+                $initial['meta'] = $initial['meta'] ?? [];
+                $initial['meta']['tags'] = $arguments['tags'];
+            }
+            if (isset($arguments['references']) && is_array($arguments['references'])) {
+                $initial['meta'] = $initial['meta'] ?? [];
+                $initial['meta']['references'] = $arguments['references'];
+            }
+            if (isset($arguments['turns']) && is_array($arguments['turns'])) {
+                $initial['turns'] = $arguments['turns'];
+            }
+        }
+
+        return create_session_file($name, $initial);
+    }
+    if ($toolName === 'append_chat_session_turns') {
+        $turns = isset($arguments['turns']) && is_array($arguments['turns']) ? $arguments['turns'] : [];
+        $metaPatch = isset($arguments['meta_patch']) && is_array($arguments['meta_patch']) ? $arguments['meta_patch'] : [];
+
+        return append_session_turns((string) ($arguments['name'] ?? ''), $turns, $metaPatch);
+    }
+    if ($toolName === 'save_chat_session_file') {
+        $doc = isset($arguments['document']) && is_array($arguments['document']) ? $arguments['document'] : null;
+        if ($doc === null) {
+            return ['error' => 'document is required'];
+        }
+
+        return write_session_file((string) ($arguments['name'] ?? ''), $doc);
+    }
+    if ($toolName === 'patch_chat_session_meta') {
+        $name = (string) ($arguments['name'] ?? '');
+        $metaPatch = [];
+        foreach (['title', 'summary', 'tags', 'references'] as $k) {
+            if (array_key_exists($k, $arguments)) {
+                $metaPatch[$k] = $arguments[$k];
+            }
+        }
+        $replaceTurns = null;
+        if (isset($arguments['replace_turns']) && is_array($arguments['replace_turns'])) {
+            $replaceTurns = $arguments['replace_turns'];
+        }
+
+        return patch_session_document($name, $metaPatch, $replaceTurns);
+    }
+    if ($toolName === 'delete_chat_session_file') {
+        return delete_session_file_by_name((string) ($arguments['name'] ?? ''));
+    }
+    if ($toolName === 'search_chat_sessions') {
+        $tags = isset($arguments['tags']) && is_array($arguments['tags']) ? $arguments['tags'] : [];
+        $query = (string) ($arguments['query'] ?? '');
+        $limit = isset($arguments['limit']) ? (int) $arguments['limit'] : 25;
+
+        return ['matches' => search_session_files($tags, $query, $limit)];
+    }
     if ($toolName === 'list_sub_agent_files') {
         return ['subAgents' => list_sub_agent_files_meta(false)];
     }
@@ -2802,7 +2956,7 @@ function buildToolUsageInstruction(array $activeTools, ?bool $blockSubAgentDeleg
         "To work with memory, use list_memory_files and read_memory_file. Merged memory in this prompt excludes **hidden** files (including rolling chat transcripts). Each browser chat session appends turns to memory/_chat_session_<id>.md (hidden, not on the graph). To load that archive use read_memory_file with the exact filename, or list_memory_files with include_hidden true. If the user asks for facts already in merged memory above, answer from that text first.\n" .
         "CRITICAL — MCP setup in MemoryGraph: When the user asks to add, connect, configure, or set up an MCP server in this app, you MUST register it with create_mcp_server (new) or configure_mcp_server / update_mcp_server (existing). For HTTP remote MCP (URLs like https://.../mcp): use transport \"streamablehttp\", url set to that endpoint, optional headers for auth (set_mcp_server_header). Do NOT use create_instruction_file, update_instruction_file, add_memory_file, or similar to document MCP setup as a substitute — those do not register servers. Do NOT stop after writing markdown or example VS Code/Cursor .mcp.json unless the user explicitly asked only for external editor config. After saving the server, call list_mcp_server_tools (and list_mcp_servers) to confirm; then summarize what you registered for the user.\n" .
         "To configure MCP servers, use the MCP config tools such as create_mcp_server, configure_mcp_server, set_mcp_server_header, or set_mcp_server_env_var when available.\n" .
-        "Active rules (*.md in rules/) and active non-hidden memory (*.md in memory/) are merged into the system prompt above (when non-empty). For prior turns without bloating context: read_memory_file on the session transcript (see above), or list_chat_history / get_chat_history (JSON store), or list_memory_files with include_hidden.\n" .
+        "Active rules (*.md in rules/) and active non-hidden memory (*.md in memory/) are merged into the system prompt above (when non-empty). For prior turns without bloating context: read_memory_file on the session transcript (see above), or list_chat_history / get_chat_history (JSON store), or list_memory_files with include_hidden. For durable, tag-searchable session archives in sessions/ (and graph links from the Sessions hub to tools, memory, rules, MCP, jobs, sub-agents via meta.references), use list_chat_session_files, search_chat_sessions, read_chat_session_file, create_chat_session_file, append_chat_session_turns, patch_chat_session_meta, or save_chat_session_file. When the context limit is hit or you start a fresh thread, append or create a session file first so the conversation is recoverable.\n" .
         "If the user explicitly provides local credentials, private keys, API keys, env vars, headers, or similar config values for a tool or MCP server, you may use them to configure the local app and MCP servers. Do not refuse solely because the value looks secret.\n" .
         "CRITICAL - Tool creation: When you use create_or_update_tool, you MUST immediately call the newly created tool to test it. If it fails (error in result), use edit_tool_file to fix the PHP code and call the tool again. Repeat until the tool succeeds. Never respond to the user or report success until you have tested the tool and it works. This applies no matter what - always test, always fix until success.\n" .
         "TOOL ERRORS: When a tool returns result.error, fix the real cause before your final answer. (1) Bug in custom PHP under tools/ (file/line or stack) → edit_tool_file and retry until it works. (2) Wrong arguments or unknown name → list_* / read_* to discover valid inputs, then retry. (3) Missing API key or upstream HTTP (Brave, Gemini, MCP remote, etc.) → fix .env or parameters, or tell the user exactly what is missing—do not loop edit_tool_file for third-party outages. (4) Wrong tool schema → edit_tool_registry_entry then retry.\n" .
