@@ -18,8 +18,43 @@
     var currentSection = 'chat';
     var listCache = {};
     var logLines = [];
-    var MAX_LOG = 100;
+    var MAX_LOG = 450;
     var lastStatusSig = '';
+    var lastActivityLogLen = 0;
+    var lastAppendedActivityKey = '';
+
+    function activityEntryKey(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return '';
+        }
+        var t = entry.t != null ? String(entry.t) : '';
+        var typ = entry.type != null ? String(entry.type) : '';
+        var msg = entry.message != null ? String(entry.message) : '';
+        return t + '\x1e' + typ + '\x1e' + msg.slice(0, 120);
+    }
+
+    function formatActivityLogLine(entry) {
+        var typ = (entry && entry.type) ? String(entry.type) : 'event';
+        var msg = (entry && entry.message) ? String(entry.message) : '';
+        var lines = [typ.toUpperCase() + ': ' + msg];
+        if (entry && entry.detail != null && entry.detail !== '') {
+            var d = entry.detail;
+            if (typeof d === 'object') {
+                try {
+                    d = JSON.stringify(d);
+                } catch (e) {
+                    d = String(d);
+                }
+            } else {
+                d = String(d);
+            }
+            if (d.length > 14000) {
+                d = d.slice(0, 13997) + '...';
+            }
+            lines.push('  ' + d.split('\n').join('\n  '));
+        }
+        return lines.join('\n');
+    }
 
     var PULSE_SECTIONS = [
         { id: 'agent', label: 'Agent', color: '#d9e4ff' },
@@ -320,6 +355,21 @@
         return { active: active, toolIds: toolIds, memIds: memIds, mcpIds: mcpIds };
     }
 
+    window.MemoryGraphResetSimpleActivityLog = function (opts) {
+        lastActivityLogLen = 0;
+        lastStatusSig = '';
+        lastAppendedActivityKey = '';
+        if (opts && opts.clear) {
+            logLines = [];
+            if ($log && $log.length) {
+                $log.text('');
+            }
+            if ($logMobile && $logMobile.length) {
+                $logMobile.text('');
+            }
+        }
+    };
+
     window.SimpleUiLogFromStatus = function (status) {
         if (!document.documentElement.classList.contains('mg-simple-ui')) return;
         var inf = inferActivityFromStatus(status);
@@ -330,6 +380,28 @@
             if (!el) return;
             el.classList.toggle('is-live', !!active[s.id]);
         });
+
+        var al = Array.isArray(status.activityLog) ? status.activityLog : [];
+        if (al.length < lastActivityLogLen) {
+            if (lastAppendedActivityKey) {
+                var syncFrom = 0;
+                for (var s = al.length - 1; s >= 0; s--) {
+                    if (activityEntryKey(al[s]) === lastAppendedActivityKey) {
+                        syncFrom = s + 1;
+                        break;
+                    }
+                }
+                lastActivityLogLen = syncFrom;
+            } else {
+                lastActivityLogLen = 0;
+            }
+        }
+        var i;
+        for (i = lastActivityLogLen; i < al.length; i++) {
+            appendLog(formatActivityLogLine(al[i]));
+            lastAppendedActivityKey = activityEntryKey(al[i]);
+        }
+        lastActivityLogLen = al.length;
 
         var sig = JSON.stringify({
             t: !!status.thinking,
@@ -344,24 +416,23 @@
             mi: inf.memIds.length,
             mcpi: inf.mcpIds.length
         });
-        if (sig === lastStatusSig) return;
-        lastStatusSig = sig;
-
-        var parts = [];
-        if (status.thinking) parts.push('thinking');
-        if (status.gettingAvailTools) parts.push('listing tools');
-        if (status.checkingMemory) parts.push('memory');
-        if (status.checkingInstructions) parts.push('instructions');
-        if (status.checkingResearch) parts.push('research');
-        if (status.checkingRules) parts.push('rules');
-        if (status.checkingMcps) parts.push('MCP');
-        if (status.checkingJobs) parts.push('jobs');
-        if (inf.toolIds.length) parts.push('tools: ' + inf.toolIds.slice(0, 3).join(', ') + (inf.toolIds.length > 3 ? '…' : ''));
-        if (inf.memIds.length) parts.push('memory nodes: ' + inf.memIds.length);
-        if (inf.mcpIds.length) parts.push('MCP: ' + inf.mcpIds.slice(0, 2).join(', '));
-
-        if (parts.length) {
-            appendLog(parts.join(' · '));
+        if (sig !== lastStatusSig) {
+            lastStatusSig = sig;
+            var parts = [];
+            if (status.thinking) parts.push('thinking');
+            if (status.gettingAvailTools) parts.push('listing tools');
+            if (status.checkingMemory) parts.push('memory');
+            if (status.checkingInstructions) parts.push('instructions');
+            if (status.checkingResearch) parts.push('research');
+            if (status.checkingRules) parts.push('rules');
+            if (status.checkingMcps) parts.push('MCP');
+            if (status.checkingJobs) parts.push('jobs');
+            if (inf.toolIds.length) parts.push('tools: ' + inf.toolIds.slice(0, 3).join(', ') + (inf.toolIds.length > 3 ? '…' : ''));
+            if (inf.memIds.length) parts.push('memory nodes: ' + inf.memIds.length);
+            if (inf.mcpIds.length) parts.push('MCP: ' + inf.mcpIds.slice(0, 2).join(', '));
+            if (parts.length) {
+                appendLog(parts.join(' · '));
+            }
         }
 
         if (typeof window.MemoryGraphSignalActivity === 'function') {

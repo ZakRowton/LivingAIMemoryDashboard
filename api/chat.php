@@ -354,6 +354,12 @@ function memory_graph_propagate_child_status_to_parent(string $childRequestId, a
     }
     $parent['executionDetailsByNode'] = $ped;
     $parent['lastExecutionDetailsByNode'] = $ped;
+    $pal = isset($parent['activityLog']) && is_array($parent['activityLog']) ? $parent['activityLog'] : [];
+    $cal = isset($childStatus['activityLog']) && is_array($childStatus['activityLog']) ? $childStatus['activityLog'] : [];
+    if ($cal !== []) {
+        $merged = array_merge($pal, $cal);
+        $parent['activityLog'] = array_slice($merged, -400);
+    }
     $nowMs = (int) round(microtime(true) * 1000) + 5500;
     $parent['lastEventExpiresAtMs'] = max((int) ($parent['lastEventExpiresAtMs'] ?? 0), (int) ($childStatus['lastEventExpiresAtMs'] ?? 0), $nowMs);
     if (!isset($parent['requestId'])) {
@@ -386,6 +392,46 @@ function clearStatusFlags(array &$status): void {
     $status['activeJobIds'] = [];
     $status['activeSubAgentIds'] = [];
     $status['executionDetailsByNode'] = [];
+}
+
+/** JSON snippet for activity log (UTF-8 safe, length-capped). */
+function memory_graph_activity_json_snippet($data, int $max = 12000): string {
+    $flags = JSON_UNESCAPED_UNICODE;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    $s = is_string($data) ? $data : json_encode($data, $flags);
+    if ($s === false) {
+        return '';
+    }
+    if (strlen($s) > $max) {
+        return substr($s, 0, $max - 3) . '...';
+    }
+    return $s;
+}
+
+/** Append one row to status.activityLog for the simple-chat Activity console (and parent merge). */
+function memory_graph_status_append_activity(array &$status, string $type, string $message, $detail = null): void {
+    $message = trim($message);
+    if ($message === '') {
+        $message = $type !== '' ? $type : 'event';
+    }
+    if (!isset($status['activityLog']) || !is_array($status['activityLog'])) {
+        $status['activityLog'] = [];
+    }
+    $entry = [
+        't' => (int) round(microtime(true) * 1000),
+        'type' => preg_replace('/[^a-zA-Z0-9_\-]/', '', $type) ?: 'event',
+        'message' => strlen($message) > 600 ? substr($message, 0, 597) . '...' : $message,
+    ];
+    if ($detail !== null && $detail !== '') {
+        $entry['detail'] = memory_graph_activity_json_snippet($detail, 14000);
+    }
+    $status['activityLog'][] = $entry;
+    $cap = 400;
+    if (count($status['activityLog']) > $cap) {
+        $status['activityLog'] = array_slice($status['activityLog'], -$cap);
+    }
 }
 
 function markExecutionStatus(array &$status, string $requestId, bool $gettingAvailTools, bool $checkingMemory, bool $checkingInstructions, bool $checkingResearch, bool $checkingRules, bool $checkingMcps, bool $checkingJobs, array $activeToolIds, array $activeMemoryIds, array $activeInstructionIds, array $activeResearchIds, array $activeRulesIds, array $activeMcpIds, array $activeJobIds, array $activeSubAgentIds, array $executionDetailsByNode): void {
@@ -3448,6 +3494,7 @@ $status = [
     'lastExecutionDetailsByNode' => [],
     'lastEventExpiresAtMs' => 0,
     'graphRefreshToken' => '',
+    'activityLog' => [],
 ];
 if (!empty($GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'])) {
     $nid = (string) $GLOBALS['MEMORY_GRAPH_CRON_NODE_ID'];
@@ -3558,6 +3605,13 @@ $lastToolResultText = '';
 $loopCount = 0;
 $jobsToRun = [];
 
+$userPreview = is_string($initialUserContent) ? $initialUserContent : '';
+if (strlen($userPreview) > 1200) {
+    $userPreview = substr($userPreview, 0, 1197) . '...';
+}
+memory_graph_status_append_activity($status, 'session', 'Chat · ' . $providerKey . ' · ' . $modelId, $userPreview !== '' ? ['last_user_message' => $userPreview] : null);
+writeStatus($requestId, $status);
+
 $apiRetryCount = 0;
 $apiErrorRetryMax = 3;
 
@@ -3582,6 +3636,11 @@ while (true) {
             $conversation = sanitizeConversationForApi($conversation);
             continue;
         }
+        memory_graph_status_append_activity($status, 'error', 'Upstream LLM request failed', [
+            'httpCode' => (int) ($result['httpCode'] ?? 502),
+            'body_excerpt' => isset($result['raw']) ? substr((string) $result['raw'], 0, 8000) : null,
+            'error' => $result['error'] ?? null,
+        ]);
         clearStatusFlags($status);
         writeStatus($requestId, $status);
         http_response_code($result['httpCode'] ?? 502);
@@ -3609,6 +3668,7 @@ while (true) {
                 $assistantContent = trim($data['response']);
                 $toolCalls = [];
             } else {
+                memory_graph_status_append_activity($status, 'error', 'Invalid OpenAI-style provider response (no message)', null);
                 clearStatusFlags($status);
                 writeStatus($requestId, $status);
                 http_response_code(502);
@@ -3619,6 +3679,24 @@ while (true) {
             $assistantContent = openai_extract_assistant_message_text($message);
             $toolCalls = $message['tool_calls'] ?? [];
         }
+        $plannedToolNames = [];
+        if (!empty($toolCalls) && is_array($toolCalls)) {
+            foreach ($toolCalls as $tc) {
+                if (!is_array($tc)) {
+                    continue;
+                }
+                $fn = (string) (($tc['function'] ?? [])['name'] ?? '');
+                if ($fn !== '') {
+                    $plannedToolNames[] = $fn;
+                }
+            }
+        }
+        memory_graph_status_append_activity(
+            $status,
+            'llm',
+            'Turn ' . $loopCount . ($plannedToolNames !== [] ? ' · tools: ' . implode(', ', $plannedToolNames) : ''),
+            $assistantContent !== '' ? ['assistant_text' => $assistantContent] : null
+        );
 
         if (!empty($toolCalls) && is_array($toolCalls)) {
             $conversation[] = [
@@ -3670,6 +3748,11 @@ while (true) {
                 $functionName = $row['functionName'];
                 $arguments = $row['arguments'];
                 $normalizedFunctionName = $row['normalizedName'];
+                memory_graph_status_append_activity($status, 'tool_call', $normalizedFunctionName, [
+                    'arguments' => $arguments,
+                    'call_id' => $callId,
+                    'mcp_parallel' => $parallelMcpResults !== null && isset($parallelMcpResults[$idx]),
+                ]);
                 $executionState = buildExecutionStateForToolCall($normalizedFunctionName, $arguments, $activeTools);
                 markExecutionStatus(
                     $status,
@@ -3706,6 +3789,12 @@ while (true) {
                     ];
                 }
                 $toolResult = is_array($toolResult) ? $toolResult : ['error' => 'Tool returned invalid result'];
+                memory_graph_status_append_activity(
+                    $status,
+                    'tool_result',
+                    $normalizedFunctionName . ' → ' . lastToolResultDisplayText($normalizedFunctionName, $toolResult),
+                    $toolResult
+                );
                 if ($normalizedFunctionName === 'execute_job_file' && !isset($toolResult['error']) && !empty($toolResult['name']) && !empty($toolResult['content'])) {
                     $jobsToRun[] = [
                         'name' => $toolResult['name'],
@@ -3764,6 +3853,10 @@ while (true) {
 
         $inlineToolCall = parseInlineToolCall($assistantContent);
         if ($inlineToolCall !== null) {
+            $normalizedInlineName = normalizeToolName($inlineToolCall['name']);
+            memory_graph_status_append_activity($status, 'tool_call', $normalizedInlineName . ' (inline JSON)', [
+                'arguments' => $inlineToolCall['arguments'],
+            ]);
             $executionState = buildExecutionStateForToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
             markExecutionStatus(
                 $status,
@@ -3796,7 +3889,12 @@ while (true) {
                 ];
             }
             $toolResult = is_array($toolResult) ? $toolResult : ['error' => 'Tool returned invalid result'];
-            $normalizedInlineName = normalizeToolName($inlineToolCall['name']);
+            memory_graph_status_append_activity(
+                $status,
+                'tool_result',
+                $normalizedInlineName . ' → ' . lastToolResultDisplayText($normalizedInlineName, $toolResult),
+                $toolResult
+            );
             if ($normalizedInlineName === 'execute_job_file' && !isset($toolResult['error']) && !empty($toolResult['name']) && !empty($toolResult['content'])) {
                 $jobsToRun[] = [
                     'name' => $toolResult['name'],
@@ -3863,9 +3961,19 @@ while (true) {
             }
         }
     }
+    memory_graph_status_append_activity(
+        $status,
+        'llm',
+        'Turn ' . $loopCount . ' (Gemini / non-OpenAI path)',
+        $assistantContent !== '' ? ['assistant_text' => $assistantContent] : null
+    );
 
     $inlineToolCall = parseInlineToolCall($assistantContent);
     if ($inlineToolCall !== null) {
+        $normalizedInlineName = normalizeToolName($inlineToolCall['name']);
+        memory_graph_status_append_activity($status, 'tool_call', $normalizedInlineName . ' (inline JSON)', [
+            'arguments' => $inlineToolCall['arguments'],
+        ]);
         $executionState = buildExecutionStateForToolCall($inlineToolCall['name'], $inlineToolCall['arguments'], $activeTools);
         markExecutionStatus(
             $status,
@@ -3898,7 +4006,12 @@ while (true) {
             ];
         }
         $toolResult = is_array($toolResult) ? $toolResult : ['error' => 'Tool returned invalid result'];
-        $normalizedInlineName = normalizeToolName($inlineToolCall['name']);
+        memory_graph_status_append_activity(
+            $status,
+            'tool_result',
+            $normalizedInlineName . ' → ' . lastToolResultDisplayText($normalizedInlineName, $toolResult),
+            $toolResult
+        );
         if ($normalizedInlineName === 'execute_job_file' && !isset($toolResult['error']) && !empty($toolResult['name']) && !empty($toolResult['content'])) {
             $jobsToRun[] = [
                 'name' => $toolResult['name'],
@@ -3979,6 +4092,12 @@ if (trim($finalContent) === '') {
     $memoryGraphMeta['hint'] = 'The model returned no visible assistant text. Check provider, model ID, API key, and logs. If the job only used tools, ensure research/memory tools are enabled. Request ID: ' . $requestId;
     $finalContent = $memoryGraphMeta['hint'];
 }
+
+$finalForLog = trim((string) $finalContent);
+if (strlen($finalForLog) > 16000) {
+    $finalForLog = substr($finalForLog, 0, 15997) . '...';
+}
+memory_graph_status_append_activity($status, 'complete', 'Run finished · ' . strlen(trim((string) $finalContent)) . ' chars', $finalForLog !== '' ? ['final_text' => $finalForLog] : null);
 
 clearStatusFlags($status);
 clearCurrentExecutionStatus($status, $requestId);

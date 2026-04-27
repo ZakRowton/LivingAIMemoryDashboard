@@ -26,6 +26,7 @@ if ($requestId === '') {
         'instructionToolExecuting' => false,
         'isAccessingMemoryFile' => false,
         'graphRefreshToken' => '',
+        'activityLog' => [],
     ]);
     exit;
 }
@@ -56,6 +57,7 @@ if (!file_exists($path)) {
         'instructionToolExecuting' => false,
         'isAccessingMemoryFile' => false,
         'graphRefreshToken' => '',
+        'activityLog' => [],
     ]);
     exit;
 }
@@ -129,4 +131,5 @@ echo json_encode([
     'isAccessingMemoryFile' => $effectiveAccessingMemoryFile,
     'executionDetailsByNode' => $effectiveExecutionDetails,
     'graphRefreshToken' => isset($data['graphRefreshToken']) ? (string) $data['graphRefreshToken'] : '',
+    'activityLog' => isset($data['activityLog']) && is_array($data['activityLog']) ? array_values($data['activityLog']) : [],
 ]);

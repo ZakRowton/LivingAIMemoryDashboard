@@ -301,6 +301,9 @@
     function startStatusPolling(requestId) {
         stopStatusPolling();
         if (!requestId) return;
+        if (typeof window.MemoryGraphResetSimpleActivityLog === 'function') {
+            window.MemoryGraphResetSimpleActivityLog({ clear: true });
+        }
         pollStatusSnapshot(requestId, true);
         statusPollHandle = setInterval(function () {
             pollStatusSnapshot(requestId, false);

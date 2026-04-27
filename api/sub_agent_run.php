@@ -89,6 +89,7 @@ $initialStatus = [
     'lastExecutionDetailsByNode' => $ed,
     'lastEventExpiresAtMs' => (int) round(microtime(true) * 1000) + 5500,
     'graphRefreshToken' => '',
+    'activityLog' => [],
 ];
 writeStatus($statusRequestId, $initialStatus);
 
