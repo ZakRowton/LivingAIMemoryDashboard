@@ -934,7 +934,8 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
             } else {
                 $identity = 'You are a MemoryGraph Sub-Agent (“' . $displayTitle . '”, config file: ' . ($meta['name'] ?? $name) . '). '
                     . 'You run on the same host as Jarvis with the same capabilities: PHP tools, merged memory & rules, instructions, research files, MCP servers, jobs/cron, and dashboard web apps. '
-                    . 'Use tools proactively when they help; you may call run_sub_agent_chat / wait_for_sub_agent_chat to coordinate with other sub-agents unless nesting limits apply.';
+                    . 'Do NOT call run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, or get_sub_agent_chat_result — nested sub-agent-from-sub-agent runs are disabled (prevents infinite loops). '
+                    . 'Use list_sub_agent_files / read_sub_agent_file / create_sub_agent_file / update_sub_agent_file / delete_sub_agent_file for sub-agent configs. To delegate to another agent, the user must use Jarvis main chat. Use other tools proactively.';
             }
             $payload = [
                 'requestId' => $childId,
@@ -947,7 +948,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
                 'skipCronPendingDelivery' => true,
                 'skipChatHistoryAppend' => true,
                 'subAgentIdentity' => $identity,
-                'suppressSubAgentChatTools' => $panelOrigin,
+                'suppressSubAgentChatTools' => true,
             ];
             if ($parentRid !== '' && strpos($parentRid, 'subagent_worker_') !== 0) {
                 $payload['parentStatusRequestId'] = $parentRid;
@@ -1017,7 +1018,14 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     // Fallback: one-shot completion (no tool loop) when base URL is missing or provider is not a registered server key.
     $memoryRulesBlock = buildMemoryAndRulesSystemPromptSection();
     $ridFallback = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? '');
-    $activeTools = memory_graph_filter_tools_for_sub_agent_panel(loadToolRegistry(), $ridFallback, ['suppressSubAgentChatTools' => ($ridFallback !== '' && strpos($ridFallback, 'subagent_panel_') === 0)]);
+    $activeTools = memory_graph_filter_tools_for_sub_agent_panel(
+        loadToolRegistry(),
+        $ridFallback,
+        [
+            'skipChatHistoryAppend' => true,
+            'subAgentIdentity' => 'subagent_fallback',
+        ]
+    );
     $toolInstr = buildToolUsageInstruction($activeTools);
     $mergedSystem = trim(
         $systemPrompt . "\n\n"
@@ -1305,9 +1313,31 @@ function loadToolRegistry(): array {
     return $tools;
 }
 
-/** Nested sub-agent chat tools — not offered when already running inside the graph sub-agent panel (avoids self-loop). */
-function memory_graph_sub_agent_panel_blocked_tool_names(): array {
+/** Sub-agent → sub-agent via tools; must not be available while already running a sub-agent (infinite self-call). */
+function memory_graph_sub_agent_delegation_blocked_tool_names(): array {
     return ['run_sub_agent_chat', 'start_sub_agent_chat', 'wait_for_sub_agent_chat', 'get_sub_agent_chat_result'];
+}
+
+/**
+ * True when the current request is a sub-agent runtime (internal HTTP, panel, or any injected sub identity).
+ * Main Jarvis never sets these; nested runs must not re-enter run_sub_agent_chat.
+ */
+function memory_graph_should_block_sub_agent_delegation_tools(array $input, string $requestId): bool {
+    if (!empty($input['suppressSubAgentChatTools'])) {
+        return true;
+    }
+    $rid = trim($requestId);
+    if ($rid !== '' && strpos($rid, 'subagent_panel_') === 0) {
+        return true;
+    }
+    if (!empty($input['skipChatHistoryAppend'])) {
+        return true;
+    }
+    if (!empty($input['subAgentIdentity']) && is_string($input['subAgentIdentity']) && trim($input['subAgentIdentity']) !== '') {
+        return true;
+    }
+
+    return false;
 }
 
 /**
@@ -1316,12 +1346,10 @@ function memory_graph_sub_agent_panel_blocked_tool_names(): array {
  * @return array<string, mixed>
  */
 function memory_graph_filter_tools_for_sub_agent_panel(array $tools, string $requestId, array $input): array {
-    $rid = trim($requestId);
-    $flag = !empty($input['suppressSubAgentChatTools']);
-    if (!$flag && ($rid === '' || strpos($rid, 'subagent_panel_') !== 0)) {
+    if (!memory_graph_should_block_sub_agent_delegation_tools($input, $requestId)) {
         return $tools;
     }
-    $blocked = array_fill_keys(memory_graph_sub_agent_panel_blocked_tool_names(), true);
+    $blocked = array_fill_keys(memory_graph_sub_agent_delegation_blocked_tool_names(), true);
     $out = [];
     foreach ($tools as $name => $def) {
         $norm = normalizeToolName((string) $name);
@@ -2458,11 +2486,10 @@ function executeToolCall(string $toolName, array $arguments, array $activeTools,
 
 function executeToolCallInner(string $toolName, array $arguments, array $activeTools, ?array $mcpResultOverride = null): array {
     $normalizedName = normalizeToolName($toolName);
-    $panelRid = (string) ($GLOBALS['MEMORY_GRAPH_CHAT_REQUEST_ID'] ?? '');
-    if ($panelRid !== '' && strpos($panelRid, 'subagent_panel_') === 0
-        && in_array($normalizedName, memory_graph_sub_agent_panel_blocked_tool_names(), true)) {
+    if (!empty($GLOBALS['MEMORYGRAPH_BLOCK_SUB_AGENT_DELEGATION_TOOLS'])
+        && in_array($normalizedName, memory_graph_sub_agent_delegation_blocked_tool_names(), true)) {
         return [
-            'error' => 'Sub-agent delegation tools (run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, get_sub_agent_chat_result) are disabled in the sub-agent side panel — you are already running as this sub-agent. Use other tools, or delegate from Jarvis main chat.',
+            'error' => 'Sub-agent delegation (run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, get_sub_agent_chat_result) is disabled while you are already running as a sub-agent. Use other tools, or use Jarvis main chat to call another sub-agent.',
         ];
     }
     if (in_array($normalizedName, ['run_sub_agent_chat', 'start_sub_agent_chat'], true)) {
@@ -3612,6 +3639,7 @@ if ($parentStatusRid !== '' && strpos($parentStatusRid, 'subagent_worker_') !== 
         (string) ($input['parentSubAgentNodeId'] ?? '')
     );
 }
+$GLOBALS['MEMORYGRAPH_BLOCK_SUB_AGENT_DELEGATION_TOOLS'] = memory_graph_should_block_sub_agent_delegation_tools($input, $requestId);
 
 $status = [
     'requestId' => $requestId,
