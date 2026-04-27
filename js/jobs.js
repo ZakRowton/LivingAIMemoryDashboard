@@ -546,6 +546,10 @@
         return !!(jobs[name] && jobs[name].state === 'running');
     };
     window.MemoryGraphResyncBackgroundGraphState = scheduleGraphStateSync;
+    window.MemoryGraphSyncBackgroundGraphStateNow = function () {
+        graphStateQueued = false;
+        syncGraphState();
+    };
 
     setInterval(function () {
         var hasCompleted = Object.keys(jobs).some(function (name) {

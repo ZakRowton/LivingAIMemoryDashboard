@@ -551,6 +551,9 @@
     }
 
     function startStatusPolling(requestId) {
+        if (typeof window.MemoryGraphStopAdhocStatusPoll === 'function') {
+            window.MemoryGraphStopAdhocStatusPoll();
+        }
         stopStatusPolling();
         if (!requestId) return;
         if (typeof window.MemoryGraphResetSimpleActivityLog === 'function') {
@@ -587,7 +590,15 @@
             adhocStatusPollHandle = null;
         }
         adhocStatusTargetSessionId = '';
-        if (typeof window.MemoryGraphResyncBackgroundGraphState === 'function') {
+        if (typeof window.agentState !== 'undefined' && typeof window.agentState.detachSubAgentPanelFromMainGraph === 'function') {
+            window.agentState.detachSubAgentPanelFromMainGraph();
+        }
+        if (typeof window.MemoryGraphClearSubAgentRuntimeGlow === 'function') {
+            window.MemoryGraphClearSubAgentRuntimeGlow();
+        }
+        if (typeof window.MemoryGraphSyncBackgroundGraphStateNow === 'function') {
+            window.MemoryGraphSyncBackgroundGraphStateNow();
+        } else if (typeof window.MemoryGraphResyncBackgroundGraphState === 'function') {
             window.MemoryGraphResyncBackgroundGraphState();
         }
     };

@@ -429,6 +429,33 @@ class AgentState {
         if (d && d.sub_agents) this.markSectionActivity('sub_agents');
         this.dispatchGraphActivity();
     }
+    /**
+     * Drop sub-agent panel / adhoc-poll graph residue so main Jarvis status polling does not
+     * keep pulsing sub-agent file nodes. Call before resyncing background from running jobs.
+     */
+    detachSubAgentPanelFromMainGraph() {
+        this.backgroundActiveSubAgentIds = [];
+        var bd = this.backgroundExecutionDetailsByNode && typeof this.backgroundExecutionDetailsByNode === 'object' ? this.backgroundExecutionDetailsByNode : {};
+        var next = {};
+        Object.keys(bd).forEach(function (key) {
+            if (key === 'sub_agents') return;
+            if (key.indexOf('sub_agent_file_') === 0) return;
+            next[key] = bd[key];
+        });
+        this.backgroundExecutionDetailsByNode = next;
+        var self = this;
+        Object.keys(this.recentNodeActivityUntil).forEach(function (nodeId) {
+            if (nodeId.indexOf('sub_agent_file_') === 0) delete self.recentNodeActivityUntil[nodeId];
+        });
+        var d = this.executionDetailsByNode && typeof this.executionDetailsByNode === 'object' ? this.executionDetailsByNode : {};
+        if (!(Array.isArray(this.activeSubAgentIds) && this.activeSubAgentIds.length > 0) && !d.sub_agents) {
+            this.recentSectionActivityUntil.sub_agents = 0;
+        }
+        var bd2 = this.backgroundExecutionDetailsByNode;
+        this.subAgentsToolExecuting = !!(this.activeSubAgentIds.length || this.backgroundActiveSubAgentIds.length || (d && d.sub_agents) || (bd2 && bd2.sub_agents));
+        this.dispatchGraphActivity();
+    }
+
     setAgentNode(node) { this.parentAgentNode = node; }
     setNodeGroup(nodeId, node) { this.nodeGroups[nodeId] = node; }
 }

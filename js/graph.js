@@ -520,6 +520,14 @@
     window.MemoryGraphSetRenderEnabled = function (v) {
         renderEnabled = !!v;
     };
+
+    /** Clear one-frame runtime glow from sub-agent hub / file nodes (panel vs main session isolation). */
+    window.MemoryGraphClearSubAgentRuntimeGlow = function () {
+        delete runtimeActivityByNodeId.sub_agents;
+        Object.keys(runtimeActivityByNodeId).forEach(function (id) {
+            if (id.indexOf('sub_agent_file_') === 0) delete runtimeActivityByNodeId[id];
+        });
+    };
     function animate() {
         requestAnimationFrame(animate);
         if (!renderEnabled) {
