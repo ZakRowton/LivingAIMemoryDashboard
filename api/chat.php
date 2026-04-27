@@ -797,6 +797,11 @@ function memory_graph_reinforce_sub_agent_status_pulse(string $subAgentSlugOrFil
     if ($rid === '') {
         return;
     }
+    // Dashboard panel uses requestId subagent_panel_*; initial status uses toolName sub_agent_panel.
+    // Do not overwrite that with run_sub_agent_chat or the execution widget shows a false "recursive" tool.
+    $pulseToolName = ($rid !== '' && strpos($rid, 'subagent_panel_') === 0)
+        ? 'sub_agent_panel'
+        : 'run_sub_agent_chat';
     $fn = normalize_sub_agent_filename($subAgentSlugOrFilename);
     if ($fn === '') {
         return;
@@ -815,8 +820,8 @@ function memory_graph_reinforce_sub_agent_status_pulse(string $subAgentSlugOrFil
     $status['activeSubAgentIds'] = array_values($existing);
     $status['lastActiveSubAgentIds'] = $status['activeSubAgentIds'];
     $ed = isset($status['executionDetailsByNode']) && is_array($status['executionDetailsByNode']) ? $status['executionDetailsByNode'] : [];
-    $ed['sub_agents'] = ['toolName' => 'run_sub_agent_chat', 'arguments' => $arguments];
-    $ed[$nid] = ['toolName' => 'run_sub_agent_chat', 'arguments' => $arguments];
+    $ed['sub_agents'] = ['toolName' => $pulseToolName, 'arguments' => $arguments];
+    $ed[$nid] = ['toolName' => $pulseToolName, 'arguments' => $arguments];
     $status['executionDetailsByNode'] = $ed;
     $status['lastExecutionDetailsByNode'] = $ed;
     $holdMs = 120000;
@@ -1026,7 +1031,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
             'subAgentIdentity' => 'subagent_fallback',
         ]
     );
-    $toolInstr = buildToolUsageInstruction($activeTools);
+    $toolInstr = buildToolUsageInstruction($activeTools, true);
     $mergedSystem = trim(
         $systemPrompt . "\n\n"
         . ($memoryRulesBlock !== '' ? $memoryRulesBlock . "\n\n" : '')
@@ -2630,7 +2635,7 @@ function buildMemoryAndRulesSystemPromptSection(int $maxTotalChars = 120000): st
  * can call them immediately without waiting for list_available_tools first.
  * Matches: names starting with list_/get_/read_, or containing _list_/ _get_ (e.g. list_memory_files).
  */
-function buildListGetReadToolsQuickReference(array $activeTools): string {
+function buildListGetReadToolsQuickReference(array $activeTools, bool $blockSubAgentDelegation = false): string {
     $listNames = [];
     $getNames = [];
     $readNames = [];
@@ -2695,12 +2700,20 @@ function buildListGetReadToolsQuickReference(array $activeTools): string {
     }
     if ($subRun !== []) {
         ksort($subRun);
-        $lines[] = '- Sub-agents (Markdown configs in sub-agents/*.md — never memory/ for agent configs): ' . implode(', ', array_keys($subRun)) . '. Chat a sub-agent with run_sub_agent_chat using JSON {"tool":"run_sub_agent_chat","arguments":{"name":"<slug>","prompt":"..."}} or native function calling.';
+        $keys = array_keys($subRun);
+        if ($blockSubAgentDelegation) {
+            $lines[] = '- Sub-agent Markdown configs (sub-agents/*.md — not under memory/): ' . implode(', ', $keys) . '. Nested sub-agent delegation tools are disabled in this session — do not call or JSON-emit run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, or get_sub_agent_chat_result.';
+        } else {
+            $lines[] = '- Sub-agents (Markdown configs in sub-agents/*.md — never memory/ for agent configs): ' . implode(', ', $keys) . '. Chat a sub-agent with run_sub_agent_chat using JSON {"tool":"run_sub_agent_chat","arguments":{"name":"<slug>","prompt":"..."}} or native function calling.';
+        }
     }
     return implode("\n", $lines) . "\n";
 }
 
-function buildToolUsageInstruction(array $activeTools): string {
+function buildToolUsageInstruction(array $activeTools, ?bool $blockSubAgentDelegation = null): string {
+    if ($blockSubAgentDelegation === null) {
+        $blockSubAgentDelegation = !empty($GLOBALS['MEMORYGRAPH_BLOCK_SUB_AGENT_DELEGATION_TOOLS']);
+    }
     $activeList = array_filter($activeTools, function ($tool) {
         return !empty($tool['active']);
     });
@@ -2727,7 +2740,11 @@ function buildToolUsageInstruction(array $activeTools): string {
         ? "There are {$mcpToolCount} MCP-connected tool(s) in your active tool list (names usually start with mcp__).\n"
         : '';
 
-    $listGetReadRef = buildListGetReadToolsQuickReference($activeList);
+    $listGetReadRef = buildListGetReadToolsQuickReference($activeList, $blockSubAgentDelegation);
+
+    $subAgentDelegationBlock = $blockSubAgentDelegation
+        ? "CRITICAL — Sub-agents (this session): Nested delegation is disabled. Do NOT call run_sub_agent_chat, start_sub_agent_chat, wait_for_sub_agent_chat, or get_sub_agent_chat_result (they are unavailable here and will fail). Answer the user directly; use your remaining active tools. Sub-agent definitions live in sub-agents/<slug>.md (not under memory/). If list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, or delete_sub_agent_file appear in your active tool list, use them only to manage those config files — not to spawn another chat run.\n"
+        : "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with arguments name (slug without .md) and prompt (or messages). PARALLEL ORCHESTRATION: When the user bundles independent heavy work (e.g. web search + tool creation, research + coding), split it: keep one branch yourself and delegate the other to a sub-agent with start_sub_agent_chat (one self-contained prompt listing deliverables). In the same multi-tool turn or the next model round, continue your own tools (search, create_or_update_tool, etc.) without blocking on the sub-agent. Poll get_sub_agent_chat_result with taskId until status is done or failed; merge result.response (or assistantMessageExcerpt) into your final answer. Use wait_for_sub_agent_chat only when you must block until the sub-agent finishes (optional timeoutSeconds). Prefer start_sub_agent_chat + overlap over run_sub_agent_chat when both sides can progress at once. Never tell the user you \"have no sub-agent tool\", invent paths like memory/jarvis-spawn/, or emit fake markup like <function> XML—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"slug\",\"prompt\":\"...\"}}.\n";
 
     return trim(
         "You are MemoryGraph's server-side agent: real PHP tools, MCP, memory, rules, research files, jobs/cron, and dashboard web apps under apps/. Operate like a senior engineer—discover (list/read), act with tools, verify outputs, then answer. Ground claims in tool results and merged prompt content; name memory/research files when you rely on them.\n" .
@@ -2739,7 +2756,7 @@ function buildToolUsageInstruction(array $activeTools): string {
         "Do not wrap that JSON in markdown fences.\n" .
         "CRITICAL — MCP autonomy: You must proactively use MCP tools whenever they can help complete the task. Never wait for the user to say \"use MCP\", \"call the MCP\", or similar. If list_available_tools shows mcp__* tools, or if configured MCP servers could provide data/actions the user needs, call those tools as part of your normal workflow. Treat MCP-exposed tools like any other first-class tool. If you are unsure what an MCP server offers, call list_mcp_servers then list_mcp_server_tools for active servers, then invoke the matching tool by name.\n" .
         $mcpAutonomyLine .
-        "CRITICAL — Sub-agents: They are first-class tools. Sub-agent definitions live in sub-agents/<slug>.md (YAML front matter + body), NOT under memory/. To list or edit configs use list_sub_agent_files, read_sub_agent_file, create_sub_agent_file, update_sub_agent_file, delete_sub_agent_file. To run a turn through the same engine as Jarvis (tools, memory, rules, MCP when configured) call run_sub_agent_chat with arguments name (slug without .md) and prompt (or messages). PARALLEL ORCHESTRATION: When the user bundles independent heavy work (e.g. web search + tool creation, research + coding), split it: keep one branch yourself and delegate the other to a sub-agent with start_sub_agent_chat (one self-contained prompt listing deliverables). In the same multi-tool turn or the next model round, continue your own tools (search, create_or_update_tool, etc.) without blocking on the sub-agent. Poll get_sub_agent_chat_result with taskId until status is done or failed; merge result.response (or assistantMessageExcerpt) into your final answer. Use wait_for_sub_agent_chat only when you must block until the sub-agent finishes (optional timeoutSeconds). Prefer start_sub_agent_chat + overlap over run_sub_agent_chat when both sides can progress at once. Never tell the user you \"have no sub-agent tool\", invent paths like memory/jarvis-spawn/, or emit fake markup like <function> XML—use native function calls or ONLY this JSON shape: {\"tool\":\"run_sub_agent_chat\",\"arguments\":{\"name\":\"slug\",\"prompt\":\"...\"}}.\n" .
+        $subAgentDelegationBlock .
         "To discover what tools are currently available, call list_available_tools.\n" .
         ($listGetReadRef !== '' ? $listGetReadRef : '') .
         "CRITICAL — Before create_or_update_tool (or writing a new PHP tool): You MUST first exhaust existing capabilities. (1) Call list_available_tools and read every active tool name and description — custom tools, builtins, and MCP-proxied tools (names often look like mcp__ServerSlug__tool_slug) are all listed there. (2) Call list_mcp_servers, then for each relevant active server call list_mcp_server_tools to see remote MCP tools and parameters. Only if nothing fits should you create a new PHP tool. Prefer calling an existing tool or an MCP-exposed tool over building new code.\n" .
