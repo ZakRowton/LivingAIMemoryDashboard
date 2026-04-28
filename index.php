@@ -385,6 +385,61 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             flex-direction: column;
             gap: 4px;
         }
+        .mg-groq-quota {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            gap: 10px 14px;
+            padding: 6px 4px 2px;
+            border-top: 1px solid rgba(214, 219, 226, 0.12);
+            margin-top: 2px;
+        }
+        .mg-groq-quota[hidden] { display: none !important; }
+        .mg-groq-quota-title {
+            width: 100%;
+            font-family: 'Cinzel', serif;
+            font-size: 0.65rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--gold-dim, rgba(214, 219, 226, 0.65));
+            margin-bottom: 2px;
+        }
+        .mg-groq-dial {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            min-width: 56px;
+        }
+        .mg-groq-dial svg {
+            width: 44px;
+            height: 44px;
+            transform: rotate(-90deg);
+        }
+        .mg-groq-dial-track { fill: none; stroke: rgba(214, 219, 226, 0.12); stroke-width: 5; }
+        .mg-groq-dial-fill { fill: none; stroke: #86efac; stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 0.35s ease; }
+        .mg-groq-dial-fill.mg-groq-dial-fill--amber { stroke: #fcd34d; }
+        .mg-groq-dial-fill.mg-groq-dial-fill--rose { stroke: #fb7185; }
+        .mg-groq-dial-cap {
+            font-family: 'Playfair Display', Georgia, serif;
+            font-size: 0.68rem;
+            color: var(--gold-light, #f5e6c8);
+            text-align: center;
+            line-height: 1.15;
+            max-width: 72px;
+        }
+        .mg-groq-dial-sub {
+            font-size: 0.58rem;
+            color: rgba(214, 219, 226, 0.55);
+            text-align: center;
+            max-width: 88px;
+            line-height: 1.2;
+        }
+        [data-theme="light"] .mg-groq-quota {
+            border-top-color: rgba(15, 23, 42, 0.08);
+        }
+        [data-theme="light"] .mg-groq-dial-track { stroke: rgba(15, 23, 42, 0.08); }
+        [data-theme="light"] .mg-groq-dial-sub { color: rgba(15, 23, 42, 0.5); }
         .mg-drop-overlay {
             display: none;
             position: absolute;
@@ -3140,6 +3195,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 <div id="chat-drop-overlay" class="mg-drop-overlay" aria-hidden="true">Drop files to attach</div>
                 <div id="mg-subagent-mention" class="mg-subagent-mention" role="listbox" aria-label="Sub-agents" hidden></div>
                 <div id="chat-attachment-strip" class="mg-attach-strip" aria-live="polite"></div>
+                <div id="mg-groq-quota-row" class="mg-groq-quota" hidden aria-live="polite"></div>
                 <div class="input-wrap">
                     <button type="button" class="mg-attach-trigger" id="chat-attach-btn" title="Add attachments" aria-label="Add attachments">＋</button>
                     <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
@@ -3522,9 +3578,11 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         groq: {
             name: 'Groq',
             models: [
-                'llama-3.1-8b-instant', 'llama-3.3-70b-versatile',
-                'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct',
-                'openai/gpt-oss-120b', 'whisper-large-v3'
+                'allam-2-7b', 'canopylabs/orpheus-arabic-saudi', 'canopylabs/orpheus-v1-english',
+                'groq/compound', 'groq/compound-mini', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile',
+                'meta-llama/llama-4-scout-17b-16e-instruct', 'meta-llama/llama-prompt-guard-2-22m', 'meta-llama/llama-prompt-guard-2-86m',
+                'openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'openai/gpt-oss-safeguard-20b', 'qwen/qwen3-32b',
+                'whisper-large-v3', 'whisper-large-v3-turbo'
             ]
         },
         openrouter: { name: 'OpenRouter', models: ['google/gemma-4-31b-it:free'] },
@@ -3692,6 +3750,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         function applyAgentConfig(data) {
             if (!data || !data.providers) return;
             window.MEMORY_GRAPH_PROVIDERS = data.providers;
+            window.MEMORY_GRAPH_GROQ_MODEL_LIMITS = (data.groqModelLimits && typeof data.groqModelLimits === 'object') ? data.groqModelLimits : {};
             window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES = normalizeSystemInstructionMap(data.systemInstructionFilesByModel);
             if (providerSelect) {
                 providerSelect.innerHTML = '';
@@ -3717,6 +3776,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 }
             }
             captureAgentSelection();
+            if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
+                window.MemoryGraphGroqQuotaSync();
+            }
         }
         window.applyAgentConfig = applyAgentConfig;
 
@@ -3770,6 +3832,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 if (systemInstructionSelect) {
                     persistInstructionFileToServer(providerSelect.value, modelSelect ? modelSelect.value : '', systemInstructionSelect.value || '');
                 }
+                if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
+                    window.MemoryGraphGroqQuotaSync();
+                }
             });
         }
         if (modelSelect) {
@@ -3779,6 +3844,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 syncInstructionSelectToCurrentKey();
                 if (systemInstructionSelect && providerSelect) {
                     persistInstructionFileToServer(providerSelect.value, modelSelect.value, systemInstructionSelect.value || '');
+                }
+                if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
+                    window.MemoryGraphGroqQuotaSync();
                 }
             });
         }

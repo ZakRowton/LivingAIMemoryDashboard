@@ -1275,6 +1275,9 @@
                         window.agentState.markMemoryFileNodesActive(res.memory_graph.memory_file_node_ids);
                     }
                 }
+                if (typeof window.MemoryGraphGroqQuotaApplyResponse === 'function') {
+                    window.MemoryGraphGroqQuotaApplyResponse(res);
+                }
                 var content = extractAssistantTextFromChatResponse(res);
                 if (!content && typeof res === 'string') content = res;
                 if (!content && res && res.choices && res.choices[0] && res.choices[0].message) {
@@ -1369,6 +1372,9 @@
         }
         renderSimpleChatThread();
         focusChatInputSoon();
+        if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
+            window.MemoryGraphGroqQuotaSync();
+        }
     });
 
     $send.on('click', sendMessage);
@@ -1532,5 +1538,127 @@
         sessionBundle.sessions[active].turns = out;
         saveSessionBundle();
         renderSimpleChatThread();
+    };
+
+    var GROQ_TPD_LS_PREFIX = 'mg_groq_tpd_v1_';
+
+    function mgGroqTpdKey(model) {
+        var d = new Date();
+        return GROQ_TPD_LS_PREFIX + String(model || '') + '_' + d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    }
+
+    function mgGroqBumpTpdUsed(model, usage) {
+        try {
+            var lim = (window.MEMORY_GRAPH_GROQ_MODEL_LIMITS || {})[model];
+            if (!lim || lim.tpd == null) return;
+            var total = usage && usage.total_tokens != null ? Number(usage.total_tokens) : 0;
+            if (!total || total < 0) return;
+            var k = mgGroqTpdKey(model);
+            var prev = parseInt(localStorage.getItem(k) || '0', 10) || 0;
+            localStorage.setItem(k, String(prev + total));
+        } catch (e) { /* ignore quota storage */ }
+    }
+
+    function mgGroqDialPctRemaining(used, limit) {
+        if (limit == null || limit <= 0) return null;
+        var u = Math.max(0, Number(used) || 0);
+        if (u > limit) u = limit;
+        return (limit - u) / limit;
+    }
+
+    function mgGroqDialSvg(pct) {
+        var r = 16;
+        var c = 2 * Math.PI * r;
+        var p = pct == null ? 0 : Math.max(0, Math.min(1, pct));
+        var off = c * (1 - p);
+        var cls = 'mg-groq-dial-fill';
+        if (p < 0.15) cls += ' mg-groq-dial-fill--rose';
+        else if (p < 0.35) cls += ' mg-groq-dial-fill--amber';
+        return '<svg viewBox="0 0 44 44" aria-hidden="true"><circle class="mg-groq-dial-track" cx="22" cy="22" r="' + r + '"/>'
+            + '<circle class="' + cls + '" cx="22" cy="22" r="' + r + '" stroke-dasharray="' + c + '" stroke-dashoffset="' + off + '"/>'
+            + '</svg>';
+    }
+
+    function mgGroqFormatNum(n) {
+        if (n == null || n !== n) return '—';
+        var x = Number(n);
+        if (x >= 1000000) return (x / 1000000).toFixed(1) + 'M';
+        if (x >= 10000) return Math.round(x / 1000) + 'k';
+        if (x >= 1000) return (x / 1000).toFixed(x % 1000 === 0 ? 0 : 1) + 'k';
+        return String(Math.round(x));
+    }
+
+    function renderGroqQuotaBar(opts) {
+        var row = document.getElementById('mg-groq-quota-row');
+        if (!row) return;
+        var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        if (settings.provider !== 'groq') {
+            row.setAttribute('hidden', '');
+            row.innerHTML = '';
+            return;
+        }
+        row.removeAttribute('hidden');
+        var model = settings.model || '';
+        var caps = (window.MEMORY_GRAPH_GROQ_MODEL_LIMITS || {})[model] || {};
+        var rl = (opts && opts.rateLimits) || window.__mgLastGroqRateLimits || {};
+        window.__mgLastGroqRateLimits = rl;
+
+        var lr = rl.limit_requests;
+        var rr = rl.remaining_requests;
+        var reqPct = (lr != null && lr > 0 && rr != null) ? rr / lr : null;
+
+        var lt = rl.limit_tokens;
+        var rt = rl.remaining_tokens;
+        var tokPct = (lt != null && lt > 0 && rt != null) ? rt / lt : null;
+
+        var tpd = caps.tpd != null ? caps.tpd : null;
+        var usedTpd = 0;
+        try {
+            if (tpd != null) usedTpd = parseInt(localStorage.getItem(mgGroqTpdKey(model)) || '0', 10) || 0;
+        } catch (e2) { usedTpd = 0; }
+        var tpdRemainPct = tpd != null && tpd > 0 ? mgGroqDialPctRemaining(usedTpd, tpd) : null;
+
+        var html = '<div class="mg-groq-quota-title">Groq quota · ' + escapeHtml(model) + '</div>';
+        html += '<div class="mg-groq-dial" title="Remaining requests today vs limit (Groq x-ratelimit-*-requests = RPD window).">' + mgGroqDialSvg(reqPct)
+            + '<span class="mg-groq-dial-cap">' + (rr != null ? mgGroqFormatNum(rr) : '—') + ' / ' + (lr != null ? mgGroqFormatNum(lr) : '—') + '</span>'
+            + '<span class="mg-groq-dial-sub">Requests (day)</span></div>';
+        html += '<div class="mg-groq-dial" title="Remaining tokens in the current minute vs TPM limit (Groq headers).">' + mgGroqDialSvg(tokPct)
+            + '<span class="mg-groq-dial-cap">' + (rt != null ? mgGroqFormatNum(rt) : '—') + ' / ' + (lt != null ? mgGroqFormatNum(lt) : '—') + '</span>'
+            + '<span class="mg-groq-dial-sub">Tokens (minute)</span></div>';
+        if (tpd != null) {
+            var rem = Math.max(0, tpd - usedTpd);
+            html += '<div class="mg-groq-dial" title="Browser-local estimate: sums usage.total_tokens per chat response today vs docs TPD for this model.">' + mgGroqDialSvg(tpdRemainPct)
+                + '<span class="mg-groq-dial-cap">' + mgGroqFormatNum(rem) + ' / ' + mgGroqFormatNum(tpd) + '</span>'
+                + '<span class="mg-groq-dial-sub">Daily tokens (est.)</span></div>';
+        } else if (caps.ash != null) {
+            html += '<div class="mg-groq-dial"><span class="mg-groq-dial-cap">ASH ' + mgGroqFormatNum(caps.ash) + '</span><span class="mg-groq-dial-sub">Audio sec / hr</span></div>';
+            html += '<div class="mg-groq-dial"><span class="mg-groq-dial-cap">ASD ' + mgGroqFormatNum(caps.asd) + '</span><span class="mg-groq-dial-sub">Audio sec / day</span></div>';
+        }
+
+        if (rl.reset_requests || rl.reset_tokens) {
+            html += '<div class="mg-groq-dial-sub" style="width:100%;margin-top:2px;">Resets'
+                + (rl.reset_requests ? ' · req ' + escapeHtml(String(rl.reset_requests)) : '')
+                + (rl.reset_tokens ? ' · tok ' + escapeHtml(String(rl.reset_tokens)) : '')
+                + '</div>';
+        }
+        row.innerHTML = html;
+    }
+
+    window.MemoryGraphGroqQuotaSync = function () {
+        renderGroqQuotaBar({});
+    };
+
+    window.MemoryGraphGroqQuotaApplyResponse = function (res) {
+        if (!res) return;
+        var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        if (settings.provider !== 'groq') return;
+        if (res.groq_model_limits && typeof res.groq_model_limits === 'object' && settings.model) {
+            if (!window.MEMORY_GRAPH_GROQ_MODEL_LIMITS) window.MEMORY_GRAPH_GROQ_MODEL_LIMITS = {};
+            window.MEMORY_GRAPH_GROQ_MODEL_LIMITS[settings.model] = res.groq_model_limits;
+        }
+        if (res.groq_rate_limits && typeof res.groq_rate_limits === 'object') {
+            if (res.usage) mgGroqBumpTpdUsed(settings.model, res.usage);
+            renderGroqQuotaBar({ rateLimits: res.groq_rate_limits });
+        }
     };
 })();

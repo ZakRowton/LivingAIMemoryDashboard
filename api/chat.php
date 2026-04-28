@@ -150,6 +150,74 @@ function memory_graph_alibaba_should_retry_alternate_region(int $httpCode, strin
 }
 
 /**
+ * Parse Groq rate-limit headers from the raw header block collected by CURLOPT_HEADERFUNCTION.
+ *
+ * @return array{limit_requests:?int,remaining_requests:?int,reset_requests:?string,limit_tokens:?int,remaining_tokens:?int,reset_tokens:?string,retry_after:?int}
+ */
+function memory_graph_groq_parse_ratelimit_header_blob(string $raw): array {
+    $out = [
+        'limit_requests' => null,
+        'remaining_requests' => null,
+        'reset_requests' => null,
+        'limit_tokens' => null,
+        'remaining_tokens' => null,
+        'reset_tokens' => null,
+        'retry_after' => null,
+    ];
+    if ($raw === '') {
+        return $out;
+    }
+    $lines = preg_split("/\r\n|\n|\r/", $raw);
+    $h = [];
+    foreach ($lines as $line) {
+        $line = trim((string) $line);
+        if ($line === '' || strpos($line, ':') === false) {
+            continue;
+        }
+        [$k, $v] = explode(':', $line, 2);
+        $h[strtolower(trim($k))] = trim($v);
+    }
+    $g = static function (array $h, string $name): ?string {
+        $lk = strtolower($name);
+        return isset($h[$lk]) ? $h[$lk] : null;
+    };
+    $toInt = static function (?string $s): ?int {
+        if ($s === null || $s === '') {
+            return null;
+        }
+        if (preg_match('/-?\d+/', $s, $m) === 1) {
+            return (int) $m[0];
+        }
+
+        return null;
+    };
+    $out['limit_requests'] = $toInt($g($h, 'x-ratelimit-limit-requests'));
+    $out['remaining_requests'] = $toInt($g($h, 'x-ratelimit-remaining-requests'));
+    $out['reset_requests'] = $g($h, 'x-ratelimit-reset-requests');
+    $out['limit_tokens'] = $toInt($g($h, 'x-ratelimit-limit-tokens'));
+    $out['remaining_tokens'] = $toInt($g($h, 'x-ratelimit-remaining-tokens'));
+    $out['reset_tokens'] = $g($h, 'x-ratelimit-reset-tokens');
+    $out['retry_after'] = $toInt($g($h, 'retry-after'));
+
+    return $out;
+}
+
+function memory_graph_missing_provider_api_key_message(string $providerKey): string {
+    $hints = [
+        'alibaba' => 'Set DASHSCOPE_API_KEY or ALIBABA_API_KEY in .env.',
+        'groq' => 'Set GROQ_API_KEY in .env or save a key override in agent config.',
+        'mercury' => 'Set MERCURY_API_KEY in .env.',
+        'featherless' => 'Set FEATHERLESS_API_KEY in .env.',
+        'gemini' => 'Set GEMINI_API_KEY in .env.',
+        'openrouter' => 'Set OPENROUTER_API_KEY in .env.',
+        'nvidia_nim' => 'Set NVIDIA_NIM_API_KEY in .env.',
+    ];
+    $hint = $hints[$providerKey] ?? 'Set the provider API key in .env or agent API key override.';
+
+    return 'Missing API key for provider "' . $providerKey . '". ' . $hint;
+}
+
+/**
  * Single POST to OpenAI-compatible endpoint; returns same shape as requestOpenAiCompatible.
  */
 function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, array $payload, string $providerKeyForHeaders = ''): array {
@@ -176,15 +244,25 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
         $headers[] = 'X-Title: MemoryGraph';
         $headers[] = 'X-OpenRouter-Title: MemoryGraph';
     }
+    $collectGroqHeaders = $providerKeyForHeaders === 'groq';
+    $groqHeaderBlob = '';
     $ch = curl_init($endpoint);
-    curl_setopt_array($ch, [
+    $opts = [
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $body,
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 600,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-    ]);
+    ];
+    if ($collectGroqHeaders) {
+        $opts[CURLOPT_HEADERFUNCTION] = static function ($ch, $headerLine) use (&$groqHeaderBlob): int {
+            $groqHeaderBlob .= (string) $headerLine;
+
+            return strlen((string) $headerLine);
+        };
+    }
+    curl_setopt_array($ch, $opts);
     $response = curl_exec($ch);
     $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err = curl_error($ch);
@@ -194,7 +272,12 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
         return ['error' => 'Gateway error: ' . $err, 'httpCode' => 502];
     }
     if ($httpCode >= 400) {
-        return ['error' => $response ?: 'Provider request failed', 'httpCode' => $httpCode, 'raw' => (string) $response];
+        $errPayload = ['error' => $response ?: 'Provider request failed', 'httpCode' => $httpCode, 'raw' => (string) $response];
+        if ($collectGroqHeaders && $groqHeaderBlob !== '') {
+            $errPayload['groqRateLimits'] = memory_graph_groq_parse_ratelimit_header_blob($groqHeaderBlob);
+        }
+
+        return $errPayload;
     }
 
     $decoded = json_decode((string) $response, true);
@@ -207,7 +290,12 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
             'raw' => strlen($r) > 20000 ? substr($r, 0, 20000) : $r,
         ];
     }
-    return ['data' => $decoded, 'httpCode' => $httpCode];
+    $ok = ['data' => $decoded, 'httpCode' => $httpCode];
+    if ($collectGroqHeaders) {
+        $ok['groqRateLimits'] = memory_graph_groq_parse_ratelimit_header_blob($groqHeaderBlob);
+    }
+
+    return $ok;
 }
 
 function memory_graph_openrouter_chat_endpoint(): string {
@@ -266,6 +354,12 @@ $providers = [
         'apiKey' => memory_graph_env('NVIDIA_NIM_API_KEY', ''),
         'type' => 'openai',
         'defaultModel' => trim((string) memory_graph_env('NVIDIA_NIM_MODEL', 'deepseek-ai/deepseek-v4-flash')),
+    ],
+    'groq' => [
+        'endpoint' => 'https://api.groq.com/openai/v1/chat/completions',
+        'apiKey' => memory_graph_env('GROQ_API_KEY', ''),
+        'type' => 'openai',
+        'defaultModel' => 'llama-3.3-70b-versatile',
     ],
 ];
 $customProviders = get_custom_provider_definitions_for_chat();
@@ -927,7 +1021,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     }
     if ($provider === null) {
         return [
-            'error' => 'Invalid sub-agent provider: "' . $providerKeyRaw . '" (resolved: "' . $providerKey . '"). Use a built-in key like openrouter, nvidia_nim, gemini, mercury, featherless, alibaba, or set endpoint + api_key in the sub-agent file.',
+            'error' => 'Invalid sub-agent provider: "' . $providerKeyRaw . '" (resolved: "' . $providerKey . '"). Use a built-in key like openrouter, nvidia_nim, gemini, mercury, featherless, alibaba, groq, or set endpoint + api_key in the sub-agent file.',
         ];
     }
     if ($endpoint !== '' && ($provider['type'] ?? 'openai') === 'openai') {
@@ -4295,7 +4389,7 @@ if ($providerKey === 'alibaba') {
 }
 if (($provider['apiKey'] ?? '') === '') {
     http_response_code(500);
-    echo json_encode(['error' => 'Missing API key for provider "' . $providerKey . '". Set DASHSCOPE_API_KEY or ALIBABA_API_KEY in .env.']);
+    echo json_encode(['error' => memory_graph_missing_provider_api_key_message($providerKey)]);
     exit;
 }
 // Resolve model: must be valid for this provider to avoid sending e.g. mercury-2 to Gemini API
@@ -4386,6 +4480,9 @@ if (strlen($userPreview) > 1200) {
 }
 memory_graph_status_append_activity($status, 'session', 'Chat · ' . $providerKey . ' · ' . $modelId, $userPreview !== '' ? ['last_user_message' => $userPreview] : null);
 writeStatus($requestId, $status);
+
+$groqRateLimitsSnapshot = null;
+$lastOpenAiUsage = null;
 
 $memoryGraphMeta = [];
 $targetSubAgentInput = trim((string) ($input['targetSubAgent'] ?? ''));
@@ -4498,6 +4595,12 @@ while (true) {
     $apiRetryCount = 0;
 
     $data = $result['data'];
+    if ($providerKey === 'groq' && isset($result['groqRateLimits']) && is_array($result['groqRateLimits'])) {
+        $groqRateLimitsSnapshot = $result['groqRateLimits'];
+    }
+    if (isset($data['usage']) && is_array($data['usage'])) {
+        $lastOpenAiUsage = $data['usage'];
+    }
 
     if ($provider['type'] === 'openai') {
         $message = $data['choices'][0]['message'] ?? null;
@@ -5047,6 +5150,18 @@ $response = [
     ],
     'request_id' => $requestId,
 ];
+if ($providerKey === 'groq') {
+    if ($groqRateLimitsSnapshot !== null && is_array($groqRateLimitsSnapshot)) {
+        $response['groq_rate_limits'] = $groqRateLimitsSnapshot;
+    }
+    $gl = memory_graph_groq_limits_for_model($modelId);
+    if ($gl !== null) {
+        $response['groq_model_limits'] = $gl;
+    }
+    if ($lastOpenAiUsage !== null && is_array($lastOpenAiUsage)) {
+        $response['usage'] = $lastOpenAiUsage;
+    }
+}
 if (!empty($memoryGraphMeta)) {
     $response['memory_graph'] = $memoryGraphMeta;
 }

@@ -4,6 +4,8 @@
  * Persisted in config/agent_config.json so the AI can change provider/model and add providers/models.
  */
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'groq_model_limits.php';
+
 if (!function_exists('agent_provider_config_path')) {
     function agent_provider_config_path(): string {
         $dir = __DIR__ . DIRECTORY_SEPARATOR . 'config';
@@ -29,7 +31,24 @@ function get_builtin_provider_ui(): array {
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
         'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
         'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
-        'groq'      => ['name' => 'Groq', 'models' => ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-120b', 'whisper-large-v3']],
+        'groq'      => ['name' => 'Groq', 'models' => [
+            'allam-2-7b',
+            'canopylabs/orpheus-arabic-saudi',
+            'canopylabs/orpheus-v1-english',
+            'groq/compound',
+            'groq/compound-mini',
+            'llama-3.1-8b-instant',
+            'llama-3.3-70b-versatile',
+            'meta-llama/llama-4-scout-17b-16e-instruct',
+            'meta-llama/llama-prompt-guard-2-22m',
+            'meta-llama/llama-prompt-guard-2-86m',
+            'openai/gpt-oss-120b',
+            'openai/gpt-oss-20b',
+            'openai/gpt-oss-safeguard-20b',
+            'qwen/qwen3-32b',
+            'whisper-large-v3',
+            'whisper-large-v3-turbo',
+        ]],
         'openrouter' => ['name' => 'OpenRouter', 'models' => [$openRouterModel]],
         'nvidia_nim' => ['name' => 'NVIDIA NIM', 'models' => [
             $nvidiaNimModel,
@@ -320,6 +339,7 @@ function get_provider_api_key_ui_row(string $providerKey): array {
                 'mercury' => 'MERCURY_API_KEY',
                 'featherless' => 'FEATHERLESS_API_KEY',
                 'gemini' => 'GEMINI_API_KEY',
+                'groq' => 'GROQ_API_KEY',
                 'openrouter' => 'OPENROUTER_API_KEY',
                 'nvidia_nim' => 'NVIDIA_NIM_API_KEY',
             ];
@@ -361,6 +381,8 @@ function get_providers_for_ui(): array {
         $sifm = new \stdClass();
     }
 
+    $groqLimits = memory_graph_groq_model_limits_table();
+
     return [
         'currentProvider' => (string) ($config['currentProvider'] ?? 'mercury'),
         'currentModel'    => (string) ($config['currentModel'] ?? 'mercury-2'),
@@ -368,6 +390,7 @@ function get_providers_for_ui(): array {
         'systemPromptsByModel' => get_system_prompts_by_model(),
         'systemInstructionFilesByModel' => $sifm,
         'providerApiKeyStatus' => $apiKeyStatus,
+        'groqModelLimits' => $groqLimits,
     ];
 }
 
