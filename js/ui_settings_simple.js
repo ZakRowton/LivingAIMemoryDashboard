@@ -301,11 +301,70 @@
             });
     }
 
+    function fishMsg(text, isError) {
+        var $m = $('#fish-settings-msg');
+        if (!$m.length) return;
+        $m.text(text || '');
+        $m.toggleClass('is-error', !!isError);
+    }
+
+    function readFishSettingsFromForm() {
+        var voiceStyle = String($('#fish-voice-style-select').val() || 'jarvis');
+        return {
+            apiKey: String($('#fish-api-key-input').val() || '').trim(),
+            endpoint: String($('#fish-endpoint-input').val() || '').trim(),
+            modelId: String($('#fish-model-id-input').val() || '').trim(),
+            voiceStyle: voiceStyle,
+            format: String($('#fish-format-select').val() || 'mp3'),
+            speed: parseFloat($('#fish-speed-input').val() || '1'),
+            volume: parseFloat($('#fish-volume-input').val() || '0'),
+            voicePresets: {
+                jarvis: String($('#fish-jarvis-voice-input').val() || '').trim(),
+                eagle_eye: String($('#fish-eagle-voice-input').val() || '').trim(),
+                custom: String($('#fish-custom-voice-input').val() || '').trim()
+            }
+        };
+    }
+
+    function applyFishSettingsToForm(state) {
+        var s = (state && state.settings) ? state.settings : (state || {});
+        if (!s || typeof s !== 'object') return;
+        $('#fish-api-key-input').val(String(s.apiKey || ''));
+        $('#fish-endpoint-input').val(String(s.endpoint || ''));
+        $('#fish-model-id-input').val(String(s.modelId || 'fishaudio-s2pro'));
+        $('#fish-voice-style-select').val(String(s.voiceStyle || 'jarvis'));
+        $('#fish-format-select').val(String(s.format || 'mp3'));
+        $('#fish-speed-input').val(String(s.speed != null ? s.speed : 1));
+        $('#fish-volume-input').val(String(s.volume != null ? s.volume : 0));
+        var vp = s.voicePresets && typeof s.voicePresets === 'object' ? s.voicePresets : {};
+        $('#fish-jarvis-voice-input').val(String(vp.jarvis || ''));
+        $('#fish-eagle-voice-input').val(String(vp.eagle_eye || ''));
+        $('#fish-custom-voice-input').val(String(vp.custom || ''));
+        var muted = !!s.muted;
+        $('#fish-toggle-mute-btn').text(muted ? 'Unmute' : 'Mute');
+    }
+
+    function refreshFishAudioSettings() {
+        if (typeof window.MemoryGraphFishAudioLoadSettings !== 'function') return;
+        fishMsg('Loading Fish Audio settings…', false);
+        window.MemoryGraphFishAudioLoadSettings()
+            .then(function () {
+                if (typeof window.MemoryGraphFishAudioGetState === 'function') {
+                    applyFishSettingsToForm(window.MemoryGraphFishAudioGetState());
+                }
+                fishMsg('', false);
+            })
+            .catch(function (err) {
+                fishMsg((err && err.message) ? err.message : 'Could not load Fish Audio settings', true);
+            });
+    }
+
     function openSettings() {
         if (!$panel.length) return;
         $backdrop.removeAttr('hidden').addClass('is-open');
         $panel.addClass('is-open').attr('aria-hidden', 'false');
         refreshSettingsProviderApiKeys();
+        refreshFishAudioSettings();
     }
 
     function closeSettings() {
@@ -1149,6 +1208,52 @@
         }
         buildPulseStrip($pulses, false);
         buildPulseStrip($toolbarPulses, true);
+
+        if (typeof window.MemoryGraphFishAudioOnState === 'function') {
+            window.MemoryGraphFishAudioOnState(function (state) {
+                applyFishSettingsToForm(state);
+            });
+        }
+        $('#fish-save-settings-btn').on('click', function () {
+            if (typeof window.MemoryGraphFishAudioSaveSettings !== 'function') return;
+            var payload = readFishSettingsFromForm();
+            fishMsg('Saving Fish Audio settings…', false);
+            window.MemoryGraphFishAudioSaveSettings(payload)
+                .then(function (s) {
+                    applyFishSettingsToForm({ settings: s });
+                    fishMsg('Saved.', false);
+                })
+                .catch(function (err) {
+                    fishMsg((err && err.message) ? err.message : 'Save failed', true);
+                });
+        });
+        $('#fish-test-voice-btn').on('click', function () {
+            if (typeof window.MemoryGraphFishAudioSaveSettings !== 'function' || typeof window.MemoryGraphFishAudioSpeakText !== 'function') return;
+            var payload = readFishSettingsFromForm();
+            fishMsg('Saving and testing voice…', false);
+            window.MemoryGraphFishAudioSaveSettings(payload)
+                .then(function () {
+                    return window.MemoryGraphFishAudioSpeakText('Voice test. I am online and ready.');
+                })
+                .then(function () {
+                    fishMsg('Voice test played.', false);
+                })
+                .catch(function (err) {
+                    fishMsg((err && err.message) ? err.message : 'Voice test failed', true);
+                });
+        });
+        $('#fish-toggle-mute-btn').on('click', function () {
+            if (typeof window.MemoryGraphFishAudioToggleMute !== 'function') return;
+            window.MemoryGraphFishAudioToggleMute()
+                .then(function () {
+                    if (typeof window.MemoryGraphFishAudioGetState === 'function') {
+                        applyFishSettingsToForm(window.MemoryGraphFishAudioGetState());
+                    }
+                })
+                .catch(function (err) {
+                    fishMsg((err && err.message) ? err.message : 'Mute toggle failed', true);
+                });
+        });
 
         function updateSimpleChatHistoryDeleteSelectedBtn() {
             var n = $('.simple-chat-history-cb:checked').length;

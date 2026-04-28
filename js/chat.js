@@ -35,6 +35,133 @@
     var adhocStatusTargetSessionId = '';
     var lastActivityTailTBySession = {};
     var LONG_CHAT_AJAX_MS = 600000;
+    var fishAudioState = {
+        loaded: false,
+        enabled: true,
+        muted: true,
+        autoSpeak: true,
+        settings: null
+    };
+    var fishAudioElement = null;
+    var fishAudioListeners = [];
+
+    function notifyFishAudioState() {
+        fishAudioListeners.forEach(function (cb) {
+            try { cb(window.MemoryGraphFishAudioGetState()); } catch (e) {}
+        });
+    }
+
+    function stopFishAudioPlayback() {
+        if (!fishAudioElement) return;
+        try {
+            fishAudioElement.pause();
+            fishAudioElement.currentTime = 0;
+        } catch (e) {}
+    }
+
+    function loadFishAudioSettings() {
+        return fetch('api/fish_audio_settings.php', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function (data) {
+                var s = data && data.settings ? data.settings : {};
+                fishAudioState.loaded = true;
+                fishAudioState.enabled = s.enabled !== false;
+                fishAudioState.muted = !!s.muted;
+                fishAudioState.autoSpeak = s.autoSpeak !== false;
+                fishAudioState.settings = s;
+                notifyFishAudioState();
+                return s;
+            });
+    }
+
+    function saveFishAudioSettings(partial) {
+        var body = partial && typeof partial === 'object' ? partial : {};
+        return fetch('api/fish_audio_settings.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (x) {
+                if (!x.ok || !x.j || x.j.error) {
+                    throw new Error((x.j && x.j.error) ? x.j.error : 'Save failed');
+                }
+                var s = x.j.settings || {};
+                fishAudioState.loaded = true;
+                fishAudioState.enabled = s.enabled !== false;
+                fishAudioState.muted = !!s.muted;
+                fishAudioState.autoSpeak = s.autoSpeak !== false;
+                fishAudioState.settings = s;
+                if (fishAudioState.muted) {
+                    stopFishAudioPlayback();
+                }
+                notifyFishAudioState();
+                return s;
+            });
+    }
+
+    function fishAudioSpeakText(text, opts) {
+        var spoken = String(text || '').trim();
+        if (!spoken) return Promise.reject(new Error('No text to speak'));
+        if (!fishAudioState.loaded) {
+            return loadFishAudioSettings().then(function () { return fishAudioSpeakText(spoken, opts); });
+        }
+        if (!fishAudioState.enabled) return Promise.reject(new Error('Fish Audio is disabled'));
+        if (fishAudioState.muted && !(opts && opts.ignoreMute)) return Promise.reject(new Error('Audio is muted'));
+        return fetch('api/fish_tts.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: spoken })
+        })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (x) {
+                if (!x.ok || !x.j || x.j.error || !x.j.audioBase64) {
+                    throw new Error((x.j && x.j.error) ? x.j.error : 'TTS failed');
+                }
+                var mime = x.j.mimeType || 'audio/mpeg';
+                var raw = atob(String(x.j.audioBase64));
+                var bytes = new Uint8Array(raw.length);
+                for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+                var blob = new Blob([bytes], { type: mime });
+                var url = URL.createObjectURL(blob);
+                stopFishAudioPlayback();
+                fishAudioElement = new Audio(url);
+                fishAudioElement.onended = function () {
+                    URL.revokeObjectURL(url);
+                };
+                fishAudioElement.onerror = function () {
+                    URL.revokeObjectURL(url);
+                };
+                return fishAudioElement.play();
+            });
+    }
+
+    window.MemoryGraphFishAudioGetState = function () {
+        return {
+            loaded: !!fishAudioState.loaded,
+            enabled: !!fishAudioState.enabled,
+            muted: !!fishAudioState.muted,
+            autoSpeak: !!fishAudioState.autoSpeak,
+            settings: fishAudioState.settings ? JSON.parse(JSON.stringify(fishAudioState.settings)) : null
+        };
+    };
+    window.MemoryGraphFishAudioOnState = function (cb) {
+        if (typeof cb !== 'function') return function () {};
+        fishAudioListeners.push(cb);
+        try { cb(window.MemoryGraphFishAudioGetState()); } catch (e) {}
+        return function () {
+            fishAudioListeners = fishAudioListeners.filter(function (fn) { return fn !== cb; });
+        };
+    };
+    window.MemoryGraphFishAudioSaveSettings = saveFishAudioSettings;
+    window.MemoryGraphFishAudioLoadSettings = loadFishAudioSettings;
+    window.MemoryGraphFishAudioSpeakText = function (text) { return fishAudioSpeakText(text); };
+    window.MemoryGraphFishAudioToggleMute = function () {
+        var nextMuted = !fishAudioState.muted;
+        return saveFishAudioSettings({ muted: nextMuted }).then(function () { return nextMuted; });
+    };
 
     function newSessionId() {
         return 'cs_' + Date.now() + '_' + Math.random().toString(36).slice(2, 14);
@@ -280,6 +407,16 @@
                 $('<div class="simple-chat-text font-serif">').text(t.content).appendTo($bubble);
             } else {
                 renderResponseContent($bubble, t.content);
+                var $actions = $('<div class="simple-chat-actions">');
+                var $speak = $('<button type="button" class="simple-chat-audio-btn" title="Speak response" aria-label="Speak response">🔊</button>');
+                $speak.on('click', function () {
+                    $speak.prop('disabled', true);
+                    fishAudioSpeakText(t.content, { ignoreMute: true })
+                        .catch(function () {})
+                        .finally(function () { $speak.prop('disabled', false); });
+                });
+                $actions.append($speak);
+                $bubble.append($actions);
             }
             $row.append($bubble);
             $thread.append($row);
@@ -1152,6 +1289,9 @@
                 getTurns().push({ role: 'assistant', content: content });
                 saveSessionBundle();
                 renderSimpleChatThread();
+                if (fishAudioState.loaded && fishAudioState.enabled && !fishAudioState.muted && fishAudioState.autoSpeak) {
+                    fishAudioSpeakText(content).catch(function () {});
+                }
                 if (res && res.jobToRun && typeof window.MemoryGraphRunJob === 'function') {
                     var jobs = Array.isArray(res.jobToRun) ? res.jobToRun : [res.jobToRun];
                     jobs.forEach(function (job) {
@@ -1258,6 +1398,27 @@
             sendMessage();
         }
     });
+    (function initFishAudioUi() {
+        var $audioFab = $('#audio-fab');
+        function syncFab(state) {
+            if (!$audioFab.length) return;
+            var s = state || window.MemoryGraphFishAudioGetState();
+            var muted = !s || s.muted;
+            $audioFab.toggleClass('is-muted', muted);
+            $audioFab.text(muted ? '🔇' : '🔊');
+            $audioFab.attr('title', muted ? 'Response speech muted' : 'Response speech enabled');
+            $audioFab.attr('aria-label', muted ? 'Unmute response speech' : 'Mute response speech');
+        }
+        if ($audioFab.length) {
+            $audioFab.on('click', function () {
+                window.MemoryGraphFishAudioToggleMute().catch(function () {});
+            });
+        }
+        window.MemoryGraphFishAudioOnState(syncFab);
+        loadFishAudioSettings().catch(function () {
+            syncFab({ muted: true });
+        });
+    })();
 
     window.MemoryGraphExtractAssistantFromChatResponse = extractAssistantTextFromChatResponse;
 
@@ -1352,6 +1513,9 @@
             var c = String(assistantText || '').trim() || 'Done.';
             var pre = c.length > 100 ? c.slice(0, 100) + '…' : c;
             showNotification(pre, String(userText || ''), c);
+        }
+        if (assistantText && fishAudioState.loaded && fishAudioState.enabled && !fishAudioState.muted && fishAudioState.autoSpeak) {
+            fishAudioSpeakText(String(assistantText)).catch(function () {});
         }
         if (typeof window.MemoryGraphRefreshSimpleChatHistoryList === 'function') {
             window.MemoryGraphRefreshSimpleChatHistoryList();

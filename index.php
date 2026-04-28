@@ -1300,6 +1300,34 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             border-color: rgba(212, 175, 55, 0.55);
             color: #f9f1d8;
         }
+        .audio-fab {
+            position: fixed;
+            right: max(142px, env(safe-area-inset-right, 0px) + 134px);
+            bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+            z-index: 125;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 1px solid rgba(124, 184, 255, 0.35);
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            color: #cfe4ff;
+            font-size: 1.05rem;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 4px 22px rgba(0,0,0,0.4), 0 0 18px rgba(124, 184, 255, 0.14);
+            transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+        }
+        .audio-fab:hover {
+            transform: scale(1.06);
+            border-color: rgba(124, 184, 255, 0.58);
+            color: #e8f3ff;
+        }
+        .audio-fab.is-muted {
+            border-color: rgba(214, 219, 226, 0.28);
+            color: rgba(214, 219, 226, 0.9);
+            opacity: 0.82;
+        }
         @media (max-width: 900px) {
             .settings-fab {
                 right: max(12px, env(safe-area-inset-right, 0px) + 8px);
@@ -1307,6 +1335,10 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             }
             .apps-fab {
                 right: max(72px, env(safe-area-inset-right, 0px) + 64px);
+                bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+            }
+            .audio-fab {
+                right: max(132px, env(safe-area-inset-right, 0px) + 124px);
                 bottom: max(16px, env(safe-area-inset-bottom, 0px) + 10px);
             }
         }
@@ -1694,6 +1726,41 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             flex-direction: column;
             gap: 12px;
         }
+        .settings-fish-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .settings-fish-row {
+            display: grid;
+            grid-template-columns: 146px minmax(0, 1fr);
+            gap: 10px;
+            align-items: center;
+        }
+        .settings-fish-row label {
+            font-size: 0.72rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--gold-dim);
+            font-family: 'Cinzel', serif;
+        }
+        .settings-fish-input,
+        .settings-fish-select {
+            border: 1px solid rgba(214, 219, 226, 0.28);
+            background: rgba(0, 0, 0, 0.22);
+            color: var(--gold-light);
+            border-radius: 8px;
+            padding: 7px 10px;
+            font-size: 0.82rem;
+            outline: none;
+            width: 100%;
+        }
+        .settings-fish-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 4px;
+        }
         .settings-api-key-row {
             padding: 12px 14px;
             border-radius: 12px;
@@ -1782,6 +1849,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
 
         /* Simple chat layout (replaces visible 3D graph) */
         html.mg-simple-ui #graph-container {
+            display: none !important;
+        }
+        html.mg-simple-ui .audio-fab {
             display: none !important;
         }
         html.mg-simple-ui .graph-legend {
@@ -2220,6 +2290,36 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         .simple-chat-bubble--error {
             border-color: rgba(185, 28, 28, 0.45) !important;
             box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.12);
+        }
+        .simple-chat-actions {
+            margin-top: 10px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .simple-chat-audio-btn {
+            border: 1px solid rgba(124, 184, 255, 0.3);
+            background: rgba(124, 184, 255, 0.1);
+            color: #cfe4ff;
+            border-radius: 999px;
+            width: 30px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+        .simple-chat-audio-btn:hover {
+            border-color: rgba(124, 184, 255, 0.55);
+            background: rgba(124, 184, 255, 0.18);
+            color: #e8f4ff;
+        }
+        .simple-chat-audio-btn:disabled {
+            opacity: 0.5;
+            cursor: default;
         }
         .simple-chat-text {
             white-space: pre-wrap;
@@ -2830,6 +2930,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     </aside>
 
     <button type="button" id="settings-fab" class="settings-fab font-display" aria-label="Open settings" title="Settings">&#9881;</button>
+    <button type="button" id="audio-fab" class="audio-fab font-display is-muted" aria-label="Toggle response speech" title="Response speech muted">🔇</button>
     <div id="settings-backdrop" class="settings-backdrop" hidden></div>
     <aside id="settings-panel" class="settings-panel" aria-hidden="true">
         <div class="settings-panel-header">
@@ -2857,6 +2958,67 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 <h3 class="settings-section-title font-display">AI provider API keys</h3>
                 <p class="settings-section-lead font-serif">Optional overrides are saved in <strong>config/agent_config.json</strong> on the server and override <code>.env</code> for chat. Clear the field and use <strong>Clear override</strong> to use <code>.env</code> again.</p>
                 <div id="settings-provider-api-keys-mount" class="settings-provider-api-keys font-serif" aria-live="polite"></div>
+            </div>
+            <div class="settings-section" id="settings-fish-audio-section">
+                <div class="settings-section-kicker font-display">Voice</div>
+                <h3 class="settings-section-title font-display">Fish Audio TTS</h3>
+                <p class="settings-section-lead font-serif">Use Fish Audio for assistant response speech. Toggle the speaker button per message or use the global speaker widget on graph mode.</p>
+                <div class="settings-fish-grid font-serif">
+                    <div class="settings-fish-row">
+                        <label for="fish-api-key-input">API key</label>
+                        <input id="fish-api-key-input" class="settings-fish-input" type="password" autocomplete="new-password" spellcheck="false" placeholder="Fish Audio API key">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-voice-style-select">Voice style</label>
+                        <select id="fish-voice-style-select" class="settings-fish-select">
+                            <option value="jarvis">Jarvis</option>
+                            <option value="eagle_eye">Eagle Eye</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-custom-voice-input">Voice IDs</label>
+                        <input id="fish-jarvis-voice-input" class="settings-fish-input" type="text" spellcheck="false" placeholder="Jarvis voiceId">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-eagle-voice-input">Eagle Eye voice</label>
+                        <input id="fish-eagle-voice-input" class="settings-fish-input" type="text" spellcheck="false" placeholder="Eagle Eye voiceId">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-custom-voice-input">Custom voice</label>
+                        <input id="fish-custom-voice-input" class="settings-fish-input" type="text" spellcheck="false" placeholder="Custom voiceId">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-model-id-input">Model ID</label>
+                        <input id="fish-model-id-input" class="settings-fish-input" type="text" spellcheck="false" placeholder="fishaudio-s2pro">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-endpoint-input">Endpoint</label>
+                        <input id="fish-endpoint-input" class="settings-fish-input" type="text" spellcheck="false" placeholder="https://fishaudio.net/api/open/v2/speech/tts">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-format-select">Format</label>
+                        <select id="fish-format-select" class="settings-fish-select">
+                            <option value="mp3">mp3</option>
+                            <option value="wav">wav</option>
+                            <option value="ogg">ogg</option>
+                        </select>
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-speed-input">Speed</label>
+                        <input id="fish-speed-input" class="settings-fish-input" type="number" min="0.5" max="2" step="0.05">
+                    </div>
+                    <div class="settings-fish-row">
+                        <label for="fish-volume-input">Volume</label>
+                        <input id="fish-volume-input" class="settings-fish-input" type="number" min="-20" max="20" step="0.5">
+                    </div>
+                </div>
+                <div class="settings-fish-actions">
+                    <button type="button" id="fish-save-settings-btn" class="panel-action-btn">Save voice settings</button>
+                    <button type="button" id="fish-test-voice-btn" class="panel-action-btn">Test voice</button>
+                    <button type="button" id="fish-toggle-mute-btn" class="panel-action-btn btn-stop">Mute</button>
+                </div>
+                <p id="fish-settings-msg" class="settings-api-key-msg font-serif" style="margin-top:8px;" aria-live="polite"></p>
             </div>
             <div class="settings-panel-spacer" aria-hidden="true"></div>
             <footer class="settings-panel-footer">
