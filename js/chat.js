@@ -1284,6 +1284,9 @@
                 if (typeof window.MemoryGraphGroqQuotaApplyResponse === 'function') {
                     window.MemoryGraphGroqQuotaApplyResponse(res);
                 }
+                if (typeof window.MemoryGraphGeminiQuotaApplyResponse === 'function') {
+                    window.MemoryGraphGeminiQuotaApplyResponse(res);
+                }
                 var content = extractAssistantTextFromChatResponse(res);
                 if (!content && typeof res === 'string') content = res;
                 if (!content && res && res.choices && res.choices[0] && res.choices[0].message) {
@@ -1383,6 +1386,9 @@
         focusChatInputSoon();
         if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
             window.MemoryGraphGroqQuotaSync();
+        }
+        if (typeof window.MemoryGraphGeminiQuotaSync === 'function') {
+            window.MemoryGraphGeminiQuotaSync();
         }
         if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
             window.MemoryGraphFeatherlessMeterSync();
@@ -1678,6 +1684,164 @@
         if (res.groq_rate_limits && typeof res.groq_rate_limits === 'object') {
             if (res.usage) mgGroqBumpTpdUsed(settings.model, res.usage);
             renderGroqQuotaBar({ rateLimits: res.groq_rate_limits });
+        }
+    };
+
+    function mgGeminiDaySuffix() {
+        var d = new Date();
+        return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    }
+
+    function mgGeminiMinuteSuffix() {
+        var d = new Date();
+        var p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return mgGeminiDaySuffix() + '_' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    function mgGeminiRpdCap(caps) {
+        if (!caps || typeof caps !== 'object') return null;
+        if (caps.rpd_unlimited) return null;
+        if (caps.rpd_free > 0) return caps.rpd_free;
+        if (caps.rpd_paid != null && caps.rpd_paid > 0) return caps.rpd_paid;
+        return null;
+    }
+
+    function mgGeminiTpmCap(caps) {
+        if (!caps || typeof caps !== 'object') return null;
+        if (caps.tpm_unlimited) return null;
+        if (caps.tpm_free > 0) return caps.tpm_free;
+        if (caps.tpm_paid != null && caps.tpm_paid > 0) return caps.tpm_paid;
+        return null;
+    }
+
+    function mgGeminiBumpLocal(model, usageMeta) {
+        try {
+            var day = mgGeminiDaySuffix();
+            var rk = 'mg_gemini_req_day_v1_' + String(model || '') + '_' + day;
+            var prevR = parseInt(localStorage.getItem(rk) || '0', 10) || 0;
+            localStorage.setItem(rk, String(prevR + 1));
+
+            var tok = usageMeta && usageMeta.totalTokenCount != null ? Number(usageMeta.totalTokenCount) : 0;
+            if (tok > 0) {
+                var mk = 'mg_gemini_tpm_v1_' + String(model || '') + '_' + mgGeminiMinuteSuffix();
+                var prevT = parseInt(localStorage.getItem(mk) || '0', 10) || 0;
+                localStorage.setItem(mk, String(prevT + tok));
+
+                var dk = 'mg_gemini_tok_day_v1_' + String(model || '') + '_' + day;
+                var prevD = parseInt(localStorage.getItem(dk) || '0', 10) || 0;
+                localStorage.setItem(dk, String(prevD + tok));
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    function renderGeminiQuotaBar(opts) {
+        var row = document.getElementById('mg-gemini-quota-row');
+        if (!row) return;
+        var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        if (settings.provider !== 'gemini') {
+            row.setAttribute('hidden', '');
+            row.innerHTML = '';
+            return;
+        }
+        var model = settings.model || '';
+        var caps = (window.MEMORY_GRAPH_GEMINI_MODEL_LIMITS || {})[model] || null;
+        if (!caps) {
+            row.setAttribute('hidden', '');
+            row.innerHTML = '';
+            return;
+        }
+        row.removeAttribute('hidden');
+
+        var qh = (opts && opts.quotaHeaders) || window.__mgLastGeminiQuotaHeaders || {};
+        if (opts && opts.quotaHeaders && typeof opts.quotaHeaders === 'object') {
+            window.__mgLastGeminiQuotaHeaders = opts.quotaHeaders;
+        }
+
+        var rpdCap = mgGeminiRpdCap(caps);
+        var rpdUnlimited = !!caps.rpd_unlimited;
+        var usedReq = 0;
+        try {
+            usedReq = parseInt(localStorage.getItem('mg_gemini_req_day_v1_' + String(model) + '_' + mgGeminiDaySuffix()) || '0', 10) || 0;
+        } catch (e1) { usedReq = 0; }
+
+        var reqPct = null;
+        var remReqStr = '—';
+        var limReqStr = '—';
+        if (rpdUnlimited) {
+            remReqStr = '—';
+            limReqStr = '∞';
+        } else if (rpdCap != null && rpdCap > 0) {
+            var ur = Math.min(usedReq, rpdCap);
+            reqPct = (rpdCap - ur) / rpdCap;
+            remReqStr = mgGroqFormatNum(Math.max(0, rpdCap - usedReq));
+            limReqStr = mgGroqFormatNum(rpdCap);
+        }
+
+        var tpmCap = mgGeminiTpmCap(caps);
+        var tpmUnlimited = !!caps.tpm_unlimited;
+        var usedMinTok = 0;
+        try {
+            usedMinTok = parseInt(localStorage.getItem('mg_gemini_tpm_v1_' + String(model) + '_' + mgGeminiMinuteSuffix()) || '0', 10) || 0;
+        } catch (e2) { usedMinTok = 0; }
+
+        var tokPct = null;
+        var remTokStr = '—';
+        var limTokStr = '—';
+        if (tpmUnlimited) {
+            remTokStr = '—';
+            limTokStr = '∞';
+        } else if (tpmCap != null && tpmCap > 0) {
+            var ut = Math.min(usedMinTok, tpmCap);
+            tokPct = (tpmCap - ut) / tpmCap;
+            remTokStr = mgGroqFormatNum(Math.max(0, tpmCap - usedMinTok));
+            limTokStr = mgGroqFormatNum(tpmCap);
+        }
+
+        var dayTok = 0;
+        try {
+            dayTok = parseInt(localStorage.getItem('mg_gemini_tok_day_v1_' + String(model) + '_' + mgGeminiDaySuffix()) || '0', 10) || 0;
+        } catch (e3) { dayTok = 0; }
+
+        var html = '<div class="mg-groq-quota-title">Gemini quota (local est.) · ' + escapeHtml(model) + '</div>';
+        html += '<div class="mg-groq-dial" title="Successful requests counted in this browser today vs published RPD (free tier if available, else paid).">' + mgGroqDialSvg(reqPct)
+            + '<span class="mg-groq-dial-cap">' + remReqStr + ' / ' + limReqStr + '</span>'
+            + '<span class="mg-groq-dial-sub">Requests (day)</span></div>';
+        html += '<div class="mg-groq-dial" title="Tokens from usageMetadata summed in the current clock minute vs published TPM cap (same tier rule as requests).">' + mgGroqDialSvg(tokPct)
+            + '<span class="mg-groq-dial-cap">' + remTokStr + ' / ' + limTokStr + '</span>'
+            + '<span class="mg-groq-dial-sub">Tokens (minute)</span></div>';
+        html += '<div class="mg-groq-dial-sub" style="width:100%;margin-top:2px;">Tokens logged today (sum): ' + mgGroqFormatNum(dayTok) + '</div>';
+        html += '<div class="mg-groq-dial-sub" style="width:100%;opacity:0.85;">Not Google live quota — counts persist in this browser only.</div>';
+
+        var qhKeys = qh && typeof qh === 'object' ? Object.keys(qh) : [];
+        if (qhKeys.length) {
+            var blob = '';
+            try {
+                blob = JSON.stringify(qh);
+            } catch (e4) {
+                blob = String(qh);
+            }
+            if (blob.length > 220) blob = blob.slice(0, 220) + '…';
+            html += '<div class="mg-groq-dial-sub" style="width:100%;margin-top:2px;word-break:break-all;">Response headers: ' + escapeHtml(blob) + '</div>';
+        }
+        row.innerHTML = html;
+    }
+
+    window.MemoryGraphGeminiQuotaSync = function () {
+        renderGeminiQuotaBar({});
+    };
+
+    window.MemoryGraphGeminiQuotaApplyResponse = function (res) {
+        if (!res) return;
+        if (res.error) return;
+        var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        if (settings.provider !== 'gemini') return;
+        if (res.gemini_model_limits && typeof res.gemini_model_limits === 'object' && settings.model) {
+            if (!window.MEMORY_GRAPH_GEMINI_MODEL_LIMITS) window.MEMORY_GRAPH_GEMINI_MODEL_LIMITS = {};
+            window.MEMORY_GRAPH_GEMINI_MODEL_LIMITS[settings.model] = res.gemini_model_limits;
+        }
+        if (res.choices && res.choices[0] && res.choices[0].message) {
+            mgGeminiBumpLocal(settings.model, res.gemini_usage_metadata);
+            renderGeminiQuotaBar({ quotaHeaders: res.gemini_quota_headers });
         }
     };
 

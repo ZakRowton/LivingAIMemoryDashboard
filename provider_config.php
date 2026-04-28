@@ -5,6 +5,7 @@
  */
 
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'groq_model_limits.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'gemini_model_limits.php';
 
 if (!function_exists('agent_provider_config_path')) {
     function agent_provider_config_path(): string {
@@ -31,7 +32,10 @@ function get_builtin_provider_ui(): array {
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
         'featherless_embeddings' => ['name' => 'Featherless Embeddings', 'models' => ['Qwen/Qwen3-Embedding-8B']],
         'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
-        'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
+        'gemini'    => ['name' => 'Gemini (Google)', 'models' => array_values(array_unique(array_merge(
+            memory_graph_gemini_model_ids_for_builtin_ui(),
+            ['gemini-2.5-pro', 'gemini-2.0', 'gemini-3-pro', 'gemini-3-pro-preview']
+        )))],
         'groq'      => ['name' => 'Groq', 'models' => [
             'allam-2-7b',
             'canopylabs/orpheus-arabic-saudi',
@@ -398,6 +402,7 @@ function get_providers_for_ui(): array {
     }
 
     $groqLimits = memory_graph_groq_model_limits_table();
+    $geminiLimits = memory_graph_gemini_model_limits_table();
 
     return [
         'currentProvider' => (string) ($config['currentProvider'] ?? 'mercury'),
@@ -407,6 +412,7 @@ function get_providers_for_ui(): array {
         'systemInstructionFilesByModel' => $sifm,
         'providerApiKeyStatus' => $apiKeyStatus,
         'groqModelLimits' => $groqLimits,
+        'geminiModelLimits' => $geminiLimits,
     ];
 }
 

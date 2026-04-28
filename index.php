@@ -3224,6 +3224,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 <div id="mg-subagent-mention" class="mg-subagent-mention" role="listbox" aria-label="Sub-agents" hidden></div>
                 <div id="chat-attachment-strip" class="mg-attach-strip" aria-live="polite"></div>
                 <div id="mg-groq-quota-row" class="mg-groq-quota" hidden aria-live="polite"></div>
+                <div id="mg-gemini-quota-row" class="mg-groq-quota" hidden aria-live="polite"></div>
                 <div class="input-wrap">
                     <button type="button" class="mg-attach-trigger" id="chat-attach-btn" title="Add attachments" aria-label="Add attachments">＋</button>
                     <input type="text" id="chat-input" placeholder="Ask the AI..." autocomplete="off">
@@ -3599,10 +3600,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         gemini: {
             name: 'Gemini (Google)',
             models: [
-                'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro',
-                'gemini-3-flash-preview', 'gemini-3-pro-preview',
-                'gemini-3-flash', 'gemini-3-pro',
-                'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview'
+                'gemini-3-flash', 'gemini-2.5-flash', 'gemini-3-flash-preview',
+                'gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-live-preview', 'gemini-3.1-flash-preview',
+                'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-lite', 'gemini-2.5-flash-native-audio-preview-12-2025',
+                'gemini-2.5-flash-preview-tts', 'gemini-embedding-001', 'gemini-embedding-2',
+                'gemma-2-27b-it', 'gemma-2-9b-it', 'gemma-3-12b-it', 'gemma-3-1b-it', 'gemma-3-27b-it', 'gemma-3-2b-it', 'gemma-3-4b-it',
+                'imagen-4.0-fast-generate-001', 'imagen-4.0-generate-001', 'imagen-4.0-ultra-generate-001',
+                'gemini-robotics-er-1.5-preview', 'gemini-robotics-er-1.6-preview',
+                'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-pro', 'gemini-3-pro-preview'
             ]
         },
         groq: {
@@ -3781,6 +3786,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (!data || !data.providers) return;
             window.MEMORY_GRAPH_PROVIDERS = data.providers;
             window.MEMORY_GRAPH_GROQ_MODEL_LIMITS = (data.groqModelLimits && typeof data.groqModelLimits === 'object') ? data.groqModelLimits : {};
+            window.MEMORY_GRAPH_GEMINI_MODEL_LIMITS = (data.geminiModelLimits && typeof data.geminiModelLimits === 'object') ? data.geminiModelLimits : {};
             window.MEMORY_GRAPH_SYSTEM_INSTRUCTION_FILES = normalizeSystemInstructionMap(data.systemInstructionFilesByModel);
             if (providerSelect) {
                 providerSelect.innerHTML = '';
@@ -3808,6 +3814,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             captureAgentSelection();
             if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
                 window.MemoryGraphGroqQuotaSync();
+            }
+            if (typeof window.MemoryGraphGeminiQuotaSync === 'function') {
+                window.MemoryGraphGeminiQuotaSync();
             }
             if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
                 window.MemoryGraphFeatherlessMeterSync();
@@ -3868,6 +3877,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
                     window.MemoryGraphGroqQuotaSync();
                 }
+                if (typeof window.MemoryGraphGeminiQuotaSync === 'function') {
+                    window.MemoryGraphGeminiQuotaSync();
+                }
                 if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
                     window.MemoryGraphFeatherlessMeterSync();
                 }
@@ -3883,6 +3895,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 }
                 if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
                     window.MemoryGraphGroqQuotaSync();
+                }
+                if (typeof window.MemoryGraphGeminiQuotaSync === 'function') {
+                    window.MemoryGraphGeminiQuotaSync();
                 }
                 if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
                     window.MemoryGraphFeatherlessMeterSync();

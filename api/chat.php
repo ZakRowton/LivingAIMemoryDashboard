@@ -4156,6 +4156,7 @@ function requestGemini(array $provider, string $model, array $conversation, floa
     }
 
     $url = $provider['endpointBase'] . '/' . $model . ':generateContent?key=' . $provider['apiKey'];
+    $headerBlob = '';
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
@@ -4164,6 +4165,11 @@ function requestGemini(array $provider, string $model, array $conversation, floa
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => 600,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_HEADERFUNCTION => static function ($ch, $headerLine) use (&$headerBlob): int {
+            $headerBlob .= (string) $headerLine;
+
+            return strlen((string) $headerLine);
+        },
     ]);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -4187,7 +4193,13 @@ function requestGemini(array $provider, string $model, array $conversation, floa
             'raw' => strlen($r) > 20000 ? substr($r, 0, 20000) : $r,
         ];
     }
-    return ['data' => $decoded, 'httpCode' => $httpCode];
+    $out = ['data' => $decoded, 'httpCode' => $httpCode];
+    $gq = memory_graph_parse_gemini_response_headers($headerBlob);
+    if ($gq !== []) {
+        $out['geminiQuota'] = $gq;
+    }
+
+    return $out;
 }
 
 /**
@@ -4508,6 +4520,8 @@ writeStatus($requestId, $status);
 
 $groqRateLimitsSnapshot = null;
 $lastOpenAiUsage = null;
+$geminiQuotaSnapshot = null;
+$geminiUsageSnapshot = null;
 
 $memoryGraphMeta = [];
 $targetSubAgentInput = trim((string) ($input['targetSubAgent'] ?? ''));
@@ -4657,6 +4671,14 @@ while (true) {
     $data = $result['data'];
     if ($providerKey === 'groq' && isset($result['groqRateLimits']) && is_array($result['groqRateLimits'])) {
         $groqRateLimitsSnapshot = $result['groqRateLimits'];
+    }
+    if ($providerKey === 'gemini') {
+        if (isset($result['geminiQuota']) && is_array($result['geminiQuota'])) {
+            $geminiQuotaSnapshot = $result['geminiQuota'];
+        }
+        if (isset($data['usageMetadata']) && is_array($data['usageMetadata'])) {
+            $geminiUsageSnapshot = $data['usageMetadata'];
+        }
     }
     if (isset($data['usage']) && is_array($data['usage'])) {
         $lastOpenAiUsage = $data['usage'];
@@ -5225,6 +5247,18 @@ if ($providerKey === 'groq') {
 }
 if ($providerKey === 'featherless_embeddings' && $lastOpenAiUsage !== null && is_array($lastOpenAiUsage)) {
     $response['usage'] = $lastOpenAiUsage;
+}
+if ($providerKey === 'gemini') {
+    if ($geminiQuotaSnapshot !== null && is_array($geminiQuotaSnapshot) && $geminiQuotaSnapshot !== []) {
+        $response['gemini_quota_headers'] = $geminiQuotaSnapshot;
+    }
+    if ($geminiUsageSnapshot !== null && is_array($geminiUsageSnapshot)) {
+        $response['gemini_usage_metadata'] = $geminiUsageSnapshot;
+    }
+    $gml = memory_graph_gemini_limits_for_model($modelId);
+    if ($gml !== null) {
+        $response['gemini_model_limits'] = $gml;
+    }
 }
 if (!empty($memoryGraphMeta)) {
     $response['memory_graph'] = $memoryGraphMeta;
