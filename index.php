@@ -1845,7 +1845,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             padding-bottom: 100px;
             box-sizing: border-box;
             background: var(--black);
-            background-image: radial-gradient(circle at top center, #1a1510 0%, #040507 52%, #000000 100%);
+            background-image: radial-gradient(circle at top center, #0f1d33 0%, #050a14 52%, #02040a 100%);
         }
         html.mg-simple-ui .simple-ui-root {
             display: flex !important;
@@ -1870,7 +1870,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .simple-detail-pre,
         html.mg-simple-ui .simple-activity-log-mobile {
             scrollbar-width: thin;
-            scrollbar-color: rgba(212, 175, 55, 0.55) rgba(3, 3, 3, 0.45);
+            scrollbar-color: rgba(124, 184, 255, 0.52) rgba(4, 8, 15, 0.55);
         }
         html.mg-simple-ui[data-theme="light"] .simple-chat-thread-wrap,
         html.mg-simple-ui[data-theme="light"] .simple-side-nav,
@@ -1918,11 +1918,11 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .simple-detail-col::-webkit-scrollbar-thumb,
         html.mg-simple-ui .simple-detail-pre::-webkit-scrollbar-thumb,
         html.mg-simple-ui .simple-activity-log-mobile::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, rgba(212, 175, 55, 0.55) 0%, rgba(138, 115, 38, 0.65) 100%);
+            background: linear-gradient(180deg, rgba(124, 184, 255, 0.62) 0%, rgba(73, 125, 196, 0.7) 100%);
             border-radius: 8px;
             border: 2px solid transparent;
             background-clip: padding-box;
-            box-shadow: 0 0 12px rgba(212, 175, 55, 0.15);
+            box-shadow: 0 0 12px rgba(124, 184, 255, 0.2);
         }
         html.mg-simple-ui .simple-chat-thread-wrap::-webkit-scrollbar-thumb:hover,
         html.mg-simple-ui .simple-side-nav::-webkit-scrollbar-thumb:hover,
@@ -1931,8 +1931,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .simple-detail-col::-webkit-scrollbar-thumb:hover,
         html.mg-simple-ui .simple-detail-pre::-webkit-scrollbar-thumb:hover,
         html.mg-simple-ui .simple-activity-log-mobile::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(180deg, #d4af37 0%, #8a7326 100%);
-            box-shadow: 0 0 16px rgba(212, 175, 55, 0.35);
+            background: linear-gradient(180deg, #9bd1ff 0%, #5e8fd6 100%);
+            box-shadow: 0 0 16px rgba(124, 184, 255, 0.35);
         }
         html.mg-simple-ui[data-theme="light"] .simple-chat-thread-wrap::-webkit-scrollbar-thumb,
         html.mg-simple-ui[data-theme="light"] .simple-side-nav::-webkit-scrollbar-thumb,
@@ -1954,16 +1954,16 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             flex-shrink: 0;
             margin: 10px 0 10px 12px;
             border-radius: 18px;
-            border: 1px solid rgba(212, 175, 55, 0.14);
-            border-right: 1px solid rgba(212, 175, 55, 0.14);
-            background: rgba(10, 10, 10, 0.82);
+            border: 1px solid rgba(124, 184, 255, 0.2);
+            border-right: 1px solid rgba(124, 184, 255, 0.2);
+            background: rgba(8, 15, 30, 0.82);
             backdrop-filter: blur(16px);
             padding: 14px 0 18px;
             overflow-y: auto;
             box-shadow:
                 0 0 0 1px rgba(0, 0, 0, 0.35),
                 0 18px 40px rgba(0, 0, 0, 0.35),
-                inset 0 1px 0 rgba(212, 175, 55, 0.07);
+                inset 0 1px 0 rgba(124, 184, 255, 0.1);
         }
         html[data-theme="light"].mg-simple-ui .simple-side-nav {
             background: rgba(252, 248, 240, 0.94);
@@ -1979,7 +1979,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             font-size: 0.62rem;
             letter-spacing: 0.22em;
             text-transform: uppercase;
-            color: rgba(212, 175, 55, 0.45);
+            color: rgba(124, 184, 255, 0.55);
         }
         [data-theme="light"] .simple-nav-label {
             color: rgba(107, 90, 42, 0.65);
@@ -1997,7 +1997,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             border: none;
             border-radius: 10px;
             background: transparent;
-            color: rgba(249, 241, 216, 0.55);
+            color: rgba(216, 228, 255, 0.62);
             font-family: 'Cinzel', serif;
             font-size: 0.74rem;
             font-weight: 600;
@@ -2009,17 +2009,17 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             color: rgba(92, 35, 41, 0.72);
         }
         .simple-nav-btn:hover {
-            background: rgba(212, 175, 55, 0.08);
-            color: #f9f1d8;
+            background: rgba(124, 184, 255, 0.1);
+            color: #d9e4ff;
         }
         [data-theme="light"] .simple-nav-btn:hover {
             background: rgba(184, 150, 46, 0.12);
             color: #5c2329;
         }
         .simple-nav-btn.is-active {
-            color: #d4af37;
-            background: rgba(212, 175, 55, 0.12);
-            box-shadow: inset 3px 0 0 #d4af37, 0 0 20px rgba(212, 175, 55, 0.08);
+            color: #9bc8ff;
+            background: rgba(124, 184, 255, 0.12);
+            box-shadow: inset 3px 0 0 #7cb8ff, 0 0 20px rgba(124, 184, 255, 0.12);
         }
         [data-theme="light"] .simple-nav-btn.is-active {
             color: #6b5a2a;
@@ -2039,12 +2039,12 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .simple-main {
             margin: 10px 8px 10px 4px;
             border-radius: 22px;
-            border: 1px solid rgba(212, 175, 55, 0.14);
-            background: linear-gradient(168deg, rgba(14, 12, 10, 0.94) 0%, rgba(5, 5, 8, 0.92) 55%, rgba(8, 7, 12, 0.9) 100%);
+            border: 1px solid rgba(124, 184, 255, 0.2);
+            background: linear-gradient(168deg, rgba(10, 18, 36, 0.95) 0%, rgba(6, 11, 23, 0.94) 55%, rgba(7, 13, 28, 0.92) 100%);
             box-shadow:
                 0 0 0 1px rgba(0, 0, 0, 0.5),
                 0 28px 56px rgba(0, 0, 0, 0.42),
-                inset 0 1px 0 rgba(212, 175, 55, 0.09);
+                inset 0 1px 0 rgba(124, 184, 255, 0.12);
             overflow: hidden;
         }
         html.mg-simple-ui[data-theme="light"] .simple-main {
@@ -2062,8 +2062,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             align-items: center;
             gap: 10px 16px;
             padding: 12px 22px 14px;
-            border-bottom: 1px solid rgba(212, 175, 55, 0.14);
-            background: linear-gradient(180deg, rgba(212, 175, 55, 0.07) 0%, transparent 100%);
+            border-bottom: 1px solid rgba(124, 184, 255, 0.18);
+            background: linear-gradient(180deg, rgba(124, 184, 255, 0.08) 0%, transparent 100%);
         }
         [data-theme="light"] .simple-toolbar {
             border-bottom-color: rgba(184, 150, 46, 0.22);
@@ -2073,8 +2073,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             margin: 0;
             font-size: clamp(1.05rem, 2.5vw, 1.35rem);
             font-weight: 700;
-            color: #d4af37;
-            text-shadow: 0 0 24px rgba(212, 175, 55, 0.15);
+            color: #9bc8ff;
+            text-shadow: 0 0 24px rgba(124, 184, 255, 0.22);
             letter-spacing: 0.04em;
         }
         [data-theme="light"] .simple-toolbar h2 {
@@ -2129,9 +2129,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             flex-direction: column;
             margin: 0 10px 4px;
             border-radius: 18px;
-            border: 1px solid rgba(212, 175, 55, 0.11);
-            background: rgba(2, 2, 4, 0.42);
-            box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.05);
+            border: 1px solid rgba(124, 184, 255, 0.16);
+            background: rgba(6, 11, 22, 0.56);
+            box-shadow: inset 0 1px 0 rgba(124, 184, 255, 0.07);
             overflow: hidden;
         }
         html.mg-simple-ui[data-theme="light"] .simple-chat-surface {
@@ -2195,9 +2195,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             box-sizing: border-box;
         }
         .simple-chat-row--user .simple-chat-bubble {
-            background: rgba(212, 175, 55, 0.14);
-            border: 1px solid rgba(212, 175, 55, 0.32);
-            color: #f9f1d8;
+            background: rgba(124, 184, 255, 0.16);
+            border: 1px solid rgba(124, 184, 255, 0.34);
+            color: #d9e4ff;
             border-bottom-right-radius: 6px;
         }
         [data-theme="light"] .simple-chat-row--user .simple-chat-bubble {
@@ -2206,9 +2206,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             color: #4a4238;
         }
         .simple-chat-row--assistant .simple-chat-bubble {
-            background: rgba(8, 8, 8, 0.5);
-            border: 1px solid rgba(212, 175, 55, 0.14);
-            color: #f0ebe0;
+            background: rgba(7, 12, 24, 0.68);
+            border: 1px solid rgba(124, 184, 255, 0.18);
+            color: #d6e2f4;
             border-bottom-left-radius: 6px;
             backdrop-filter: blur(10px);
         }
@@ -2230,7 +2230,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
         html.mg-simple-ui .simple-chat-row--assistant .simple-chat-bubble .response-modal-code {
             background: rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(212, 175, 55, 0.12);
+            border: 1px solid rgba(124, 184, 255, 0.2);
             border-radius: 10px;
         }
         html[data-theme="light"].mg-simple-ui .simple-chat-row--assistant .simple-chat-bubble .response-modal-code {
@@ -2276,13 +2276,13 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             }
         }
         .simple-list-col {
-            border: 1px solid rgba(212, 175, 55, 0.14);
+            border: 1px solid rgba(124, 184, 255, 0.18);
             border-radius: 14px;
             overflow-y: auto;
             padding: 12px 14px;
-            background: rgba(10, 10, 10, 0.5);
+            background: rgba(9, 16, 31, 0.52);
             backdrop-filter: blur(12px);
-            box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.06);
+            box-shadow: inset 0 1px 0 rgba(124, 184, 255, 0.08);
         }
         [data-theme="light"] .simple-list-col {
             background: rgba(255, 255, 255, 0.55);
@@ -2297,11 +2297,11 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         .simple-detail-col {
             overflow-y: auto;
             padding: 14px 18px;
-            border: 1px solid rgba(212, 175, 55, 0.12);
+            border: 1px solid rgba(124, 184, 255, 0.17);
             border-radius: 14px;
-            background: rgba(8, 8, 8, 0.42);
+            background: rgba(8, 14, 27, 0.54);
             backdrop-filter: blur(12px);
-            box-shadow: inset 0 1px 0 rgba(212, 175, 55, 0.05);
+            box-shadow: inset 0 1px 0 rgba(124, 184, 255, 0.08);
         }
         [data-theme="light"] .simple-detail-col {
             background: rgba(255, 255, 255, 0.65);
@@ -2324,9 +2324,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             padding: 10px 12px;
             margin-bottom: 6px;
             border-radius: 10px;
-            border: 1px solid rgba(212, 175, 55, 0.16);
-            background: rgba(0, 0, 0, 0.25);
-            color: #f9f1d8;
+            border: 1px solid rgba(124, 184, 255, 0.2);
+            background: rgba(5, 10, 21, 0.4);
+            color: #d9e4ff;
             font-size: 0.9rem;
             cursor: pointer;
             white-space: normal;
@@ -2341,14 +2341,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             border-color: rgba(184, 150, 46, 0.22);
         }
         .simple-item-btn:hover {
-            border-color: rgba(212, 175, 55, 0.35);
-            background: rgba(212, 175, 55, 0.07);
-            box-shadow: 0 0 16px rgba(212, 175, 55, 0.06);
+            border-color: rgba(124, 184, 255, 0.4);
+            background: rgba(124, 184, 255, 0.09);
+            box-shadow: 0 0 16px rgba(124, 184, 255, 0.1);
         }
         .simple-item-btn.is-selected {
-            border-color: rgba(212, 175, 55, 0.45);
-            background: rgba(212, 175, 55, 0.1);
-            box-shadow: 0 0 20px rgba(212, 175, 55, 0.1);
+            border-color: rgba(124, 184, 255, 0.45);
+            background: rgba(124, 184, 255, 0.12);
+            box-shadow: 0 0 20px rgba(124, 184, 255, 0.14);
         }
         .simple-item-off {
             font-size: 0.75rem;
@@ -2367,7 +2367,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             white-space: pre-wrap;
             word-break: break-word;
             background: rgba(0, 0, 0, 0.35);
-            border: 1px solid rgba(212, 175, 55, 0.14);
+            border: 1px solid rgba(124, 184, 255, 0.2);
             border-radius: 10px;
             padding: 12px;
             max-height: min(52vh, 420px);
@@ -2391,16 +2391,16 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             box-sizing: border-box;
             padding: 8px 12px;
             border-radius: 8px;
-            border: 1px solid rgba(212, 175, 55, 0.22);
+            border: 1px solid rgba(124, 184, 255, 0.28);
             background: rgba(255, 255, 255, 0.04);
-            color: #f9f1d8;
+            color: #d9e4ff;
             font-size: 0.9rem;
             outline: none;
         }
         .simple-app-title-input:focus {
             border-color: var(--accent, var(--gold));
-            background: rgba(212, 175, 55, 0.06);
-            box-shadow: 0 0 14px rgba(212, 175, 55, 0.12);
+            background: rgba(124, 184, 255, 0.09);
+            box-shadow: 0 0 14px rgba(124, 184, 255, 0.2);
         }
         [data-theme="light"] .simple-app-title-input {
             background: rgba(255, 255, 255, 0.85);
@@ -2422,14 +2422,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             line-height: 1.45;
             padding: 12px;
             border-radius: 10px;
-            border: 1px solid rgba(212, 175, 55, 0.14);
+            border: 1px solid rgba(124, 184, 255, 0.2);
             background: rgba(0, 0, 0, 0.35);
             color: #dce3ea;
             outline: none;
         }
         .simple-web-app-editor:focus {
-            border-color: rgba(212, 175, 55, 0.35);
-            box-shadow: 0 0 16px rgba(212, 175, 55, 0.08);
+            border-color: rgba(124, 184, 255, 0.4);
+            box-shadow: 0 0 16px rgba(124, 184, 255, 0.15);
         }
         [data-theme="light"] .simple-web-app-editor {
             background: rgba(255, 255, 255, 0.65);
@@ -2496,8 +2496,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         .simple-activity-col {
             width: min(232px, 30vw);
             flex-shrink: 0;
-            border-left: 1px solid rgba(212, 175, 55, 0.14);
-            background: rgba(10, 10, 10, 0.55);
+            border-left: 1px solid rgba(124, 184, 255, 0.18);
+            background: rgba(8, 15, 30, 0.58);
             backdrop-filter: blur(12px);
             display: flex;
             flex-direction: column;
@@ -2506,13 +2506,13 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         html.mg-simple-ui .simple-activity-col {
             margin: 10px 12px 10px 0;
             border-radius: 18px;
-            border: 1px solid rgba(212, 175, 55, 0.14);
-            border-left: 1px solid rgba(212, 175, 55, 0.14);
-            background: rgba(8, 8, 10, 0.82);
+            border: 1px solid rgba(124, 184, 255, 0.2);
+            border-left: 1px solid rgba(124, 184, 255, 0.2);
+            background: rgba(8, 14, 28, 0.84);
             box-shadow:
                 0 0 0 1px rgba(0, 0, 0, 0.35),
                 0 18px 40px rgba(0, 0, 0, 0.32),
-                inset 0 1px 0 rgba(212, 175, 55, 0.06);
+                inset 0 1px 0 rgba(124, 184, 255, 0.1);
         }
         [data-theme="light"] .simple-activity-col {
             background: rgba(252, 248, 240, 0.88);
@@ -2535,9 +2535,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             font-size: 0.72rem;
             letter-spacing: 0.14em;
             text-transform: uppercase;
-            color: #d4af37;
+            color: #9bc8ff;
             padding: 12px 14px;
-            border-bottom: 1px solid rgba(212, 175, 55, 0.12);
+            border-bottom: 1px solid rgba(124, 184, 255, 0.2);
         }
         [data-theme="light"] .simple-activity-title {
             color: #6b5a2a;
@@ -2545,7 +2545,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         .simple-activity-tabs {
             display: flex;
             gap: 0;
-            border-bottom: 1px solid rgba(212, 175, 55, 0.14);
+            border-bottom: 1px solid rgba(124, 184, 255, 0.2);
             flex-shrink: 0;
         }
         .simple-activity-tab {
@@ -2564,13 +2564,13 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
         }
         .simple-activity-tab:hover {
-            color: #d4af37;
-            background: rgba(212, 175, 55, 0.06);
+            color: #9bc8ff;
+            background: rgba(124, 184, 255, 0.09);
         }
         .simple-activity-tab.is-active {
-            color: #d4af37;
-            border-bottom-color: rgba(212, 175, 55, 0.65);
-            background: rgba(212, 175, 55, 0.05);
+            color: #9bc8ff;
+            border-bottom-color: rgba(124, 184, 255, 0.72);
+            background: rgba(124, 184, 255, 0.08);
         }
         [data-theme="light"] .simple-activity-tab {
             color: #7a6a42;
@@ -3351,7 +3351,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         gemini: {
             name: 'Gemini (Google)',
             models: [
-                'gemini-2.5-flash', 'gemini-2.5-pro',
+                'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro',
                 'gemini-3-flash-preview', 'gemini-3-pro-preview',
                 'gemini-3-flash', 'gemini-3-pro',
                 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview'

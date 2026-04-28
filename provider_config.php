@@ -28,7 +28,7 @@ function get_builtin_provider_ui(): array {
         'mercury'   => ['name' => 'Mercury (Inception Labs)', 'models' => ['mercury-2']],
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
         'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
-        'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
+        'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
         'openrouter' => ['name' => 'OpenRouter', 'models' => [$openRouterModel]],
         'nvidia_nim' => ['name' => 'NVIDIA NIM', 'models' => [
             $nvidiaNimModel,
