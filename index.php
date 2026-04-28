@@ -6127,14 +6127,36 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             designPreviewBtn.addEventListener('click', function () {
                 if (!window.currentOpenedDesign || !window.currentOpenedDesign.name) return;
                 syncDesignDraftFromInput();
-                if (typeof window.MemoryGraphOpenWebApp === 'function') {
-                    var n = window.currentOpenedDesign.name;
-                    window.MemoryGraphOpenWebApp({
-                        name: n,
-                        title: 'Design: ' + n,
-                        url: 'api/serve_design.php?name=' + encodeURIComponent(n)
+                var n = window.currentOpenedDesign.name;
+                designPreviewBtn.disabled = true;
+                var parts = ['md', 'html', 'css', 'js'];
+                var p = Promise.resolve();
+                parts.forEach(function (part) {
+                    p = p.then(function () {
+                        return fetch('api_designs.php?action=save_part', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                name: n,
+                                part: part,
+                                content: String(designDraftParts[part] != null ? designDraftParts[part] : '')
+                            })
+                        }).then(function (res) { return res.json(); }).then(function (out) {
+                            if (out && out.error) throw new Error(out.error);
+                        });
                     });
-                }
+                });
+                p.then(function () {
+                    if (typeof window.MemoryGraphOpenWebApp === 'function') {
+                        window.MemoryGraphOpenWebApp({
+                            name: n,
+                            title: 'Design: ' + n,
+                            url: 'api/serve_design.php?name=' + encodeURIComponent(n) + '&t=' + Date.now()
+                        });
+                    }
+                }).catch(function (err) {
+                    window.alert(err && err.message ? err.message : 'Could not save before preview');
+                }).finally(function () { designPreviewBtn.disabled = false; });
             });
         }
         if (designDeleteBtn) {

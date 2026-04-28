@@ -275,11 +275,15 @@ function design_build_preview_html(string $slug): ?string {
                 $rawHtml = preg_replace('/<\/body>/i', '<script id="mg-design-js">' . $js . '</script></body>', $rawHtml, 1);
             }
         }
-
-        return $rawHtml;
+        $out = $rawHtml;
+    } else {
+        $out = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design: ' . htmlspecialchars($slug, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</title><style id=\"mg-design-injected\">" . $css . "\n</style></head><body>\n" . $rawHtml . "\n" . ($js !== '' ? '<script id="mg-design-js">' . $js . "</script>\n" : '') . "</body></html>\n";
     }
 
-    return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Design: ' . htmlspecialchars($slug, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . "</title><style id=\"mg-design-injected\">" . $css . "\n</style></head><body>\n" . $rawHtml . "\n" . ($js !== '' ? '<script id="mg-design-js">' . $js . "</script>\n" : '') . "</body></html>\n";
+    // Same hooks as mini-apps: WebGL/canvas often reads innerWidth/height while the modal is animating → 0×0 → black frame.
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'app_store.php';
+
+    return web_app_ensure_viewport_hooks($out);
 }
 
 /**
