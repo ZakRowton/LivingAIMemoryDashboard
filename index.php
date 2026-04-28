@@ -3594,6 +3594,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     window.MEMORY_GRAPH_PROVIDERS = {
         mercury: { name: 'Mercury (Inception Labs)', models: ['mercury-2'] },
         featherless: { name: 'Featherless', models: ['glm47-flash'] },
+        featherless_embeddings: { name: 'Featherless Embeddings', models: ['Qwen/Qwen3-Embedding-8B'] },
         alibaba: { name: 'Alibaba Cloud', models: ['qwen-plus', 'glm-5'] },
         gemini: {
             name: 'Gemini (Google)',

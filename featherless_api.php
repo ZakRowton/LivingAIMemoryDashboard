@@ -156,3 +156,145 @@ function memory_graph_featherless_concurrency_snapshot(string $apiKey): array {
         'requests' => $reqs,
     ];
 }
+
+/**
+ * Last user message content as plain text (for embeddings input).
+ */
+function memory_graph_messages_last_user_plaintext_for_embeddings(array $messages): string {
+    for ($i = count($messages) - 1; $i >= 0; $i--) {
+        $m = $messages[$i];
+        if (!is_array($m) || ($m['role'] ?? '') !== 'user') {
+            continue;
+        }
+        $c = $m['content'] ?? '';
+        if (is_string($c)) {
+            $t = trim($c);
+            if ($t !== '') {
+                return $t;
+            }
+        }
+        if (is_array($c)) {
+            $parts = [];
+            foreach ($c as $part) {
+                if (!is_array($part)) {
+                    continue;
+                }
+                if (($part['type'] ?? '') === 'text' && isset($part['text'])) {
+                    $parts[] = trim((string) $part['text']);
+                }
+            }
+            $joined = trim(implode("\n", array_filter($parts, static function ($x) {
+                return $x !== '';
+            })));
+            if ($joined !== '') {
+                return $joined;
+            }
+        }
+    }
+
+    return '';
+}
+
+/**
+ * POST OpenAI-compatible embeddings to Featherless.
+ *
+ * @param string|array<int, string> $input
+ * @return array{data: array, httpCode: int}|array{error: string, httpCode: int, raw?: string}
+ */
+function memory_graph_featherless_embeddings_request(string $apiKey, string $model, $input): array {
+    $apiKey = trim($apiKey);
+    $model = trim($model);
+    if ($apiKey === '') {
+        return ['error' => 'Missing Featherless API key', 'httpCode' => 500];
+    }
+    if ($model === '') {
+        return ['error' => 'Missing embedding model id', 'httpCode' => 400];
+    }
+    $body = json_encode(['model' => $model, 'input' => $input], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($body === false) {
+        return ['error' => 'Failed to encode embeddings JSON', 'httpCode' => 500];
+    }
+    $ch = curl_init('https://api.featherless.ai/v1/embeddings');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $cerr = curl_error($ch);
+    curl_close($ch);
+    if ($cerr) {
+        return ['error' => 'Network error calling Featherless embeddings: ' . $cerr, 'httpCode' => 502];
+    }
+    $raw = (string) $response;
+    if ($httpCode >= 400) {
+        return [
+            'error' => memory_graph_featherless_user_error_message($httpCode, $raw),
+            'httpCode' => $httpCode,
+            'raw' => strlen($raw) > 12000 ? substr($raw, 0, 12000) : $raw,
+        ];
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        return ['error' => 'Invalid JSON from Featherless embeddings', 'httpCode' => 502, 'raw' => strlen($raw) > 4000 ? substr($raw, 0, 4000) : $raw];
+    }
+
+    return ['data' => $decoded, 'httpCode' => 200];
+}
+
+/** User-readable summary of an OpenAI-style embeddings JSON body. */
+function memory_graph_featherless_format_embedding_assistant_text(array $decoded): string {
+    $lines = [];
+    $lines[] = '**Featherless embeddings** (`POST /v1/embeddings`)';
+    $data = isset($decoded['data']) && is_array($decoded['data']) ? $decoded['data'] : [];
+    if ($data === []) {
+        $lines[] = '_No embedding vectors returned._';
+
+        return implode("\n", $lines);
+    }
+    foreach ($data as $i => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+        $emb = isset($row['embedding']) && is_array($row['embedding']) ? $row['embedding'] : [];
+        $dim = count($emb);
+        $idx = isset($row['index']) ? (int) $row['index'] : $i;
+        $preview = array_slice($emb, 0, 8);
+        $pv = [];
+        foreach ($preview as $v) {
+            $pv[] = is_float($v) ? (string) $v : (string) $v;
+        }
+        $tail = $dim > 8 ? ' …' : '';
+        $lines[] = '- **#' . $idx . '** · dimension **' . $dim . '** · first values: `' . implode(', ', $pv) . '`' . $tail;
+    }
+    $usage = isset($decoded['usage']) && is_array($decoded['usage']) ? $decoded['usage'] : [];
+    if ($usage !== []) {
+        $pt = $usage['prompt_tokens'] ?? null;
+        $tt = $usage['total_tokens'] ?? null;
+        $bits = [];
+        if ($pt !== null) {
+            $bits[] = 'prompt_tokens: ' . $pt;
+        }
+        if ($tt !== null) {
+            $bits[] = 'total_tokens: ' . $tt;
+        }
+        if ($bits !== []) {
+            $lines[] = '';
+            $lines[] = '**Usage:** ' . implode(' · ', $bits);
+        }
+    }
+    $mid = isset($decoded['model']) && is_string($decoded['model']) ? trim($decoded['model']) : '';
+    if ($mid !== '') {
+        $lines[] = '';
+        $lines[] = '_Model:_ `' . $mid . '`';
+    }
+
+    return implode("\n", $lines);
+}

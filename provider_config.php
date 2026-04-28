@@ -29,6 +29,7 @@ function get_builtin_provider_ui(): array {
     return [
         'mercury'   => ['name' => 'Mercury (Inception Labs)', 'models' => ['mercury-2']],
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
+        'featherless_embeddings' => ['name' => 'Featherless Embeddings', 'models' => ['Qwen/Qwen3-Embedding-8B']],
         'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
         'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
         'groq'      => ['name' => 'Groq', 'models' => [
@@ -317,6 +318,20 @@ function get_provider_api_key_ui_row(string $providerKey): array {
     if (get_provider_api_key_override($providerKey) !== '') {
         return ['configured' => true, 'source' => 'override'];
     }
+    if ($providerKey === 'featherless_embeddings') {
+        if (get_provider_api_key_override('featherless_embeddings') !== '') {
+            return ['configured' => true, 'source' => 'override'];
+        }
+        if (get_provider_api_key_override('featherless') !== '') {
+            return ['configured' => true, 'source' => 'override'];
+        }
+        $hasEnv = provider_env_key_has_value('FEATHERLESS_API_KEY');
+
+        return [
+            'configured' => $hasEnv,
+            'source' => $hasEnv ? 'env' : 'none',
+        ];
+    }
     $hasEnv = false;
     if ($providerKey === 'alibaba') {
         foreach (['DASHSCOPE_API_KEY', 'ALIBABA_API_KEY', 'ALIBABA_CLOUD_API_KEY', 'ALIYUN_API_KEY'] as $ek) {
@@ -338,6 +353,7 @@ function get_provider_api_key_ui_row(string $providerKey): array {
             $map = [
                 'mercury' => 'MERCURY_API_KEY',
                 'featherless' => 'FEATHERLESS_API_KEY',
+                'featherless_embeddings' => 'FEATHERLESS_API_KEY',
                 'gemini' => 'GEMINI_API_KEY',
                 'groq' => 'GROQ_API_KEY',
                 'openrouter' => 'OPENROUTER_API_KEY',

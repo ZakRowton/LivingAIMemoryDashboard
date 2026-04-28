@@ -209,6 +209,7 @@ function memory_graph_missing_provider_api_key_message(string $providerKey): str
         'groq' => 'Set GROQ_API_KEY in .env or save a key override in agent config.',
         'mercury' => 'Set MERCURY_API_KEY in .env.',
         'featherless' => 'Set FEATHERLESS_API_KEY in .env.',
+        'featherless_embeddings' => 'Set FEATHERLESS_API_KEY in .env (same key as Featherless chat).',
         'gemini' => 'Set GEMINI_API_KEY in .env.',
         'openrouter' => 'Set OPENROUTER_API_KEY in .env.',
         'nvidia_nim' => 'Set NVIDIA_NIM_API_KEY in .env.',
@@ -340,6 +341,12 @@ $providers = [
         'type' => 'openai',
         'defaultModel' => 'glm47-flash',
     ],
+    'featherless_embeddings' => [
+        'endpoint' => 'https://api.featherless.ai/v1/embeddings',
+        'apiKey' => memory_graph_env('FEATHERLESS_API_KEY', ''),
+        'type' => 'featherless_embeddings',
+        'defaultModel' => 'Qwen/Qwen3-Embedding-8B',
+    ],
     'alibaba' => [
         'endpoint' => memory_graph_alibaba_dashscope_endpoint(),
         'apiKey' => memory_graph_alibaba_api_key(),
@@ -390,6 +397,15 @@ foreach ($providers as $_pk => &$_pdef) {
     }
 }
 unset($_pdef);
+
+if (isset($providers['featherless_embeddings'], $providers['featherless'])
+    && is_array($providers['featherless_embeddings'])
+    && is_array($providers['featherless'])) {
+    $embKey = trim((string) ($providers['featherless_embeddings']['apiKey'] ?? ''));
+    if ($embKey === '') {
+        $providers['featherless_embeddings']['apiKey'] = (string) ($providers['featherless']['apiKey'] ?? '');
+    }
+}
 
 function statusDirPath(): string {
     $path = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'chat-status';
@@ -1030,7 +1046,7 @@ function memory_graph_execute_sub_agent_completion(array $providers, array $argu
     }
     if ($provider === null) {
         return [
-            'error' => 'Invalid sub-agent provider: "' . $providerKeyRaw . '" (resolved: "' . $providerKey . '"). Use a built-in key like openrouter, nvidia_nim, gemini, mercury, featherless, alibaba, groq, or set endpoint + api_key in the sub-agent file.',
+            'error' => 'Invalid sub-agent provider: "' . $providerKeyRaw . '" (resolved: "' . $providerKey . '"). Use a built-in key like openrouter, nvidia_nim, gemini, mercury, featherless, featherless_embeddings, alibaba, groq, or set endpoint + api_key in the sub-agent file.',
         ];
     }
     if ($endpoint !== '' && ($provider['type'] ?? 'openai') === 'openai') {
@@ -4546,6 +4562,41 @@ if ($targetSubAgentInput !== '') {
 $apiRetryCount = 0;
 $apiErrorRetryMax = 5;
 
+if ($providerKey === 'featherless_embeddings') {
+    memory_graph_status_append_activity($status, 'llm', 'Featherless embeddings · ' . $modelId, null);
+    writeStatus($requestId, $status);
+    $plain = memory_graph_messages_last_user_plaintext_for_embeddings($messages);
+    if ($plain === '') {
+        memory_graph_status_append_activity($status, 'error', 'Empty user text for embeddings', null);
+        clearStatusFlags($status);
+        writeStatus($requestId, $status);
+        http_response_code(400);
+        echo json_encode(['error' => 'Send a non-empty user message to generate an embedding (embedding models do not chat; each message is encoded with POST /v1/embeddings).']);
+        exit;
+    }
+    $embRes = memory_graph_featherless_embeddings_request((string) ($provider['apiKey'] ?? ''), $modelId, $plain);
+    if (isset($embRes['error'])) {
+        memory_graph_status_append_activity($status, 'error', 'Featherless embeddings failed', [
+            'httpCode' => (int) ($embRes['httpCode'] ?? 502),
+            'error' => $embRes['error'],
+        ]);
+        clearStatusFlags($status);
+        writeStatus($requestId, $status);
+        http_response_code((int) ($embRes['httpCode'] ?? 502));
+        if (isset($embRes['raw'])) {
+            mg_emit_upstream_llm_error_body((int) ($embRes['httpCode'] ?? 502), (string) $embRes['raw']);
+        } else {
+            echo json_encode(['error' => (string) $embRes['error']], JSON_UNESCAPED_UNICODE);
+        }
+        exit;
+    }
+    $embData = isset($embRes['data']) && is_array($embRes['data']) ? $embRes['data'] : [];
+    $finalContent = memory_graph_featherless_format_embedding_assistant_text($embData);
+    if (isset($embData['usage']) && is_array($embData['usage'])) {
+        $lastOpenAiUsage = $embData['usage'];
+    }
+} else {
+
 while (true) {
     $loopCount++;
     if ($loopCount > 500) {
@@ -5076,6 +5127,7 @@ while (true) {
     break;
 }
 }
+}
 
 if (trim($finalContent) === '' && $lastToolResultText !== '') {
     $finalContent = $lastToolResultText;
@@ -5170,6 +5222,9 @@ if ($providerKey === 'groq') {
     if ($lastOpenAiUsage !== null && is_array($lastOpenAiUsage)) {
         $response['usage'] = $lastOpenAiUsage;
     }
+}
+if ($providerKey === 'featherless_embeddings' && $lastOpenAiUsage !== null && is_array($lastOpenAiUsage)) {
+    $response['usage'] = $lastOpenAiUsage;
 }
 if (!empty($memoryGraphMeta)) {
     $response['memory_graph'] = $memoryGraphMeta;
