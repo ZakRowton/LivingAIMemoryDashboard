@@ -35,7 +35,8 @@
         jobs: { label: 'Jobs', color: 0xff8f70, sub: true, radius: 0.42, glowScale: 1.82 },
         sub_agents: { label: 'Sub-Agents', color: 0xb6f28f, sub: true, radius: 0.42, glowScale: 1.82 },
         categories: { label: 'Categories', color: 0xa0d4e8, sub: true, radius: 0.42, glowScale: 1.82 },
-        sessions: { label: 'Sessions', color: 0xe8c090, sub: true, radius: 0.42, glowScale: 1.82 }
+        sessions: { label: 'Sessions', color: 0xe8c090, sub: true, radius: 0.42, glowScale: 1.82 },
+        designs: { label: 'Designs', color: 0xc9a0dc, sub: true, radius: 0.42, glowScale: 1.82 }
     };
     var staticEdges = [
         { from: 'agent', to: 'memory' },
@@ -47,7 +48,8 @@
         { from: 'agent', to: 'jobs' },
         { from: 'agent', to: 'sub_agents' },
         { from: 'agent', to: 'categories' },
-        { from: 'agent', to: 'sessions' }
+        { from: 'agent', to: 'sessions' },
+        { from: 'agent', to: 'designs' }
     ];
     var staticPositions = {
         agent: [0, 0, 0],
@@ -60,7 +62,8 @@
         jobs: [8.3, -2.9, 4.4],
         sub_agents: [0.3, 8.5, 3.8],
         categories: [0, 7.2, -2.2],
-        sessions: [-22.2, 13.8, 12.3]
+        sessions: [-22.2, 13.8, 12.3],
+        designs: [19.6, 14.2, 10.8]
     };
 
     var galaxyGroup = new THREE.Group();
@@ -160,7 +163,7 @@
             new THREE.MeshPhongMaterial({
                 color: 0x0c1016,
                 emissive: data.color,
-                emissiveIntensity: id === 'agent' ? 0.95 : (id.indexOf('sub_agent_file_') === 0 || id.indexOf('session_file_') === 0 ? 0.9 : 0.82),
+                emissiveIntensity: id === 'agent' ? 0.95 : (id.indexOf('sub_agent_file_') === 0 || id.indexOf('session_file_') === 0 || id.indexOf('design_file_') === 0 ? 0.9 : 0.82),
                 specular: 0xffffff,
                 shininess: 110
             })
@@ -188,7 +191,7 @@
             shellBaseColor: data.color,
             coreBaseColor: 0x0c1016,
             innerBaseColor: data.color,
-            activeHighlightColor: (id === 'agent' || id.indexOf('sub_agent_file_') === 0 || id.indexOf('session_file_') === 0) ? 0xffffff : 0xfff3b0
+            activeHighlightColor: (id === 'agent' || id.indexOf('sub_agent_file_') === 0 || id.indexOf('session_file_') === 0 || id.indexOf('design_file_') === 0) ? 0xffffff : 0xfff3b0
         };
         nodeMeshesList.push(core);
 
@@ -237,7 +240,7 @@
         return out;
     }
 
-    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, cronJobs, categoryNodes, subAgents, sessionFiles) {
+    function buildGraph(tools, memories, instructions, research, rules, mcps, jobs, cronJobs, categoryNodes, subAgents, sessionFiles, designFiles) {
         clearGraph();
         var nodeData = JSON.parse(JSON.stringify(staticNodeData));
         var positions = JSON.parse(JSON.stringify(staticPositions));
@@ -272,6 +275,7 @@
         mergeChildren(layoutChildren(categoryNodes || [], positions.categories, 0.9, 0.85, 'sin', function (c) { return c.nodeId; }, 0xb0e4f8), 'categories');
         mergeChildren(layoutChildren(subAgents || [], positions.sub_agents, 0.92, 0.8, 'cos', function (s) { return s.nodeId; }, 0xc6f7a6), 'sub_agents');
         mergeChildren(layoutChildren(sessionFiles || [], positions.sessions, 0.92, 0.8, 'sin', function (s) { return s.nodeId; }, 0xe8c090), 'sessions');
+        mergeChildren(layoutChildren(designFiles || [], positions.designs, 0.92, 0.8, 'cos', function (d) { return d.nodeId; }, 0xc9a0dc), 'designs');
 
         (sessionFiles || []).forEach(function (s) {
             if (!s || !s.nodeId || !Array.isArray(s.linkTargets)) return;
@@ -282,7 +286,7 @@
             });
         });
 
-        var hubIdsForSubAgents = ['memory', 'tools', 'instructions', 'research', 'rules', 'mcps', 'jobs', 'categories'];
+        var hubIdsForSubAgents = ['memory', 'tools', 'instructions', 'research', 'rules', 'mcps', 'jobs', 'categories', 'sessions', 'designs'];
         (subAgents || []).forEach(function (s) {
             if (!s || !s.nodeId) return;
             hubIdsForSubAgents.forEach(function (hubId) {
@@ -318,7 +322,10 @@
             }).catch(function () { return { subAgents: [] }; }),
             fetch('api_sessions.php?action=list').then(function (res) {
                 return res.ok ? res.json() : { sessions: [] };
-            }).catch(function () { return { sessions: [] }; })
+            }).catch(function () { return { sessions: [] }; }),
+            fetch('api_designs.php?action=list').then(function (res) {
+                return res.ok ? res.json() : { designs: [] };
+            }).catch(function () { return { designs: [] }; })
         ]).then(function (results) {
             window.toolsData = (results[0] || {}).tools || [];
             window.memoryFiles = (results[1] || {}).memories || [];
@@ -331,7 +338,8 @@
             window.categoryNodes = (results[8] || {}).categories || [];
             window.subAgentFiles = (results[9] || {}).subAgents || [];
             window.sessionFiles = (results[10] || {}).sessions || [];
-            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.cronJobs, window.categoryNodes, window.subAgentFiles, window.sessionFiles);
+            window.designFiles = (results[11] || {}).designs || [];
+            buildGraph(window.toolsData, window.memoryFiles, window.instructionFiles, window.researchFiles, window.rulesFiles, window.mcpServers, window.jobFiles, window.cronJobs, window.categoryNodes, window.subAgentFiles, window.sessionFiles, window.designFiles);
             if (typeof window.MemoryGraphUpdateLegend === 'function') {
                 window.MemoryGraphUpdateLegend(window.categoryNodes || []);
             }
@@ -577,6 +585,12 @@
         }
         var exSubAgents = state && state.executionDetailsByNode && state.executionDetailsByNode.sub_agents;
         var subAgentsSectionActive = !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('sub_agents')) || (state.subAgentsToolExecuting) || activeSubAgentIds.length || exSubAgents));
+        var exSessions = state && state.executionDetailsByNode && state.executionDetailsByNode.sessions;
+        var sessionsSectionActive = !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('sessions')) || (state.sessionToolExecuting) || exSessions));
+        var exDesigns = state && state.executionDetailsByNode && state.executionDetailsByNode.designs;
+        var designsSectionActive = !!(state && ((state.isSectionRecentlyActive && state.isSectionRecentlyActive('designs')) || (state.designToolExecuting) || exDesigns));
+        var recentSessFiles = state && state.getRecentNodeIds ? state.getRecentNodeIds('session_file_') : [];
+        var recentDesignFiles = state && state.getRecentNodeIds ? state.getRecentNodeIds('design_file_') : [];
 
         var agentActive = !!(state && (state.isThinking || (state.isAgentRecentlyActive && state.isAgentRecentlyActive())));
         animateNode('agent', agentActive, t, 12, 0.22, 1.15);
@@ -592,6 +606,10 @@
         animateNode('mcps', !!(state && (state.mcpToolExecuting || state.checkingMcps || state.backgroundCheckingMcps || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('mcps')) || activeMcpIds.length)), t, 12, 0.2, 1.2);
         animateNode('jobs', !!(state && (state.jobExecuting || state.checkingJobs || state.backgroundCheckingJobs || (state.isSectionRecentlyActive && state.isSectionRecentlyActive('jobs')) || activeJobIds.length)), t, 12, 0.2, 1.2);
         animateNode('sub_agents', subAgentsSectionActive, t, 12, 0.2, 1.2);
+        var sessHubRt = performance.now() < (runtimeActivityByNodeId['sessions'] || 0);
+        var designsHubRt = performance.now() < (runtimeActivityByNodeId['designs'] || 0);
+        animateNode('sessions', sessionsSectionActive || sessHubRt, t, 12, 0.2, 1.2);
+        animateNode('designs', designsSectionActive || designsHubRt, t, 12, 0.2, 1.2);
 
         Object.keys(nodeGroups).forEach(function (id) {
             var rt = performance.now() < (runtimeActivityByNodeId[id] || 0);
@@ -613,6 +631,8 @@
                 }
             }
             if (id.indexOf('category_') === 0) animateNode(id, activeCategoryIds.indexOf(id) !== -1, t, 13, 0.24, 1.2);
+            if (id.indexOf('session_file_') === 0) animateNode(id, recentSessFiles.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
+            if (id.indexOf('design_file_') === 0) animateNode(id, recentDesignFiles.indexOf(id) !== -1 || rt, t, 13, 0.24, 1.2);
         });
 
         renderer.render(scene, camera);

@@ -2950,6 +2950,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             <li><span class="graph-legend-swatch" style="background:#6be38e; box-shadow:0 0 8px rgba(107,227,142,0.55);"></span> MCPs</li>
             <li><span class="graph-legend-swatch" style="background:#ff8f70; box-shadow:0 0 8px rgba(255,143,112,0.58);"></span> Jobs</li>
             <li><span class="graph-legend-swatch" style="background:#e8c090; box-shadow:0 0 8px rgba(232,192,144,0.58);"></span> Sessions</li>
+            <li><span class="graph-legend-swatch" style="background:#c9a0dc; box-shadow:0 0 8px rgba(201,160,220,0.55);"></span> Designs</li>
             <li><span class="graph-legend-swatch" style="background:#a0d4e8; box-shadow:0 0 8px rgba(160,212,232,0.6);"></span> Categories</li>
         </ul>
         <div class="graph-legend-categories-wrap" id="graph-legend-categories-wrap" style="display:none;">
@@ -3085,6 +3086,30 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 <div class="panel-action-btn-row">
                     <button type="button" id="rules-save-btn" class="panel-action-btn">Save Rules</button>
                     <button type="button" id="rules-delete-btn" class="panel-action-btn btn-stop">Delete Rules</button>
+                </div>
+            </div>
+            <div id="designs-parent-panel" style="display: none; margin-top: 15px;">
+                <p class="text-muted font-serif" style="font-size:0.8rem; margin:0 0 8px 0;">Each design is four files: <code>.md</code> (card), <code>.html</code>, <code>.css</code>, <code>.js</code> with the same base name.</p>
+                <div class="panel-action-btn-row" style="align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <input type="text" id="design-new-name-input" class="provider-input" style="max-width: 200px; margin: 0;" placeholder="new-design-slug" aria-label="New design base name">
+                    <button type="button" id="design-new-create-btn" class="panel-action-btn">New design</button>
+                </div>
+                <div id="designs-list-panel" class="tool-list-panel file-browser-list"></div>
+            </div>
+            <div id="design-config-panel" style="display: none; margin-top: 15px;">
+                <label class="provider-label" for="design-part-select">File</label>
+                <select id="design-part-select" class="provider-select" aria-label="Design file part">
+                    <option value="md">Design card (.md)</option>
+                    <option value="html">HTML</option>
+                    <option value="css">CSS</option>
+                    <option value="js">JavaScript</option>
+                </select>
+                <label class="provider-label" for="design-content-input">Contents</label>
+                <textarea id="design-content-input" class="provider-textarea" rows="12" placeholder="…" spellcheck="false"></textarea>
+                <div class="panel-action-btn-row">
+                    <button type="button" id="design-save-btn" class="panel-action-btn">Save file</button>
+                    <button type="button" id="design-preview-btn" class="panel-action-btn">Preview</button>
+                    <button type="button" id="design-delete-btn" class="panel-action-btn btn-stop">Delete design</button>
                 </div>
             </div>
             <div id="mcps-parent-panel" style="display: none; margin-top: 15px;">
@@ -3680,6 +3705,16 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         var rulesContentInput = document.getElementById('rules-content-input');
         var rulesSaveBtn = document.getElementById('rules-save-btn');
         var rulesDeleteBtn = document.getElementById('rules-delete-btn');
+        var designsParentPanel = document.getElementById('designs-parent-panel');
+        var designConfig = document.getElementById('design-config-panel');
+        var designsListPanel = document.getElementById('designs-list-panel');
+        var designNewNameInput = document.getElementById('design-new-name-input');
+        var designNewCreateBtn = document.getElementById('design-new-create-btn');
+        var designPartSelect = document.getElementById('design-part-select');
+        var designContentInput = document.getElementById('design-content-input');
+        var designSaveBtn = document.getElementById('design-save-btn');
+        var designPreviewBtn = document.getElementById('design-preview-btn');
+        var designDeleteBtn = document.getElementById('design-delete-btn');
         var mcpNewBtn = document.getElementById('mcp-new-btn');
         var mcpsEnableAllBtn = document.getElementById('mcps-enable-all-btn');
         var mcpsDisableAllBtn = document.getElementById('mcps-disable-all-btn');
@@ -3713,6 +3748,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         window.currentOpenedCron = null;
         window.currentOpenedNodeId = null;
         window.currentOpenedSubAgent = null;
+        window.currentOpenedDesign = null;
+        var designDraftParts = { md: '', html: '', css: '', js: '' };
+        var designCurrentPart = 'md';
 
         function escapeHtml(s) {
             if (!s) return '';
@@ -3733,6 +3771,8 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (researchConfig) researchConfig.style.display = 'none';
             if (rulesParentPanel) rulesParentPanel.style.display = 'none';
             if (rulesConfig) rulesConfig.style.display = 'none';
+            if (designsParentPanel) designsParentPanel.style.display = 'none';
+            if (designConfig) designConfig.style.display = 'none';
             if (mcpsParentPanel) mcpsParentPanel.style.display = 'none';
             if (mcpConfig) mcpConfig.style.display = 'none';
             if (jobsParentPanel) jobsParentPanel.style.display = 'none';
@@ -3750,6 +3790,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             window.currentOpenedJob = null;
             window.currentOpenedCron = null;
             window.currentOpenedSubAgent = null;
+            window.currentOpenedDesign = null;
         }
 
         function hideExecutionWidget() {
@@ -3842,6 +3883,85 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     window.rulesFiles = data.rules || [];
                     return window.rulesFiles;
                 });
+        }
+
+        function refreshDesignData() {
+            return fetch('api_designs.php?action=list')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    window.designFiles = data.designs || [];
+                    return window.designFiles;
+                });
+        }
+
+        function syncDesignDraftFromInput() {
+            if (!designContentInput) return;
+            designDraftParts[designCurrentPart] = designContentInput.value;
+        }
+
+        function applyDesignPartSelect(nextPart) {
+            if (!designPartSelect || !designContentInput) return;
+            if (nextPart !== 'md' && nextPart !== 'html' && nextPart !== 'css' && nextPart !== 'js') return;
+            syncDesignDraftFromInput();
+            designCurrentPart = nextPart;
+            designPartSelect.value = nextPart;
+            designContentInput.value = designDraftParts[nextPart] != null ? designDraftParts[nextPart] : '';
+        }
+
+        function loadDesignIntoPanel(name) {
+            if (!name) return;
+            fetch('api_designs.php?action=get', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            })
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Not found');
+                    return res.json();
+                })
+                .then(function (data) {
+                    if (data && data.error) throw new Error(data.error);
+                    if (!window.currentOpenedDesign || window.currentOpenedDesign.name !== (data.design && data.design.name)) return;
+                    var files = data.files || {};
+                    designDraftParts = {
+                        md: String(files.md != null ? files.md : ''),
+                        html: String(files.html != null ? files.html : ''),
+                        css: String(files.css != null ? files.css : ''),
+                        js: String(files.js != null ? files.js : '')
+                    };
+                    designCurrentPart = 'md';
+                    if (designPartSelect) designPartSelect.value = 'md';
+                    if (designContentInput) designContentInput.value = designDraftParts.md;
+                    var meta = data.design || {};
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Design:</strong> ' + escapeHtml(meta.name || name) + '</p>';
+                })
+                .catch(function () {
+                    if (window.currentOpenedDesign && window.currentOpenedDesign.name === name) {
+                        infoEl.innerHTML = '<p class="mb-1 text-muted">Could not load design.</p>';
+                    }
+                });
+        }
+
+        function renderDesignsList() {
+            if (!designsListPanel) return;
+            var files = window.designFiles || [];
+            designsListPanel.innerHTML = '';
+            files.forEach(function (d) {
+                addFileListRowWithDelete(
+                    designsListPanel,
+                    d.name,
+                    function () { openWidget(d.name, d.nodeId); },
+                    'api_designs.php?action=delete',
+                    { name: d.name },
+                    function () {
+                        return refreshDesignData()
+                            .then(function () { renderDesignsList(); refreshGraph(); });
+                    }
+                );
+            });
+            if (!files.length) {
+                designsListPanel.innerHTML = '<div class="running-job-empty">No designs yet. Create one or ask the AI.</div>';
+            }
         }
 
         function refreshMcpData() {
@@ -4628,6 +4748,17 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                         infoEl.innerHTML = '<p class="mb-1"><strong>Sub-Agents:</strong> ' + sa.length + ' configuration files</p>';
                         renderSubAgentsList();
                     });
+            } else if (id === 'designs') {
+                titleEl.textContent = 'Designs';
+                if (designsParentPanel) designsParentPanel.style.display = 'block';
+                if (designConfig) designConfig.style.display = 'none';
+                infoEl.innerHTML = '<p class="mb-1">Loading…</p>';
+                refreshDesignData().then(function () {
+                    if (window.currentOpenedNodeId !== 'designs') return;
+                    var arr = window.designFiles || [];
+                    infoEl.innerHTML = '<p class="mb-1"><strong>Designs:</strong> ' + arr.length + '</p>';
+                    renderDesignsList();
+                });
             } else if (id && id.indexOf('sub_agent_file_') === 0) {
                 var subAgent = (window.subAgentFiles || []).find(function (s) { return s.nodeId === id; });
                 var subName = subAgent ? subAgent.name : refName;
@@ -4766,6 +4897,22 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     if (rulesContentInput) rulesContentInput.value = '';
                     loadRulesIntoPanel(rulesName);
                 }
+            } else if (id && id.indexOf('design_file_') === 0) {
+                var dg = (window.designFiles || []).find(function (d) { return d.nodeId === id; });
+                var dname = dg && dg.name ? dg.name : String(refName || '').replace(/\.(html|css|js|md)$/i, '');
+                titleEl.textContent = 'Design';
+                if (designsParentPanel) designsParentPanel.style.display = 'block';
+                infoEl.innerHTML = '<p class="mb-1">Loading…</p>';
+                if (designConfig) {
+                    designConfig.style.display = 'block';
+                    window.currentOpenedDesign = { nodeId: id, name: dname };
+                    if (designPartSelect) {
+                        designPartSelect.value = 'md';
+                    }
+                    designCurrentPart = 'md';
+                    if (designContentInput) designContentInput.value = '';
+                    loadDesignIntoPanel(dname);
+                }
             } else if (id && id.indexOf('mcp_server_') === 0) {
                 var server = (window.mcpServers || []).find(function (item) { return item.nodeId === id; });
                 var serverName = server ? server.name : refName;
@@ -4851,6 +4998,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             window.currentOpenedNodeId = null;
             window.currentOpenedCron = null;
             window.currentOpenedSubAgent = null;
+            window.currentOpenedDesign = null;
             hideExecutionWidget();
         }
 
@@ -5623,6 +5771,111 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 }).catch(function (err) {
                     infoEl.innerHTML = '<p class="mb-1">' + escapeHtml(err && err.message ? err.message : 'Delete failed') + '</p>';
                 }).finally(function () { cronDeleteBtn.disabled = false; });
+            });
+        }
+        if (designPartSelect) {
+            designPartSelect.addEventListener('change', function () {
+                var v = designPartSelect.value;
+                if (v === 'md' || v === 'html' || v === 'css' || v === 'js') {
+                    applyDesignPartSelect(v);
+                }
+            });
+        }
+        if (designNewCreateBtn) {
+            designNewCreateBtn.addEventListener('click', function () {
+                var raw = designNewNameInput ? designNewNameInput.value.trim() : '';
+                if (!raw) return;
+                designNewCreateBtn.disabled = true;
+                fetch('api_designs.php?action=create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: raw })
+                })
+                    .then(function (res) { return res.json(); })
+                    .then(function (out) {
+                        if (out && out.error) throw new Error(out.error);
+                        if (designNewNameInput) designNewNameInput.value = '';
+                        return refreshDesignData();
+                    })
+                    .then(function () {
+                        renderDesignsList();
+                        refreshGraph();
+                    })
+                    .catch(function (err) {
+                        alert(err && err.message ? err.message : 'Create failed');
+                    })
+                    .finally(function () { designNewCreateBtn.disabled = false; });
+            });
+        }
+        if (designSaveBtn) {
+            designSaveBtn.addEventListener('click', function () {
+                if (!window.currentOpenedDesign || !window.currentOpenedDesign.name) return;
+                syncDesignDraftFromInput();
+                var part = designCurrentPart;
+                var content = designDraftParts[part];
+                designSaveBtn.disabled = true;
+                fetch('api_designs.php?action=save_part', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: window.currentOpenedDesign.name, part: part, content: content })
+                })
+                    .then(function (res) { return res.json(); })
+                    .then(function (out) {
+                        if (out && out.error) throw new Error(out.error);
+                        return refreshDesignData();
+                    })
+                    .then(function () { refreshGraph(); })
+                    .catch(function (err) {
+                        alert(err && err.message ? err.message : 'Save failed');
+                    })
+                    .finally(function () { designSaveBtn.disabled = false; });
+            });
+        }
+        if (designPreviewBtn) {
+            designPreviewBtn.addEventListener('click', function () {
+                if (!window.currentOpenedDesign || !window.currentOpenedDesign.name) return;
+                syncDesignDraftFromInput();
+                if (typeof window.MemoryGraphOpenWebApp === 'function') {
+                    var n = window.currentOpenedDesign.name;
+                    window.MemoryGraphOpenWebApp({
+                        name: n,
+                        title: 'Design: ' + n,
+                        url: 'api/serve_design.php?name=' + encodeURIComponent(n)
+                    });
+                }
+            });
+        }
+        if (designDeleteBtn) {
+            designDeleteBtn.addEventListener('click', function () {
+                if (!window.currentOpenedDesign || !window.currentOpenedDesign.name) return;
+                if (!confirm('Delete this design and all four files?')) return;
+                var n = window.currentOpenedDesign.name;
+                designDeleteBtn.disabled = true;
+                fetch('api_designs.php?action=delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: n })
+                })
+                    .then(function (res) { return res.json(); })
+                    .then(function (out) {
+                        if (out && out.error) throw new Error(out.error);
+                        return refreshDesignData();
+                    })
+                    .then(function () {
+                        refreshGraph();
+                        if (designsParentPanel) designsParentPanel.style.display = 'block';
+                        if (designConfig) designConfig.style.display = 'none';
+                        window.currentOpenedDesign = null;
+                        window.currentOpenedNodeId = 'designs';
+                        renderDesignsList();
+                        var arr = window.designFiles || [];
+                        infoEl.innerHTML = '<p class="mb-1"><strong>Designs:</strong> ' + arr.length + '</p>';
+                        titleEl.textContent = 'Designs';
+                    })
+                    .catch(function (err) {
+                        alert(err && err.message ? err.message : 'Delete failed');
+                    })
+                    .finally(function () { designDeleteBtn.disabled = false; });
             });
         }
         window.MemoryGraphShowNodePanel = function (label, id) {

@@ -1306,6 +1306,95 @@ function get_builtin_tools(): array {
         ],
         'code' => "// Built-in\n// Searches session archives by tag and text.",
     ], [
+        'name' => 'list_designs',
+        'description' => 'List all UI designs in designs/ (each design has .html, .css, .js, .md with the same base name).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new stdClass(),
+        ],
+        'code' => "// Built-in\n// Lists design slugs.",
+    ], [
+        'name' => 'read_design',
+        'description' => 'Read a design: all four files or one part (md, html, css, js). The .md file is the design card (title, colors, notes).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'Design base name (slug)'],
+                'part' => [
+                    'type' => 'string',
+                    'enum' => ['md', 'html', 'css', 'js'],
+                    'description' => 'Omit to return all four files.',
+                ],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Reads design file(s).",
+    ], [
+        'name' => 'create_design',
+        'description' => 'Create a new design (four files: .html, .css, .js, .md). Omitted parts get starter templates.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'Base file name (letters, numbers, _, -)'],
+                'html' => ['type' => 'string'],
+                'css' => ['type' => 'string'],
+                'js' => ['type' => 'string'],
+                'md' => ['type' => 'string', 'description' => 'Design card: title, description, colors, theme notes.'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Creates design files.",
+    ], [
+        'name' => 'update_design_file',
+        'description' => 'Update one part of a design (md, html, css, or js).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+                'part' => [
+                    'type' => 'string',
+                    'enum' => ['md', 'html', 'css', 'js'],
+                ],
+                'content' => ['type' => 'string'],
+            ],
+            'required' => ['name', 'part', 'content'],
+        ],
+        'code' => "// Built-in\n// Writes one design file part.",
+    ], [
+        'name' => 'delete_design',
+        'description' => 'Delete a design (all four files) by base name.',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Deletes a design.",
+    ], [
+        'name' => 'display_design',
+        'description' => 'Open the design preview in the fullscreen app modal (composes html+css+js; md is the design card, not shown in the running preview).',
+        'active' => true,
+        'builtin' => true,
+        'parameters' => [
+            'type' => 'object',
+            'properties' => [
+                'name' => ['type' => 'string', 'description' => 'Design base name (slug)'],
+            ],
+            'required' => ['name'],
+        ],
+        'code' => "// Built-in\n// Opens design preview in UI.",
+    ], [
         'name' => 'list_sub_agent_files',
         'description' => 'List all sub-agent markdown configuration files from sub-agents/.',
         'active' => true,

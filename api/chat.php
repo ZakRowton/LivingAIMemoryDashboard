@@ -24,6 +24,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'mcp_client.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'tool_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'sub_agent_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'session_store.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'design_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'cron_pending.php';
 
 if (!$memoryGraphChatLibraryOnly) {
@@ -621,6 +622,20 @@ function shouldRefreshGraphForToolResult(string $toolName, array $toolResult): b
         'save_chat_session_file',
         'patch_chat_session_meta',
         'delete_chat_session_file',
+        'create_design',
+        'update_design_file',
+        'delete_design',
+    ], true);
+}
+
+function isDesignToolName(string $toolName): bool {
+    return in_array($toolName, [
+        'list_designs',
+        'read_design',
+        'create_design',
+        'update_design_file',
+        'delete_design',
+        'display_design',
     ], true);
 }
 
@@ -1432,6 +1447,7 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     ];
     $gettingAvailTools = in_array($normalizedFunctionName, ['list_available_tools', 'list_tools', 'get_tools'], true);
     $checkingSessions = isSessionToolName($normalizedFunctionName);
+    $checkingDesigns = isDesignToolName($normalizedFunctionName);
     $checkingMemory = isMemoryToolName($normalizedFunctionName);
     $checkingInstructions = isInstructionToolName($normalizedFunctionName);
     $checkingResearch = isResearchToolName($normalizedFunctionName);
@@ -1447,6 +1463,12 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
     }
     if ($checkingSessions) {
         $executionDetails['sessions'] = [
+            'toolName' => $normalizedFunctionName,
+            'arguments' => $arguments,
+        ];
+    }
+    if ($checkingDesigns) {
+        $executionDetails['designs'] = [
             'toolName' => $normalizedFunctionName,
             'arguments' => $arguments,
         ];
@@ -1652,6 +1674,21 @@ function buildExecutionStateForToolCall(string $toolName, array $arguments, arra
                 $snid = (string) ($sessionMeta['nodeId'] ?? '');
                 if ($snid !== '') {
                     $executionDetails[$snid] = [
+                        'toolName' => $normalizedFunctionName,
+                        'arguments' => $arguments,
+                    ];
+                }
+            }
+        }
+    }
+    if ($checkingDesigns) {
+        $nameArg = trim((string) ($arguments['name'] ?? ''));
+        if ($nameArg !== '') {
+            $slug = design_normalize_slug($nameArg);
+            if (design_slug_valid($slug)) {
+                $dnid = design_node_id($slug);
+                if ($dnid !== '') {
+                    $executionDetails[$dnid] = [
                         'toolName' => $normalizedFunctionName,
                         'arguments' => $arguments,
                     ];
@@ -2493,6 +2530,58 @@ function executeBuiltInTool(string $toolName, array $arguments, array $activeToo
 
         return ['matches' => search_session_files($tags, $query, $limit)];
     }
+    if ($toolName === 'list_designs') {
+        return ['designs' => list_designs_meta()];
+    }
+    if ($toolName === 'read_design') {
+        $name = (string) ($arguments['name'] ?? '');
+        $part = isset($arguments['part']) ? strtolower(trim((string) $arguments['part'])) : '';
+        if ($part !== '' && in_array($part, ['md', 'html', 'css', 'js'], true)) {
+            return design_read_part($name, $part);
+        }
+        $all = design_read_all($name);
+        if ($all === null) {
+            return ['error' => 'Design not found'];
+        }
+        $slug = design_normalize_slug($name);
+
+        return array_merge(['name' => $slug], $all);
+    }
+    if ($toolName === 'create_design') {
+        return design_create(
+            (string) ($arguments['name'] ?? ''),
+            isset($arguments['html']) ? (string) $arguments['html'] : null,
+            isset($arguments['css']) ? (string) $arguments['css'] : null,
+            isset($arguments['js']) ? (string) $arguments['js'] : null,
+            isset($arguments['md']) ? (string) $arguments['md'] : null
+        );
+    }
+    if ($toolName === 'update_design_file') {
+        return design_write_part(
+            (string) ($arguments['name'] ?? ''),
+            (string) ($arguments['part'] ?? ''),
+            (string) ($arguments['content'] ?? '')
+        );
+    }
+    if ($toolName === 'delete_design') {
+        return design_delete((string) ($arguments['name'] ?? ''));
+    }
+    if ($toolName === 'display_design') {
+        $name = trim((string) ($arguments['name'] ?? ''));
+        $slug = design_normalize_slug($name);
+        if (!design_slug_valid($slug) || !design_exists($slug)) {
+            return ['error' => 'Design not found', 'name' => $slug];
+        }
+        $title = 'Design: ' . $slug;
+        $url = design_preview_url_path($slug);
+
+        return [
+            'display_web_app' => true,
+            'name' => $slug,
+            'title' => $title,
+            'url' => $url,
+        ];
+    }
     if ($toolName === 'list_sub_agent_files') {
         return ['subAgents' => list_sub_agent_files_meta(false)];
     }
@@ -2963,6 +3052,7 @@ function buildToolUsageInstruction(array $activeTools, ?bool $blockSubAgentDeleg
         "CRITICAL — Tabular output: If display_table is active, use it for any row/column data you want the user to see clearly (SQL/ETL, research comparisons, release lists, benchmarks—not only databases). Pass headers and rows (string cells). Do not use markdown pipe tables for that data; call display_table first, then short prose.\n" .
         "CRITICAL — Charts: If render_chart is active, use it for bar/line/pie (etc.) visuals: pass chart_config as a QuickChart/Chart.js config object, or chart_url as an https image URL. Prefer render_chart over embedding huge QuickChart URLs in markdown.\n" .
         "INTERACTIVE WEB APPS: Dashboard mini-apps live under apps/<slug>/index.html. Use list_web_apps, read_web_app, create_web_app, update_web_app, delete_web_app. To show an app fullscreen for the user, call display_web_app with the app slug (name). Public web search is brave_search—not read_web_app.\n" .
+        "UI DESIGNS: Each design is four files in designs/ with the same base name: .md (design card: title, colors, notes), .html, .css, .js. Use list_designs, read_design, create_design, update_design_file, delete_design. To open a composed preview in the same fullscreen viewer as web apps, call display_design with the design slug (name).\n" .
         "CRITICAL — create_web_app / update_web_app: You MUST actually invoke the tool with the full html string. Never tell the user an app slug exists or that you \"opened\" it until the tool result returns {\"ok\":true,...}. If the result has \"error\", read it, fix (e.g. new slug if already exists, non-empty html), and call the tool again. After a successful create, call display_web_app with that slug so the user sees it. Prefer passing a complete <!DOCTYPE html> document starting at the first character (or after optional BOM/comments); if you send only a body fragment, omit any fake <html> substring at the start of scripts.\n" .
         "JOBS & AUTOMATION: Use job markdown tools and agent_cron / cron-related tools when the user wants repeatable work or schedules; persist intent in jobs/ or cron configuration instead of only describing steps in chat.\n" .
         ($toolList !== '' ? "Currently active tools include: " . $toolList . "\n" : '') .
@@ -3276,6 +3366,30 @@ function lastToolResultDisplayText(string $toolName, array $toolResult): string 
         $t = isset($toolResult['title']) ? (string) $toolResult['title'] : '';
         $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
         return 'Opened web app **' . ($t !== '' ? $t : $n) . '** in the maximized viewer.';
+    }
+    if ($toolName === 'display_design' && !empty($toolResult['display_web_app']) && empty($toolResult['error'])) {
+        $t = isset($toolResult['title']) ? (string) $toolResult['title'] : '';
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        return 'Opened design preview **' . ($t !== '' ? $t : $n) . '** in the maximized viewer.';
+    }
+    if ($toolName === 'create_design' && !empty($toolResult['ok']) && empty($toolResult['error'])) {
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        if ($n !== '') {
+            return 'Created design **' . $n . '** (four files under designs/). It should appear on the graph when the client refreshes.';
+        }
+    }
+    if ($toolName === 'update_design_file' && empty($toolResult['error'])) {
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        $p = isset($toolResult['part']) ? (string) $toolResult['part'] : '';
+        if ($n !== '' && $p !== '') {
+            return 'Updated design file: **' . $n . '** (' . $p . ').';
+        }
+    }
+    if ($toolName === 'delete_design' && !empty($toolResult['deleted']) && empty($toolResult['error'])) {
+        $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
+        if ($n !== '') {
+            return 'Deleted design **' . $n . '** (all four files).';
+        }
     }
     if ($toolName === 'create_web_app' && !empty($toolResult['ok']) && empty($toolResult['error'])) {
         $n = isset($toolResult['name']) ? (string) $toolResult['name'] : '';
