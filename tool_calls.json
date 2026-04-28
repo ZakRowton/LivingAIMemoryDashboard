@@ -339,111 +339,6 @@
             }
         },
         {
-            "name": "etl",
-            "description": "ETL tool for Azure SQL connection",
-            "active": false,
-            "parameters": {
-                "type": "object",
-                "properties": []
-            }
-        },
-        {
-            "name": "etl_payroll_tool",
-            "description": "Execute a SELECT query against the ETL Payroll Azure SQL database and return results as JSON with headers and rows.",
-            "active": false,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "SQL query to execute."
-                    }
-                },
-                "required": [
-                    "query"
-                ]
-            }
-        },
-        {
-            "name": "vba_mcp_list_apis",
-            "description": "List available Vba MCP APIs (static placeholder).",
-            "active": false,
-            "parameters": {
-                "type": "object",
-                "properties": []
-            }
-        },
-        {
-            "name": "vbasoftware_list_apis",
-            "description": "List available APIs from VBASoftware MCP server",
-            "active": false,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filter": {
-                        "type": "string",
-                        "description": "API name filter"
-                    },
-                    "page": {
-                        "type": "integer",
-                        "description": "Page number",
-                        "default": 1
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Number of APIs per page",
-                        "default": 10
-                    }
-                },
-                "required": []
-            }
-        },
-        {
-            "name": "vbasoftware_call_endpoint",
-            "description": "Call a VBASoftware MCP endpoint with given method, path, query and body",
-            "active": false,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "api": {
-                        "type": "string",
-                        "description": "API name, e.g., 'members'"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "Endpoint path, e.g., '\/search'"
-                    },
-                    "method": {
-                        "type": "string",
-                        "enum": [
-                            "GET",
-                            "POST",
-                            "PUT",
-                            "DELETE",
-                            "PATCH"
-                        ],
-                        "description": "HTTP method"
-                    },
-                    "query": {
-                        "type": "object",
-                        "description": "Query parameters as key\/value pairs",
-                        "additionalProperties": {
-                            "type": "string"
-                        }
-                    },
-                    "body": {
-                        "type": "object",
-                        "description": "JSON body for POST\/PUT\/PATCH"
-                    }
-                },
-                "required": [
-                    "api",
-                    "path",
-                    "method"
-                ]
-            }
-        },
-        {
             "name": "generate_image",
             "description": "Generate an image using the Gemini API based on a textual description. Reads Gemini API key and endpoint from memory file gemini_api.md.",
             "active": true,
@@ -527,7 +422,7 @@
             "active": true,
             "parameters": {
                 "type": "object",
-                "properties": {}
+                "properties": []
             }
         }
     ]

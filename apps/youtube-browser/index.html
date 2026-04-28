@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><style id="mg-web-app-viewport">html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;}</style><script id="mg-web-app-resize-hook">(function(){function n(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",n);else n();window.addEventListener("load",function(){setTimeout(n,0);setTimeout(n,50);setTimeout(n,200);setTimeout(n,600);});if(typeof ResizeObserver!=="undefined"){try{new ResizeObserver(function(){n();}).observe(document.documentElement);}catch(e){}}})();</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Browser</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f0f;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            background: #212121;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid #303030;
+        }
+        .header h1 {
+            color: #ff0000;
+            font-size: 18px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .nav-buttons {
+            display: flex;
+            gap: 4px;
+        }
+        .nav-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            color: #aaa;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            transition: background 0.2s;
+        }
+        .nav-btn:hover { background: #333; color: #fff; }
+        .nav-btn:disabled { opacity: 0.3; cursor: default; }
+        .url-bar {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            background: #303030;
+            border-radius: 20px;
+            padding: 6px 16px;
+            max-width: 800px;
+        }
+        .url-bar input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+        }
+        .url-bar input::placeholder { color: #666; }
+        .container {
+            flex: 1;
+            position: relative;
+            background: #fff;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>▶ YouTube</h1>
+        <div class="nav-buttons">
+            <button class="nav-btn" id="backBtn" title="Back">←</button>
+            <button class="nav-btn" id="forwardBtn" title="Forward">→</button>
+            <button class="nav-btn" id="refreshBtn" title="Refresh">⟳</button>
+        </div>
+        <div class="url-bar">
+            <input type="text" id="urlInput" value="https://www.youtube.com" placeholder="Enter URL or search...">
+        </div>
+    </div>
+    <div class="container">
+        <iframe id="browser" src="https://www.youtube.com" allowfullscreen></iframe>
+    </div>
+    <script>
+        const iframe = document.getElementById('browser');
+        const urlInput = document.getElementById('urlInput');
+        const backBtn = document.getElementById('backBtn');
+        const forwardBtn = document.getElementById('forwardBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+
+        function navigate(url) {
+            if (!url.startsWith('http')) {
+                url = 'https://' + url;
+            }
+            iframe.src = url;
+        }
+
+        urlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') navigate(urlInput.value);
+        });
+
+        refreshBtn.addEventListener('click', () => iframe.src = iframe.src);
+        backBtn.addEventListener('click', () => { history.back(); });
+        forwardBtn.addEventListener('click', () => { history.forward(); });
+
+        try {
+            iframe.contentWindow.location.href;
+            urlInput.value = iframe.contentWindow.location.href;
+        } catch (e) {}
+    </script>
+</body>
+</html>

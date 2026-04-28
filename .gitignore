@@ -22,3 +22,12 @@ runtime/chat-status/*
 runtime/chat-history/*
 !runtime/chat-history/.gitkeep
 config/agent_config.json
+# Fish Audio (and similar) — may contain API keys; keep local only
+config/fish_audio_settings.json
+
+# Ephemeral chat/sub-agent runtime (locks, task JSON)
+runtime/chat-lanes/
+runtime/sub-agents/
+
+# Session payloads (user data; not for the repo)
+sessions/*.json

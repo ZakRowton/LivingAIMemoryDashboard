@@ -1,0 +1,8 @@
+/* design */
+html, body { margin: 0; }
+.design-root {
+  font-family: system-ui, sans-serif;
+  padding: 1.25rem;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
