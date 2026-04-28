@@ -430,6 +430,47 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             padding: 0 2px;
         }
         .mg-attach-chip-remove:hover { color: #fecaca; }
+        .mg-attach-chip--subagent {
+            color: #ecfdf3 !important;
+            background: linear-gradient(135deg, rgba(20, 83, 45, 0.65), rgba(4, 120, 75, 0.55)) !important;
+            border: 1px solid rgba(74, 222, 128, 0.55) !important;
+            box-shadow: 0 0 12px rgba(74, 222, 128, 0.22);
+        }
+        .mg-subagent-mention {
+            position: fixed;
+            z-index: 13000;
+            min-width: 200px;
+            max-width: min(360px, calc(100vw - 32px));
+            max-height: 220px;
+            overflow-y: auto;
+            display: none;
+            border-radius: 8px;
+            background: var(--panel-bg, #12161c);
+            border: 1px solid rgba(74, 222, 128, 0.35);
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        }
+        .mg-subagent-mention.is-open { display: block; }
+        .mg-subagent-mention ul {
+            list-style: none;
+            margin: 0;
+            padding: 4px 0;
+        }
+        .mg-subagent-mention li {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            color: var(--gold-light, #e8e4d9);
+        }
+        .mg-subagent-mention li[aria-selected="true"],
+        .mg-subagent-mention li:hover {
+            background: rgba(20, 83, 45, 0.45);
+            color: #d1fae5;
+        }
+        .mg-subagent-mention .mg-sm-hint {
+            padding: 6px 10px 2px;
+            font-size: 0.65rem;
+            color: var(--gold-dim, #a8a29e);
+        }
         .mg-attach-trigger {
             flex-shrink: 0;
             width: 34px;
@@ -2934,6 +2975,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             </div>
             <div class="mg-chat-composer" id="main-chat-composer">
                 <div id="chat-drop-overlay" class="mg-drop-overlay" aria-hidden="true">Drop files to attach</div>
+                <div id="mg-subagent-mention" class="mg-subagent-mention" role="listbox" aria-label="Sub-agents" hidden></div>
                 <div id="chat-attachment-strip" class="mg-attach-strip" aria-live="polite"></div>
                 <div class="input-wrap">
                     <button type="button" class="mg-attach-trigger" id="chat-attach-btn" title="Add attachments" aria-label="Add attachments">＋</button>
@@ -3569,6 +3611,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
     <script src="js/chat-attachments.js"></script>
+    <script src="js/chat-subagent-mention.js"></script>
     <script src="js/chat.js"></script>
     <script src="js/apps_panel.js"></script>
     <script src="js/ui_settings_simple.js"></script>

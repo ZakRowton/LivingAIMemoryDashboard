@@ -3437,6 +3437,86 @@ function memory_graph_clamp_multimodal_user_content(array $parts, int $maxDataUr
     return $out;
 }
 
+/**
+ * Build run_sub_agent_chat arguments from a main MemoryGraph /chat request (user messages may be string or multimodal parts).
+ *
+ * @return array<string, mixed>|array{error:string}
+ */
+function memory_graph_build_sub_agent_arguments_from_main_messages(array $messages, string $chatSessionId): array {
+    if ($messages === []) {
+        return ['error' => 'No messages in request'];
+    }
+    $last = $messages[count($messages) - 1];
+    if (!is_array($last) || (($last['role'] ?? '') !== 'user')) {
+        return ['error' => 'Last message must be a user turn when routing to a sub-agent'];
+    }
+    $content = $last['content'] ?? '';
+    $prompt = '';
+    $userContent = null;
+    if (is_string($content)) {
+        $prompt = $content;
+    } elseif (is_array($content) && memory_graph_is_openai_multimodal_user_content($content)) {
+        $textBits = [];
+        $otherParts = [];
+        foreach (array_values($content) as $p) {
+            if (!is_array($p)) {
+                continue;
+            }
+            if (($p['type'] ?? '') === 'text' && isset($p['text']) && (string) $p['text'] !== '') {
+                $textBits[] = (string) $p['text'];
+            } else {
+                $otherParts[] = $p;
+            }
+        }
+        $prompt = trim(implode("\n", $textBits));
+        if ($otherParts !== []) {
+            $userContent = array_values($otherParts);
+        }
+    } else {
+        $prompt = is_scalar($content) || $content === null
+            ? (string) $content
+            : (string) json_encode($content, JSON_UNESCAPED_UNICODE);
+    }
+    if (trim($prompt) === '' && ($userContent === null || $userContent === [])) {
+        return ['error' => 'Add a text prompt and/or attachment for the sub-agent'];
+    }
+    $prior = array_slice($messages, 0, -1);
+    $filteredPrior = [];
+    foreach ($prior as $m) {
+        if (!is_array($m)) {
+            continue;
+        }
+        $role = (string) ($m['role'] ?? '');
+        if (!in_array($role, ['user', 'assistant'], true)) {
+            continue;
+        }
+        $contentP = $m['content'] ?? '';
+        if (is_array($contentP) && memory_graph_is_openai_multimodal_user_content($contentP)) {
+            $entry = ['role' => $role, 'content' => array_values($contentP)];
+        } elseif (is_string($contentP)) {
+            $entry = ['role' => $role, 'content' => $contentP];
+        } else {
+            $entry = ['role' => $role, 'content' => (string) json_encode($contentP, JSON_UNESCAPED_UNICODE)];
+        }
+        $filteredPrior[] = $entry;
+    }
+    $out = [
+        'chatSessionId' => $chatSessionId,
+        'messages' => $filteredPrior,
+    ];
+    if ($userContent !== null && $userContent !== []) {
+        if (!memory_graph_is_openai_multimodal_user_content($userContent)) {
+            $userContent = [['type' => 'text', 'text' => json_encode($userContent, JSON_UNESCAPED_UNICODE)]];
+        }
+        $out['userContent'] = $userContent;
+    }
+    if (trim($prompt) !== '') {
+        $out['prompt'] = $prompt;
+    }
+
+    return $out;
+}
+
 function normalizeConversation(array $messages, string $systemPrompt, string $providerType): array {
     $conversation = [];
     if ($providerType === 'openai' && $systemPrompt !== '') {
@@ -4193,6 +4273,56 @@ if (strlen($userPreview) > 1200) {
 memory_graph_status_append_activity($status, 'session', 'Chat · ' . $providerKey . ' · ' . $modelId, $userPreview !== '' ? ['last_user_message' => $userPreview] : null);
 writeStatus($requestId, $status);
 
+$memoryGraphMeta = [];
+$targetSubAgentInput = trim((string) ($input['targetSubAgent'] ?? ''));
+$targetSubAgentInput = preg_replace('/\.md$/i', '', $targetSubAgentInput);
+if ($targetSubAgentInput !== '') {
+    $mSub = resolve_sub_agent_meta($targetSubAgentInput);
+    if ($mSub === null) {
+        clearStatusFlags($status);
+        writeStatus($requestId, $status);
+        http_response_code(400);
+        echo json_encode([
+            'error' => 'Sub-agent not found: ' . $targetSubAgentInput,
+            'availableSlugs' => sub_agent_known_slugs_for_errors(),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $subStem = pathinfo((string) ($mSub['name'] ?? $targetSubAgentInput), PATHINFO_FILENAME);
+    $subArg = memory_graph_build_sub_agent_arguments_from_main_messages($messages, $chatSessionIdInput);
+    if (isset($subArg['error'])) {
+        clearStatusFlags($status);
+        writeStatus($requestId, $status);
+        http_response_code(400);
+        echo json_encode(['error' => (string) $subArg['error']], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $subArg['name'] = $subStem;
+    $subRes = memory_graph_execute_sub_agent_completion($providers, $subArg);
+    if (isset($subRes['error'])) {
+        clearStatusFlags($status);
+        clearCurrentExecutionStatus($status, $requestId);
+        $em = $subRes['error'];
+        if (!is_string($em)) {
+            $em = (string) json_encode($subRes['error'], JSON_UNESCAPED_UNICODE);
+        }
+        http_response_code(502);
+        $errPayload = ['error' => $em];
+        if (isset($subRes['availableSlugs']) && is_array($subRes['availableSlugs'])) {
+            $errPayload['availableSlugs'] = $subRes['availableSlugs'];
+        }
+        echo json_encode($errPayload, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $finalContent = (string) ($subRes['response'] ?? '');
+    $lastToolResultText = '';
+    $agentSelfCorrectionCount = 0;
+    $loopCount = 0;
+    $memoryGraphMeta['routed_to_sub_agent'] = $subStem;
+    if (!empty($subRes['subAgent'])) {
+        $memoryGraphMeta['sub_agent_file'] = (string) $subRes['subAgent'];
+    }
+} else {
 $apiRetryCount = 0;
 $apiErrorRetryMax = 5;
 
@@ -4719,6 +4849,7 @@ while (true) {
     $finalContent = $assistantContent;
     break;
 }
+}
 
 if (trim($finalContent) === '' && $lastToolResultText !== '') {
     $finalContent = $lastToolResultText;
@@ -4733,7 +4864,7 @@ if (trim($finalContent) === '') {
     }
 }
 
-$memoryGraphMeta = [];
+$memoryGraphMeta = (isset($memoryGraphMeta) && is_array($memoryGraphMeta)) ? $memoryGraphMeta : [];
 if (!empty($agentSelfCorrectionCount)) {
     $memoryGraphMeta['agent_self_correction_turns'] = $agentSelfCorrectionCount;
 }

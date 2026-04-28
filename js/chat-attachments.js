@@ -190,10 +190,28 @@
 
     function createController(rootEl, stripEl, fileInput, pickBtn, overlayEl) {
         var items = [];
+        var subAgentRef = null;
 
         function render() {
             if (!stripEl) return;
             stripEl.innerHTML = '';
+            if (subAgentRef && subAgentRef.stem) {
+                var subChip = document.createElement('span');
+                subChip.className = 'mg-attach-chip mg-attach-chip--subagent';
+                subChip.setAttribute('data-subagent', subAgentRef.stem);
+                subChip.appendChild(document.createTextNode('Sub-agent: ' + (subAgentRef.label || subAgentRef.stem)));
+                var srm = document.createElement('button');
+                srm.type = 'button';
+                srm.className = 'mg-attach-chip-remove';
+                srm.setAttribute('aria-label', 'Remove sub-agent target');
+                srm.textContent = '×';
+                srm.addEventListener('click', function () {
+                    subAgentRef = null;
+                    render();
+                });
+                subChip.appendChild(srm);
+                stripEl.appendChild(subChip);
+            }
             items.forEach(function (it) {
                 var chip = document.createElement('span');
                 chip.className = 'mg-attach-chip';
@@ -241,6 +259,7 @@
 
         function clear() {
             items = [];
+            subAgentRef = null;
             render();
         }
 
@@ -336,9 +355,31 @@
             });
         }
 
+        function setSubAgentRef(ref) {
+            if (ref && ref.stem) {
+                subAgentRef = { stem: String(ref.stem).replace(/\.md$/i, ''), label: ref.label || ref.stem };
+            } else {
+                subAgentRef = null;
+            }
+            render();
+        }
+
+        function getSubAgentRef() {
+            return subAgentRef;
+        }
+
         render();
 
-        return { addFileList: addFileList, clear: clear, setParts: setPartsFromApi, render: render, getParts: getParts, summaryLine: summaryLine };
+        return {
+            addFileList: addFileList,
+            clear: clear,
+            setParts: setPartsFromApi,
+            render: render,
+            getParts: getParts,
+            summaryLine: summaryLine,
+            setSubAgentRef: setSubAgentRef,
+            getSubAgentRef: getSubAgentRef
+        };
     }
 
     window.__mgMainChatAttachments = null;

@@ -313,14 +313,22 @@
             if (item.parts && item.parts.length) {
                 qlabel += ' [+' + item.parts.length + ' attachment(s)]';
             }
+            if (item.subAgent && item.subAgent.stem) {
+                qlabel = '[→ ' + item.subAgent.stem + '] ' + qlabel;
+            }
             $('<span class="chat-queue-item-text">').text(qlabel).appendTo($item);
             var $actions = $('<div class="chat-queue-item-actions">');
             $('<button type="button" title="Edit">&#9998;</button>').on('click', function () {
                 $input.val(item.text).focus();
-                if (window.__mgMainChatAttachments && typeof window.__mgMainChatAttachments.setParts === 'function') {
-                    window.__mgMainChatAttachments.setParts(item.parts && item.parts.length ? item.parts : []);
-                } else if (window.__mgMainChatAttachments && typeof window.__mgMainChatAttachments.clear === 'function' && (!item.parts || !item.parts.length)) {
-                    window.__mgMainChatAttachments.clear();
+                if (window.__mgMainChatAttachments) {
+                    if (typeof window.__mgMainChatAttachments.setParts === 'function') {
+                        window.__mgMainChatAttachments.setParts(item.parts && item.parts.length ? item.parts : []);
+                    } else if (typeof window.__mgMainChatAttachments.clear === 'function' && (!item.parts || !item.parts.length)) {
+                        window.__mgMainChatAttachments.clear();
+                    }
+                    if (typeof window.__mgMainChatAttachments.setSubAgentRef === 'function') {
+                        window.__mgMainChatAttachments.setSubAgentRef(item.subAgent || null);
+                    }
                 }
                 removeFromQueue(idx);
                 renderQueue();
@@ -342,9 +350,10 @@
         });
     }
 
-    function addToQueue(text, parts) {
+    function addToQueue(text, parts, subRef) {
         var p = Array.isArray(parts) ? parts.slice() : [];
-        promptQueue.push({ text: text != null ? text : '', parts: p, id: Date.now() + '_' + Math.random().toString(36).slice(2) });
+        var s = (subRef && subRef.stem) ? { stem: subRef.stem, label: subRef.label || subRef.stem } : null;
+        promptQueue.push({ text: text != null ? text : '', parts: p, subAgent: s, id: Date.now() + '_' + Math.random().toString(36).slice(2) });
         renderQueue();
         setRequestUi(!!currentRequest);
     }
@@ -367,7 +376,8 @@
         if (next) {
             var nt = next.text != null ? next.text : '';
             var np = next.parts || [];
-            setTimeout(function () { sendMessageInternal(nt, np); }, 100);
+            var sref = next.subAgent && next.subAgent.stem ? next.subAgent : null;
+            setTimeout(function () { sendMessageInternal(nt, np, sref); }, 100);
         }
     }
 
@@ -970,12 +980,16 @@
         }).join(', ');
     }
 
-    function userTurnHistoryLine(text, partsSummary) {
+    function userTurnHistoryLine(text, partsSummary, subAgentStem) {
         var t = (text || '').trim();
+        var out = t;
         if (partsSummary) {
-            return t ? (t + '\n\n[Attached: ' + partsSummary + ']') : ('[Attached: ' + partsSummary + ']');
+            out = t ? (t + '\n\n[Attached: ' + partsSummary + ']') : ('[Attached: ' + partsSummary + ']');
         }
-        return t;
+        if (subAgentStem) {
+            out = '[→ sub-agent: ' + subAgentStem + (out ? ']\n' + out : ']\n');
+        }
+        return out || t;
     }
 
     function buildUserMessageForApi(text, parts) {
@@ -1001,25 +1015,48 @@
     }
 
     function sendMessage() {
-        var text = ($input.val() || '').trim();
         var att = window.__mgMainChatAttachments;
-        var rawParts = (att && typeof att.getParts === 'function') ? att.getParts() : [];
-        var parts = Array.isArray(rawParts) ? rawParts.slice() : [];
-        if (!text && !parts.length) return;
-        $input.val('');
-        if (currentRequest) {
-            addToQueue(text, parts);
-            if (att && typeof att.clear === 'function') {
-                att.clear();
+        var doSend = function () {
+            var text = ($input.val() || '').trim();
+            if (att && typeof att.getSubAgentRef === 'function' && !att.getSubAgentRef() && window.MemoryGraphTryParseSubagentInInput) {
+                var pr = window.MemoryGraphTryParseSubagentInInput();
+                if (pr && pr.stem) {
+                    if (att.setSubAgentRef) {
+                        att.setSubAgentRef({ stem: pr.stem, label: pr.stem });
+                    }
+                    text = pr.text;
+                    $input.val(text);
+                } else {
+                    text = ($input.val() || '').trim();
+                }
             }
-            return;
+            var rawParts = (att && typeof att.getParts === 'function') ? att.getParts() : [];
+            var parts = Array.isArray(rawParts) ? rawParts.slice() : [];
+            var sref = (att && att.getSubAgentRef) ? att.getSubAgentRef() : null;
+            if (!text && !parts.length) return;
+            $input.val('');
+            if (currentRequest) {
+                addToQueue(text, parts, sref);
+                if (att && typeof att.clear === 'function') {
+                    att.clear();
+                }
+                return;
+            }
+            sendMessageInternal(text, parts, sref);
+        };
+        if (window.MemoryGraphMentionListReady) {
+            window.MemoryGraphMentionListReady().then(function () { doSend(); }).catch(function () { doSend(); });
+        } else {
+            doSend();
         }
-        sendMessageInternal(text, parts);
     }
 
-    function sendMessageInternal(text, attachmentParts) {
+    function sendMessageInternal(text, attachmentParts, subAgentFromQueue) {
         wasStopped = false;
         attachmentParts = attachmentParts || [];
+        if (subAgentFromQueue && subAgentFromQueue.stem && window.__mgMainChatAttachments && typeof window.__mgMainChatAttachments.setSubAgentRef === 'function') {
+            window.__mgMainChatAttachments.setSubAgentRef({ stem: subAgentFromQueue.stem, label: subAgentFromQueue.label || subAgentFromQueue.stem });
+        }
         setRequestUi(true);
 
         var settings = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
@@ -1035,7 +1072,10 @@
             }
         });
         var userPayload = buildUserMessageForApi(text, attachmentParts);
-        var historyLine = userTurnHistoryLine(text, summarizePartsForHistory(attachmentParts));
+        var att0 = window.__mgMainChatAttachments;
+        var subForHist = (att0 && att0.getSubAgentRef) ? att0.getSubAgentRef() : null;
+        var subLabel = (subForHist && subForHist.stem) ? subForHist.stem : (subAgentFromQueue && subAgentFromQueue.stem ? subAgentFromQueue.stem : null);
+        var historyLine = userTurnHistoryLine(text, summarizePartsForHistory(attachmentParts), subLabel);
         messages.push({ role: 'user', content: userPayload });
         getTurns().push({ role: 'user', content: historyLine });
         saveSessionBundle();
@@ -1049,20 +1089,26 @@
         if (typeof window.agentState !== 'undefined') window.agentState.setThinking(true);
         startStatusPolling(requestId);
 
+        var gSub = (att0 && att0.getSubAgentRef) ? att0.getSubAgentRef() : null;
+        var saStem = (gSub && gSub.stem) ? gSub.stem : (subAgentFromQueue && subAgentFromQueue.stem) ? subAgentFromQueue.stem : '';
+        var postBody = {
+            requestId: requestId,
+            chatSessionId: chatSessionId,
+            provider: settings.provider || 'mercury',
+            model: settings.model || 'mercury-2',
+            systemPrompt: (settings.systemPrompt != null && settings.systemPrompt !== '') ? settings.systemPrompt : '',
+            temperature: settings.temperature != null ? settings.temperature : 0.7,
+            messages: messages
+        };
+        if (saStem) {
+            postBody.targetSubAgent = saStem;
+        }
         currentRequest = $.ajax({
             url: 'api/chat.php',
             method: 'POST',
             timeout: LONG_CHAT_AJAX_MS,
             contentType: 'application/json',
-            data: JSON.stringify({
-                requestId: requestId,
-                chatSessionId: chatSessionId,
-                provider: settings.provider || 'mercury',
-                model: settings.model || 'mercury-2',
-                systemPrompt: (settings.systemPrompt != null && settings.systemPrompt !== '') ? settings.systemPrompt : '',
-                temperature: settings.temperature != null ? settings.temperature : 0.7,
-                messages: messages
-            })
+            data: JSON.stringify(postBody)
         })
             .done(function (res) {
                 if (wasStopped) return;
@@ -1174,6 +1220,12 @@
     $(function () {
         if (typeof window.MemoryGraphInitChatAttachments === 'function') {
             window.MemoryGraphInitChatAttachments();
+        }
+        if (typeof window.MemoryGraphInitSubagentMention === 'function') {
+            window.MemoryGraphInitSubagentMention();
+        }
+        if (window.MemoryGraphMentionListReady) {
+            window.MemoryGraphMentionListReady().catch(function () {});
         }
         renderSimpleChatThread();
         focusChatInputSoon();
