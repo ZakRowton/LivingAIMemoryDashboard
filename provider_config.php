@@ -29,6 +29,7 @@ function get_builtin_provider_ui(): array {
         'featherless' => ['name' => 'Featherless', 'models' => ['glm47-flash']],
         'alibaba'   => ['name' => 'Alibaba Cloud', 'models' => ['qwen-plus', 'glm-5']],
         'gemini'    => ['name' => 'Gemini (Google)', 'models' => ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-3-flash', 'gemini-3-pro', 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview']],
+        'groq'      => ['name' => 'Groq', 'models' => ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct', 'openai/gpt-oss-120b', 'whisper-large-v3']],
         'openrouter' => ['name' => 'OpenRouter', 'models' => [$openRouterModel]],
         'nvidia_nim' => ['name' => 'NVIDIA NIM', 'models' => [
             $nvidiaNimModel,

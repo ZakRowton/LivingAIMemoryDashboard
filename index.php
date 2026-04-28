@@ -3357,6 +3357,14 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 'gemini-3.1-flash-preview', 'gemini-3.1-pro-preview'
             ]
         },
+        groq: {
+            name: 'Groq',
+            models: [
+                'llama-3.1-8b-instant', 'llama-3.3-70b-versatile',
+                'qwen/qwen3-32b', 'meta-llama/llama-4-scout-17b-16e-instruct',
+                'openai/gpt-oss-120b', 'whisper-large-v3'
+            ]
+        },
         openrouter: { name: 'OpenRouter', models: ['google/gemma-4-31b-it:free'] },
         nvidia_nim: { name: 'NVIDIA NIM', models: [
             'deepseek-ai/deepseek-v4-flash',
