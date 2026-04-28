@@ -12,6 +12,7 @@ if (!$memoryGraphChatLibraryOnly) {
 }
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'env.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'provider_config.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'featherless_api.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'chat_history_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'memory_store.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'instruction_store.php';
@@ -272,7 +273,15 @@ function memory_graph_openai_compatible_post(string $endpoint, string $apiKey, a
         return ['error' => 'Gateway error: ' . $err, 'httpCode' => 502];
     }
     if ($httpCode >= 400) {
-        $errPayload = ['error' => $response ?: 'Provider request failed', 'httpCode' => $httpCode, 'raw' => (string) $response];
+        $rawStr = (string) $response;
+        $friendly = $rawStr !== '' ? $rawStr : 'Provider request failed';
+        if ($providerKeyForHeaders === 'featherless' && function_exists('memory_graph_featherless_user_error_message')) {
+            $friendly = memory_graph_featherless_user_error_message($httpCode, $rawStr);
+        }
+        $errPayload = ['error' => $friendly, 'httpCode' => $httpCode, 'raw' => $rawStr];
+        if ($providerKeyForHeaders === 'featherless') {
+            $errPayload['featherless_http_code'] = $httpCode;
+        }
         if ($collectGroqHeaders && $groqHeaderBlob !== '') {
             $errPayload['groqRateLimits'] = memory_graph_groq_parse_ratelimit_header_blob($groqHeaderBlob);
         }

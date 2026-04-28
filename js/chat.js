@@ -365,6 +365,9 @@
         var chatTurns = getTurns();
         if (!chatTurns.length) {
             $thread.append($('<p class="simple-chat-empty font-serif">').text('Message the assistant below. Your conversation is kept for this browser session.'));
+            if (typeof window.MemoryGraphFeatherlessScheduleTokenize === 'function') {
+                window.MemoryGraphFeatherlessScheduleTokenize();
+            }
             return;
         }
         chatTurns.forEach(function (t) {
@@ -424,6 +427,9 @@
         var el = $thread[0];
         if (el && el.parentElement) {
             el.parentElement.scrollTop = el.parentElement.scrollHeight;
+        }
+        if (typeof window.MemoryGraphFeatherlessScheduleTokenize === 'function') {
+            window.MemoryGraphFeatherlessScheduleTokenize();
         }
     }
 
@@ -1357,6 +1363,9 @@
                         mgAtt.clear();
                     }
                 }
+                if (typeof window.MemoryGraphFeatherlessRefreshMeters === 'function') {
+                    window.MemoryGraphFeatherlessRefreshMeters();
+                }
             });
     }
 
@@ -1374,6 +1383,16 @@
         focusChatInputSoon();
         if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
             window.MemoryGraphGroqQuotaSync();
+        }
+        if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
+            window.MemoryGraphFeatherlessMeterSync();
+        }
+        if ($input.length) {
+            $input.on('input', function () {
+                if (typeof window.MemoryGraphFeatherlessScheduleTokenize === 'function') {
+                    window.MemoryGraphFeatherlessScheduleTokenize();
+                }
+            });
         }
     });
 
@@ -1660,5 +1679,184 @@
             if (res.usage) mgGroqBumpTpdUsed(settings.model, res.usage);
             renderGroqQuotaBar({ rateLimits: res.groq_rate_limits });
         }
+    };
+
+    var featherlessConcurrencyTimer = null;
+    var featherlessTokenizeTimer = null;
+    var featherlessLastConc = null;
+    var featherlessLastToken = null;
+    var featherlessLastTokenErr = null;
+
+    function featherlessIsActive() {
+        var s = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        return s.provider === 'featherless';
+    }
+
+    function featherlessFlattenContent(c) {
+        if (typeof c === 'string') return c;
+        if (!Array.isArray(c)) return '';
+        var parts = [];
+        c.forEach(function (p) {
+            if (!p || typeof p !== 'object') return;
+            if (p.type === 'text' && p.text) parts.push(String(p.text));
+        });
+        return parts.join(' ');
+    }
+
+    function buildFeatherlessTokenizeText() {
+        var chunks = [];
+        getTurns().forEach(function (t) {
+            if (!t || (t.role !== 'user' && t.role !== 'assistant')) return;
+            var body = featherlessFlattenContent(t.content);
+            if (body) chunks.push(String(t.role).toUpperCase() + ': ' + body);
+        });
+        if ($input.length) {
+            var draft = String($input.val() || '').trim();
+            if (draft) chunks.push('USER (draft): ' + draft);
+        }
+        return chunks.join('\n\n');
+    }
+
+    function stopFeatherlessMeter() {
+        if (featherlessConcurrencyTimer) {
+            clearInterval(featherlessConcurrencyTimer);
+            featherlessConcurrencyTimer = null;
+        }
+        if (featherlessTokenizeTimer) {
+            clearTimeout(featherlessTokenizeTimer);
+            featherlessTokenizeTimer = null;
+        }
+    }
+
+    function renderFeatherlessMeterRow() {
+        var row = document.getElementById('mg-featherless-meter-row');
+        if (!row) return;
+        if (!featherlessIsActive()) {
+            row.setAttribute('hidden', '');
+            row.innerHTML = '';
+            return;
+        }
+        row.removeAttribute('hidden');
+        var s = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        var model = s.model || 'glm47-flash';
+        var html = '<div class="mg-groq-quota-title">Featherless · ' + escapeHtml(model) + '</div>';
+        if (featherlessLastTokenErr) {
+            html += '<div class="mg-featherless-line mg-featherless-line--err">' + escapeHtml(featherlessLastTokenErr) + '</div>';
+        } else if (featherlessLastToken != null) {
+            html += '<div class="mg-featherless-line">Prompt tokens (model tokenizer): <strong>' + featherlessLastToken + '</strong></div>';
+            html += '<div class="mg-featherless-line mg-featherless-line--muted">Counts thread + current draft via /v1/tokenize.</div>';
+        } else {
+            html += '<div class="mg-featherless-line mg-featherless-line--muted">Prompt tokens: …</div>';
+        }
+        if (featherlessLastConc && featherlessLastConc.error) {
+            html += '<div class="mg-featherless-line mg-featherless-line--err">' + escapeHtml(featherlessLastConc.error) + '</div>';
+        } else if (featherlessLastConc) {
+            var lim = featherlessLastConc.limit;
+            var used = featherlessLastConc.used_cost != null ? featherlessLastConc.used_cost : 0;
+            var rc = featherlessLastConc.request_count != null ? featherlessLastConc.request_count : 0;
+            var limStr = lim == null ? '∞' : String(lim);
+            html += '<div class="mg-featherless-line">Concurrency cost: <strong>' + used + '</strong> / <strong>' + limStr + '</strong> · In flight: <strong>' + rc + '</strong></div>';
+            var reqs = featherlessLastConc.requests;
+            if (Array.isArray(reqs) && reqs.length) {
+                var bits = reqs.slice(0, 3).map(function (r) {
+                    if (!r || typeof r !== 'object') return '';
+                    var m = r.model ? String(r.model) : '?';
+                    var c = r.cost != null ? r.cost : '';
+                    var d = r.duration_ms != null ? r.duration_ms : '';
+                    return escapeHtml(m) + (c !== '' ? ' (cost ' + c + ')' : '') + (d !== '' ? ' · ' + d + ' ms' : '');
+                }).filter(Boolean);
+                if (bits.length) {
+                    html += '<div class="mg-featherless-line mg-featherless-line--muted">' + bits.join(' · ') + '</div>';
+                }
+            }
+        } else {
+            html += '<div class="mg-featherless-line mg-featherless-line--muted">Concurrency: …</div>';
+        }
+        row.innerHTML = html;
+    }
+
+    function fetchFeatherlessConcurrency() {
+        if (!featherlessIsActive()) return;
+        $.ajax({
+            url: 'api/featherless_meter.php?action=concurrency',
+            method: 'GET',
+            dataType: 'json',
+            cache: false
+        }).done(function (data) {
+            if (!data || !data.ok) {
+                featherlessLastConc = { error: (data && data.error) ? String(data.error) : 'Concurrency unavailable' };
+            } else {
+                featherlessLastConc = {
+                    limit: data.limit,
+                    used_cost: data.used_cost,
+                    request_count: data.request_count,
+                    requests: data.requests || []
+                };
+            }
+            renderFeatherlessMeterRow();
+        }).fail(function (xhr) {
+            var m = (xhr.responseJSON && xhr.responseJSON.error) ? String(xhr.responseJSON.error) : (xhr.statusText || 'Concurrency request failed');
+            featherlessLastConc = { error: m };
+            renderFeatherlessMeterRow();
+        });
+    }
+
+    function runFeatherlessTokenize() {
+        if (!featherlessIsActive()) return;
+        var s = (typeof window.getAgentSettings === 'function' && window.getAgentSettings()) || {};
+        var model = s.model || 'glm47-flash';
+        var text = buildFeatherlessTokenizeText();
+        featherlessLastTokenErr = null;
+        featherlessLastToken = null;
+        renderFeatherlessMeterRow();
+        $.ajax({
+            url: 'api/featherless_meter.php',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ action: 'tokenize', model: model, text: text }),
+            dataType: 'json',
+            cache: false
+        }).done(function (data) {
+            if (data && data.ok && data.token_count != null) {
+                featherlessLastToken = data.token_count;
+            } else {
+                featherlessLastTokenErr = (data && data.error) ? String(data.error) : 'Tokenize failed';
+            }
+            renderFeatherlessMeterRow();
+        }).fail(function (xhr) {
+            var m = (xhr.responseJSON && xhr.responseJSON.error) ? String(xhr.responseJSON.error) : (xhr.statusText || 'Tokenize failed');
+            featherlessLastTokenErr = m;
+            renderFeatherlessMeterRow();
+        });
+    }
+
+    window.MemoryGraphFeatherlessScheduleTokenize = function () {
+        if (!featherlessIsActive()) return;
+        if (featherlessTokenizeTimer) clearTimeout(featherlessTokenizeTimer);
+        featherlessTokenizeTimer = setTimeout(function () {
+            featherlessTokenizeTimer = null;
+            runFeatherlessTokenize();
+        }, 450);
+    };
+
+    window.MemoryGraphFeatherlessMeterSync = function () {
+        stopFeatherlessMeter();
+        featherlessLastConc = null;
+        featherlessLastToken = null;
+        featherlessLastTokenErr = null;
+        if (!featherlessIsActive()) {
+            renderFeatherlessMeterRow();
+            return;
+        }
+        renderFeatherlessMeterRow();
+        fetchFeatherlessConcurrency();
+        featherlessConcurrencyTimer = setInterval(fetchFeatherlessConcurrency, 2000);
+        window.MemoryGraphFeatherlessScheduleTokenize();
+    };
+
+    window.MemoryGraphFeatherlessRefreshMeters = function () {
+        if (!featherlessIsActive()) return;
+        fetchFeatherlessConcurrency();
+        window.MemoryGraphFeatherlessScheduleTokenize();
     };
 })();

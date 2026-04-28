@@ -440,6 +440,34 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
         }
         [data-theme="light"] .mg-groq-dial-track { stroke: rgba(15, 23, 42, 0.08); }
         [data-theme="light"] .mg-groq-dial-sub { color: rgba(15, 23, 42, 0.5); }
+        .mg-featherless-meter-below {
+            border-top: 1px solid rgba(214, 219, 226, 0.12);
+            margin-top: 4px;
+            padding-top: 6px;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 4px;
+        }
+        .mg-featherless-meter-below .mg-featherless-line {
+            font-family: 'Playfair Display', Georgia, serif;
+            font-size: 0.72rem;
+            color: var(--gold-light, #f5e6c8);
+            line-height: 1.35;
+        }
+        .mg-featherless-meter-below .mg-featherless-line--muted {
+            font-size: 0.65rem;
+            color: rgba(214, 219, 226, 0.55);
+        }
+        .mg-featherless-meter-below .mg-featherless-line--err {
+            color: #fca5a5;
+            font-size: 0.68rem;
+        }
+        [data-theme="light"] .mg-featherless-meter-below {
+            border-top-color: rgba(15, 23, 42, 0.08);
+        }
+        [data-theme="light"] .mg-featherless-meter-below .mg-featherless-line--muted {
+            color: rgba(15, 23, 42, 0.5);
+        }
         .mg-drop-overlay {
             display: none;
             position: absolute;
@@ -3202,6 +3230,7 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                     <button type="button" class="btn-send" id="chat-send">Send</button>
                     <button type="button" class="btn-send btn-stop" id="chat-stop">Stop</button>
                 </div>
+                <div id="mg-featherless-meter-row" class="mg-groq-quota mg-featherless-meter-below" hidden aria-live="polite"></div>
             </div>
         </div>
     </div>
@@ -3779,6 +3808,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
             if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
                 window.MemoryGraphGroqQuotaSync();
             }
+            if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
+                window.MemoryGraphFeatherlessMeterSync();
+            }
         }
         window.applyAgentConfig = applyAgentConfig;
 
@@ -3835,6 +3867,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
                     window.MemoryGraphGroqQuotaSync();
                 }
+                if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
+                    window.MemoryGraphFeatherlessMeterSync();
+                }
             });
         }
         if (modelSelect) {
@@ -3847,6 +3882,9 @@ if ($mgCronBt !== null && $mgCronBt !== '') {
                 }
                 if (typeof window.MemoryGraphGroqQuotaSync === 'function') {
                     window.MemoryGraphGroqQuotaSync();
+                }
+                if (typeof window.MemoryGraphFeatherlessMeterSync === 'function') {
+                    window.MemoryGraphFeatherlessMeterSync();
                 }
             });
         }
